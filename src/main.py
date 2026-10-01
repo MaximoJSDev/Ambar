@@ -4,38 +4,45 @@ import re
 def main(page: ft.Page):
     page.title = "Proyecto Ambar - Sistema Integral de Gestión Escolar"
     print(ft.Colors)
+    patron_email = r"^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$"
 
     # =====================================================================
     # 1. CONTROLES Y FUNCIONES DE LOGIN (Ruta: "/")
     # =====================================================================
-    correo_input = ft.TextField(label="Ingresa correo electrónico", width=500)
+    correo_input = ft.TextField(label="Ingresa correo electrónico", hint_text="hola", width=500)
     password_input = ft.TextField(label="Ingresa Contraseña", password=True, can_reveal_password=True, width=500)
-    mensaje_salida = ft.Text(value="", color=ft.Colors.RED)
+    olvide_contraseña = ft.Text(value="Olvide contraseña", width=500, text_align=ft.TextAlign.LEFT ,color=ft.Colors.BLUE_600, style=ft.TextStyle(decoration=ft.TextDecoration.UNDERLINE, decoration_color="#1A61E6"))
 
     def autenticar(e):
-        correo = correo_input.value
-        contrasena = password_input.value
-        patron_email = r"^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$"
+        correo = correo_input.value.strip()
+        contrasena = password_input.value.strip()
+        # Limpiar campos
+        correo_input.error = None
+        password_input.error = None
         
-        # if not re.match(patron_email, correo):
-        #     mensaje_salida.value = "Formato de correo electrónico inválido"
-        #     page.update()
-        #     return
-
-        #if correo == "secretaria@ambar.edu" and contrasena == "admin123":
-        if correo == "" and contrasena == "":
-            # Limpiar campos
-            correo_input.value = ""
-            password_input.value = ""
-            mensaje_salida.value = ""
-            
-            # Cambiar la ruta a la sección de secretaria
-            page.route = "/secretaria"
-            # SOLUCIÓN: Llamamos manualmente a route_change para procesar la nueva vista
-            route_change()
-        else:
-            mensaje_salida.value = "Correo electrónico o contraseña incorrecta"
+        if not re.match(patron_email, correo):
+            correo_input.error = "Formato de correo electrónico inválido"
             page.update()
+            return
+
+        if contrasena == "":
+            password_input.error = "Contraseña obligatoria"
+            page.update()
+            return
+        
+        if correo != "secretaria@ambar.edu":
+            correo_input.error = "Ingrese un correo electronico valido"
+            page.update()
+            return
+        if contrasena != "admin123":
+            password_input.error = "Contraseña incorrecta"
+            page.update()
+            return
+        
+
+        
+        page.route = "/secretaria"
+        route_change()
 
 
     vista_login = ft.View(
@@ -55,11 +62,11 @@ def main(page: ft.Page):
                                 content=password_input
                             ),
                             ft.Container(
-                                margin=ft.Margin.only(top=10),
-                                content=mensaje_salida
+                                margin=ft.Margin.only(top=5),
+                                content=olvide_contraseña,
                             ),
                             ft.Container(
-                                margin=ft.Margin.only(top=-10),
+                                margin=ft.Margin.only(top=10),
                                 content=ft.Button(
                                     bgcolor="#1A61E6",
                                     icon=ft.Icons.ADD_HOME_OUTLINED,
@@ -140,7 +147,90 @@ def main(page: ft.Page):
             vertical_alignment=ft.MainAxisAlignment.START,
             horizontal_alignment=ft.CrossAxisAlignment.CENTER
         )
+    dpFechaNacimiento = ft.DatePicker()
+
+    #TextFields
+    txtFicha = ft.TextField(label="Número de ficha", width=500)
+    txtApellidoPaterno = ft.TextField(label="Apellido Paterno", width=500)
+    txtApellidoMaterno = ft.TextField(label="Apellido Materno", width=500)
+    txtNombre = ft.TextField(label="Nombre", width=500)
+    # txtFechaNacimiento = ft.Container(
+    #     content=ft.Text("Fecha de nacimieno"),
+    #     border=ft.Border(bottom=ft.BorderSide(1, ft.Colors.WHITE)),
+    #     #on_click=dpFechaNacimiento
+    # )
+    txtFechaNacimiento = ft.TextField(
+        label="Date",                            # Etiqueta pequeña superior
+        value="Fecha de Nacimiento",             # Valor inicial o formateado
+        read_only=True,                          # Evita que el usuario escriba directamente
+        border=ft.OutlineInputBorder(),          # Aplica únicamente la línea inferior
+        # icon=ft.Icons.CALENDAR_TODAY_OUTLINED,   # Icono del calendario a la izquierda
+        prefix_icon=ft.Icons.CALENDAR_TODAY_OUTLINED,   # Icono del calendario a la izquierda
+        suffix_icon=ft.Icons.ARROW_DROP_DOWN,    # Flecha hacia abajo a la derecha
+        width=500,                               # Ancho del control
+        label_style=ft.TextStyle(color=ft.Colors.GREY_600),
+        on_click=lambda _: page.show_dialog(dpFechaNacimiento),
+    )
+
+
+    txtCurp = ft.TextField(label="Curp", width=500)
+    txtIne = ft.TextField(label="INE", width=500)
+    dropGenero = ft.Dropdown(label="Genero", width=500, options=[
+        ft.DropdownOption(key="masculino", text="Masculino"),
+        ft.DropdownOption(key="femenino", text="Femenino"),
+        ft.DropdownOption(key="no_binario", text="No binario")
+    ])
+
+    txtCp = ft.TextField(label="CP", width=500)
+    txtColonia = ft.TextField(label="Colonia", width=500)
+    txtCalle = ft.TextField(label="Calle", width=500)
     
+    txtCelular = ft.TextField(label="Número celular", width=500)
+    txtCorreo = ft.TextField(label="Correo electrónico personal", width=500)
+    txtCorreoSecundario = ft.TextField(label="Correo electrónico secundario", width=500)
+    txtNombrePreparatorio = ft.TextField(label="Nombre de la Preparatoria", width=500)
+    txtPromedioPreparatoria = ft.TextField(label="Promedio general de la preparatoria", width=500)
+
+    def ValidarAltas():
+        # Limpiar campos
+        campos = [
+            txtFicha, txtApellidoPaterno, txtApellidoMaterno, txtNombre, 
+            txtFechaNacimiento, txtCurp, txtIne, txtCp, dropGenero,
+            txtColonia, txtCalle, txtCelular, txtCorreo, txtCorreoSecundario, 
+            txtNombrePreparatorio, txtPromedioPreparatoria
+        ]
+        for campo in campos:
+            campo.error = None
+            # Validacion de Campos vacios
+            if campo.value == "":
+                campo.error = "Campo obligatoria"
+                # page.update()
+                # return
+            page.update()
+
+        # Validacion de longitud de nombre completo
+        if (len(txtNombre.value.strip()) < 5) or (len(txtNombre.value.strip()) > 20):
+            txtNombre.error = "Longitud de Nombre invalida"
+        if (len(txtApellidoPaterno.value.strip()) <  5) or (len(txtApellidoPaterno.value.strip()) > 20):
+            txtApellidoPaterno.error = "Longitud de Apellido Paterno invalida"
+        if (len(txtApellidoMaterno.value.strip()) < 5) or (len(txtApellidoMaterno.value.strip()) > 20):
+            txtApellidoMaterno.error = "Longitud de Apellido Materno invalida"
+
+        # Validacion de formato de correo
+        if not re.match(patron_email, txtCorreo.value.strip()):
+            correo_input.error = "Formato de correo electrónico inválido"
+            page.update()
+            return
+        if not re.match(patron_email, txtCorreoSecundario.value.strip()):
+            correo_input.error = "Formato de correo electrónico inválido"
+            page.update()
+            return
+
+        
+        page.route = "/detalles_alumno"
+        route_change()
+    
+
 
     vista_altas = ft.View(
         route="/altas",
@@ -169,31 +259,38 @@ def main(page: ft.Page):
                                 content=ft.Column(
                                     controls=[
                                         ft.Text("Ingrese los Datos para incribir un nuevo alumno", size=32, weight=ft.FontWeight.BOLD),
-                                        ft.Divider(height=20, color=ft.Colors.TRANSPARENT),
-                                        ft.TextField(label="Número de ficha", width=500),
-                                        ft.TextField(label="Apellido Paterno", width=500),
-                                        ft.TextField(label="Apellido Materno", width=500),
-                                        ft.TextField(label="Nombre", width=500),
+                                        ft.Divider(height=20, color=ft.Colors.TRANSPARENT), # Espacio despues del titulo
+                                        txtFicha,
+                                        txtNombre,
+                                        txtApellidoPaterno,
+                                        txtApellidoMaterno,
                                         ft.Divider(height=20, color=ft.Colors.TRANSPARENT), # Espacio despues del Nombre 
-                                        ft.TextField(label="Fecha de nacimiento", width=500),
-                                        ft.TextField(label="Curp", width=500),
-                                        ft.TextField(label="INE", width=500),
+                                        txtFechaNacimiento,
+                                        txtCurp,
+                                        txtIne,
                                         ft.Divider(height=20, color=ft.Colors.TRANSPARENT), # Espacio despues del INE 
-                                        ft.Dropdown(label="Genero", width=500, options=[
-                                                ft.DropdownOption(key="masculino", text="Masculino"),
-                                                ft.DropdownOption(key="femenino", text="Femenino"),
-                                                ft.DropdownOption(key="no_binario", text="No binario"),
-                                        ]),
-                                        ft.TextField(label="CP", width=500),
-                                        ft.TextField(label="Colonia", width=500),
-                                        ft.TextField(label="Calle", width=500),
-                                        ft.TextField(label="Número de Calle", width=500),
+                                        dropGenero,
+                                        txtCp,
+                                        txtColonia,
+                                        txtCalle,
                                         ft.Divider(height=20, color=ft.Colors.TRANSPARENT), # Espacio despues del Domicilio 
-                                        ft.TextField(label="Número celular", width=500),
-                                        ft.TextField(label="Correo electrónico personal", width=500),
-                                        ft.TextField(label="Correo electrónico secundario", width=500),
-                                        ft.TextField(label="Nombre de la Preparatoria", width=500),
-                                        ft.TextField(label="Promedio general de la preparatoria", width=500),
+                                        txtCelular,
+                                        txtCorreo,
+                                        txtCorreoSecundario,
+                                        txtNombrePreparatorio,
+                                        txtPromedioPreparatoria,
+                                        ft.Container( # Boton enviar
+                                            margin=ft.Margin.only(top=30),
+                                            content=ft.Button(
+                                                bgcolor="#1A61E6",
+                                                icon=ft.Icons.ADD_HOME_OUTLINED,
+                                                content=ft.Container(
+                                                    padding=ft.Padding.only(top=8, bottom=10, right=14, left=10),
+                                                    content= ft.Text(value="Inscribir Alumno al sistema", size=16),
+                                                ),
+                                                on_click=ValidarAltas
+                                            )
+                                        ),
                                     ]
                                 )
                             )
