@@ -1,69 +1,89 @@
-# Frontend app
+# Proyecto Ambar - Sistema Integral de Gestión Escolar
 
-## Run the app
+Bienvenido al repositorio del **Proyecto Ambar**, un sistema de software diseñado para la gestión centralizada de los servicios escolares de una institución universitaria. Este sistema facilita la administración de inscripciones, reinscripciones, control académico, actividades docentes y generación de estadísticas institucionales.
 
-### uv
+## Arquitectura del Proyecto
 
-Run as a desktop app:
+El ecosistema del proyecto está construido 100% en Python, dividido en dos capas principales:
+*   **Frontend (Cliente de Escritorio):** Construido con **Flet**, proporcionando una interfaz gráfica reactiva y moderna.
+*   **Backend (Servidor/API):** Construido con **FastAPI**, encargado de la lógica de negocio, reglas de seguridad y conexión a la base de datos de manera asíncrona.
 
+---
+
+## 🛠 Requisitos Previos
+
+Antes de comenzar, asegúrate de tener instalado lo siguiente en tu equipo:
+*   [Python 3.10 o superior](https://www.python.org/downloads/)
+*   [Git](https://git-scm.com/)
+
+---
+
+## ⚙️ Instalación y Configuración del Entorno
+
+Sigue estos pasos para configurar el proyecto en tu entorno local. Es altamente recomendable utilizar un entorno virtual para no tener conflictos con otras librerías de Python.
+
+**1. Clonar el repositorio**
 ```bash
-uv run flet run
+git clone <URL_DEL_REPOSITORIO>
+cd proyecto-ambar
 ```
 
-Run as a web app:
-
+**2. Crear un entorno virtual (Virtual Environment)**
 ```bash
-uv run flet run --web
+# En Windows:
+python -m venv venv
+
+# En macOS/Linux:
+python3 -m venv venv
 ```
 
-For more details on running the app, refer to the [Getting Started Guide](https://flet.dev/docs/).
-
-## Build the app
-
-### Android
-
+**3. Activar el entorno virtual**
 ```bash
-flet build apk -v
+# En Windows:
+venv\Scripts\activate
+
+# En macOS/Linux:
+source venv/bin/activate
 ```
 
-For more details on building and signing `.apk` or `.aab`, refer to the [Android Packaging Guide](https://flet.dev/docs/publish/android/).
-
-### iOS
-
+**4. Instalar las dependencias**
+Una vez activado el entorno, instala los frameworks necesarios (Flet, FastAPI y Uvicorn para el servidor):
 ```bash
-flet build ipa -v
+pip install -r requirements.txt
 ```
+*(Nota: Si más adelante se agregan nuevas dependencias, utiliza el comando `pip freeze > requirements.txt` para actualizar el archivo `requirements.txt`).*
 
-For more details on building and signing `.ipa`, refer to the [iOS Packaging Guide](https://flet.dev/docs/publish/ios/).
+---
 
-### macOS
+## 🚀 Ejecución del Proyecto
 
+### Ejecutar el Frontend (Cliente Flet)
+Abre otra terminal, activa el entorno virtual y ejecuta el archivo principal de la interfaz:
 ```bash
-flet build macos -v
+# Ejecuta el archivo principal de la interfaz (por ejemplo, main.py)
+flet run -d
 ```
+*Esto abrirá la ventana de la aplicación de escritorio nativa.*
 
-For more details on building macOS package, refer to the [macOS Packaging Guide](https://flet.dev/docs/publish/macos/).
+---
 
-### Linux
+## 🗂 Estructura Recomendada del Proyecto
 
-```bash
-flet build linux -v
+Para mantener el orden a medida que el sistema crezca, se sugiere la siguiente estructura de carpetas:
+
+```text
+proyecto-ambar/
+│
+├── frontend/src                 # Todo el código de Flet (Cliente)
+│   ├── main.py               # Punto de entrada de la UI
+│   ├── vistas/               # Archivos separados para vista_login, vista_altas, etc.
+│   └── componentes/          # Botones personalizados, modales, tarjetas, etc.
+│
+├── backend/                  # Todo el código de FastAPI (Servidor)
+│   ├── main_api.py           # Punto de entrada de la API
+│   ├── rutas/                # Endpoints (login, alumnos, maestros)
+│   ├── modelos/              # Modelos de base de datos y esquemas Pydantic
+│   └── base_datos/           # Configuración de conexión a la BD
+│
+└── README.md                 # Este archivo
 ```
-
-For more details on building Linux package, refer to the [Linux Packaging Guide](https://flet.dev/docs/publish/linux/).
-
-### Windows
-
-```bash
-flet build windows -v
-```
-
-For more details on building Windows package, refer to the [Windows Packaging Guide](https://flet.dev/docs/publish/windows/).
-
-### Web
-
-```bash
-flet build web -v
-```
-
-For more details on building Web app, refer to the [Web Packaging Guide](https://flet.dev/docs/publish/web/).
