@@ -13,10 +13,10 @@ import sys
 
 from sqlalchemy import text
 
-from backend.config import settings
-from backend.constantes import ROL_SECRETARIA, SEMESTRE_INGRESO, TURNOS
-from backend.db import engine
-from backend.seguridad import hashear
+from config import settings
+from constantes import ROL_SECRETARIA, SEMESTRE_INGRESO, TURNOS
+from db import engine
+from seguridad import hashear
 
 ROLES = [ROL_SECRETARIA, "Docente", "Alumno"]
 MATERIAS_PRIMER_SEMESTRE = [        # EJEMPLO

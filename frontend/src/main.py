@@ -4,7 +4,7 @@ import time
 
 import flet as ft
 
-import validators as v
+from ambar_common import validators as v
 from api_client import ApiClient, ApiError
 
 # =====================================================================

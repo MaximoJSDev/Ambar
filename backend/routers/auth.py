@@ -5,20 +5,19 @@ import threading
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import text
 
-import validators as v
-
 from .. import seguridad
 from ..config import settings
 from ..db import engine
 from ..deps import usuario_actual
 from ..esquemas import LoginIn, LoginOut, UsuarioOut
+from ..login_guard import LoginGuard
 from ..usuarios import SELECT_USUARIO
 
 router = APIRouter(prefix="/auth", tags=["Sesión"])
 
 # Estado en memoria: con varios procesos (uvicorn --workers N) cada uno llevaría su
 # propio contador; para un despliegue de un solo proceso es suficiente.
-guard = v.LoginGuard(settings.login_max_intentos, settings.login_segundos_bloqueo)
+guard = LoginGuard(settings.login_max_intentos, settings.login_segundos_bloqueo)
 _candado = threading.Lock()     # LoginGuard no es seguro entre hilos
 
 

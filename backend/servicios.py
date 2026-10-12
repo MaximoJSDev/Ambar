@@ -18,9 +18,9 @@ from pathlib import Path
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError, IntegrityError
 
-import storage
-import validators as v
+from ambar_common import validators as v
 
+from . import storage
 from .config import settings
 from .constantes import DOCUMENTOS, SEMESTRE_INGRESO, TURNOS
 from .db import engine

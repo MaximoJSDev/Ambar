@@ -1,0 +1,5 @@
+Metadata-Version: 2.4
+Name: ambar-common
+Version: 0.1.0
+Summary: Shared validation rules for the Ambar SIGE client and server
+Requires-Python: >=3.10

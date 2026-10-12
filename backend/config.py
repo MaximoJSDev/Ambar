@@ -15,7 +15,11 @@ def periodo_para(hoy: datetime.date | None = None) -> str:
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=Path(__file__).resolve().parent / ".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
 
     # Base de datos (MySQL 8.0.19+ / MariaDB 10.2+; se necesitan CHECK y triggers)
     db_host: str = "127.0.0.1"

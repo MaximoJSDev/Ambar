@@ -10,7 +10,7 @@ El ecosistema del proyecto está construido 100% en Python, dividido en dos capa
 
 ---
 
-## 🛠 Requisitos Previos
+## Requisitos Previos
 
 Antes de comenzar, asegúrate de tener instalado lo siguiente en tu equipo:
 *   [Python 3.10 o superior](https://www.python.org/downloads/)
@@ -18,7 +18,7 @@ Antes de comenzar, asegúrate de tener instalado lo siguiente en tu equipo:
 
 ---
 
-## ⚙️ Instalación y Configuración del Entorno
+## Instalación y Configuración del Entorno
 
 Sigue estos pasos para configurar el proyecto en tu entorno local. Es altamente recomendable utilizar un entorno virtual para no tener conflictos con otras librerías de Python.
 
@@ -47,27 +47,42 @@ source venv/bin/activate
 ```
 
 **4. Instalar las dependencias**
-Una vez activado el entorno, instala los frameworks necesarios (Flet, FastAPI y Uvicorn para el servidor):
+Instala las dependencias de cada aplicación desde su carpeta para que también se resuelva el paquete compartido local:
 ```bash
+cd backend
+pip install -r requirements.txt
+
+cd ../frontend
 pip install -r requirements.txt
 ```
-*(Nota: Si más adelante se agregan nuevas dependencias, utiliza el comando `pip freeze > requirements.txt` para actualizar el archivo `requirements.txt`).*
 
 ---
 
-## 🚀 Ejecución del Proyecto
+## Ejecución del Proyecto
+
+### Ejecutar el Backend (FastAPI)
+Desde la raíz del repositorio y con el entorno virtual del backend activado:
+```bash
+uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
+```
+Si la terminal ya está dentro de `backend`, indica la raíz del repositorio como directorio de la aplicación:
+```bash
+uvicorn backend.main:app --app-dir .. --host 0.0.0.0 --port 8000 --reload
+```
+No uses `uvicorn main:app` desde `backend`: los imports relativos (`from .config ...`) requieren que Python cargue `main` como parte del paquete `backend`.
 
 ### Ejecutar el Frontend (Cliente Flet)
 Abre otra terminal, activa el entorno virtual y ejecuta el archivo principal de la interfaz:
 ```bash
 # Ejecuta el archivo principal de la interfaz (por ejemplo, main.py)
+cd frontend
 flet run -d
 ```
 *Esto abrirá la ventana de la aplicación de escritorio nativa.*
 
 ---
 
-## 🗂 Estructura Recomendada del Proyecto
+## Estructura Recomendada del Proyecto
 
 Para mantener el orden a medida que el sistema crezca, se sugiere la siguiente estructura de carpetas:
 

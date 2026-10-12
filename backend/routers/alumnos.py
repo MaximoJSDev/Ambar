@@ -6,7 +6,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from pydantic import ValidationError
 
-import validators as v
+from ambar_common import validators as v
 
 from .. import servicios
 from ..config import settings
