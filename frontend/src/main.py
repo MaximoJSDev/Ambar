@@ -1,11 +1,11 @@
 import asyncio
 import datetime
-from pathlib import Path
+import time
 
 import flet as ft
 
-import storage
 import validators as v
+from api_client import ApiClient, ApiError
 
 # =====================================================================
 # CONSTANTES DE DISEÑO
@@ -21,18 +21,14 @@ SOFT_BLUE = "#E8F0FB"
 OK_BG, OK_FG = "#DFF1E8", "#13734A"
 WARN_BG, WARN_FG = "#FFEFD2", "#9A5B00"
 
-# Datos de ejemplo (sustituir por base de datos)
-CREDENCIALES = {
-    "secretaria@ambar.edu": {"password": "admin123", "nombre": "María López", "rol": "Secretaría"},
-}
-guard = v.LoginGuard(max_intentos=3, segundos_bloqueo=300)
+# Cliente del backend FastAPI (URL en la variable de entorno SIGE_API_URL).
+# El bloqueo por intentos fallidos, los cupos y los PDF ahora viven en el servidor.
+api = ApiClient()
 
 
 # --- Reglas de Altas (documento de contexto, Algoritmo 3) -------------------
-PLANTEL = 1                                  # número de plantel: Campus Acapulco
-CUPO_POR_GRUPO = 25                          # 2 grupos de 25 alumnos de primer semestre
 TURNOS = ("Matutino", "Vespertino")          # un grupo por turno
-DOCUMENTOS = [
+DOCUMENTOS = [                               # deben coincidir con api_client.CAMPO_DOCUMENTO
     "Acta de nacimiento",
     "CURP",
     "Comprobante de domicilio",
@@ -41,82 +37,7 @@ DOCUMENTOS = [
     "Certificado médico",
 ]
 REQUIERE_TODOS_LOS_DOCUMENTOS = True         # False: permite dejar documentos pendientes
-STORAGE_DIR = Path(__file__).resolve().parent / "expedientes"
-
-
-class CupoLleno(Exception):
-    """No hay lugares en ningún grupo de primer semestre."""
-
-
-class Datos:
-    """Almacén en memoria para la demo (sustituir por base de datos)."""
-    # Alumnos de nuevo ingreso ya inscritos antes de abrir la aplicación (datos de ejemplo)
-    base_por_turno = {"Matutino": 20, "Vespertino": 22}
-    grupos = 11            # 2 de primer semestre + 1 por cada semestre de 2.º a 10.º
-    pendientes_base = 6
-    reinscripciones = 12
-    registros: list[dict] = []
-    actividad = [
-        ("Ana Sofía Morales", "Alta", "Completada"),
-        ("Luis Ángel Ramírez", "Reinscripción", "Completada"),
-        ("Diego Torres", "Documentos", "Pendiente"),
-    ]
-
-    @classmethod
-    def ocupados(cls, turno: str) -> int:
-        return cls.base_por_turno[turno] + sum(1 for r in cls.registros if r["turno"] == turno)
-
-    @classmethod
-    def lugares(cls, turno: str) -> int:
-        return CUPO_POR_GRUPO - cls.ocupados(turno)
-
-    @classmethod
-    def lugares_total(cls) -> int:
-        return sum(cls.lugares(t) for t in TURNOS)
-
-    @classmethod
-    def total_alumnos(cls) -> int:
-        return sum(cls.ocupados(t) for t in TURNOS)
-
-    @classmethod
-    def expedientes_pendientes(cls):
-        return cls.pendientes_base + sum(1 for r in cls.registros if len(r["documentos"]) < len(DOCUMENTOS))
-
-    @classmethod
-    def asignar_turno(cls, turno: str) -> tuple[str, str | None]:
-        """Devuelve (turno, aviso). Si el grupo del turno está lleno, usa el otro."""
-        if cls.lugares(turno) > 0:
-            return turno, None
-        otro = next(t for t in TURNOS if t != turno)
-        if cls.lugares(otro) > 0:
-            return otro, f"El grupo {turno} está lleno; el alumno quedó en el grupo {otro}."
-        raise CupoLleno("Los dos grupos de primer semestre ya tienen 25 alumnos.")
-
-    @classmethod
-    def registrar(cls, registro: dict, usuario: dict, storage_dir: Path | None = None) -> dict:
-        """Asigna turno, grupo, número de control y correo institucional, guarda los
-        PDF y agrega el registro. Si algo falla no se guarda nada."""
-        turno, aviso = cls.asignar_turno(v.turno_por_promedio(registro["promedio"]))
-        hoy = datetime.date.today()
-        prefijo = v.prefijo_control(hoy.year, PLANTEL, registro["ap_paterno"])
-        consecutivo = 1 + sum(1 for r in cls.registros if r["numero_control"].startswith(prefijo))
-        numero = v.generar_numero_control(hoy.year, PLANTEL, registro["ap_paterno"], consecutivo)
-
-        rutas = storage.guardar_pdfs(numero, registro["documentos"], storage_dir or STORAGE_DIR)
-
-        registro.update(
-            numero_control=numero,
-            correo_institucional=v.correo_institucional(numero),
-            turno=turno,
-            grupo=f"1{'A' if turno == TURNOS[0] else 'B'}",
-            aviso_turno=aviso,
-            plantel=PLANTEL,
-            documentos=rutas,
-            registrado_por=usuario["nombre"],
-            fecha_registro=datetime.datetime.now(),
-        )
-        cls.registros.append(registro)
-        return registro
+                                             # (el servidor tiene su propia opción: REQUIERE_TODOS_LOS_DOCUMENTOS)
 
 
 NAV = [
@@ -219,10 +140,11 @@ def build_login(page: ft.Page, al_entrar) -> ft.View:
         password.disabled = bloqueado
         boton.disabled = bloqueado
 
-    async def cuenta_regresiva(clave: str):
+    async def cuenta_regresiva(segundos: int):
+        fin = time.monotonic() + segundos
         try:
             while True:
-                s = guard.segundos_restantes(clave)
+                s = int(fin - time.monotonic() + 0.999)
                 if s <= 0:
                     break
                 aviso.value = (f"Cuenta bloqueada por demasiados intentos. "
@@ -250,33 +172,34 @@ def build_login(page: ft.Page, al_entrar) -> ft.View:
             correo.error = err
             page.update()
             return
-        if guard.bloqueado(clave):
-            bloquear_ui(True)
-            page.update()
-            page.run_task(cuenta_regresiva, clave)
-            return
         if not pwd:
             password.error = "Contraseña obligatoria"
             page.update()
             return
 
-        usuario = CREDENCIALES.get(clave)
-        if usuario and usuario["password"] == pwd:
-            guard.registrar_exito(clave)
-            password.value = ""
-            al_entrar(usuario)
-            return
-
-        # Mensaje genérico: no revela si el correo existe
-        restantes = guard.registrar_fallo(clave)
-        if restantes == 0:
-            bloquear_ui(True)
-            page.update()
-            page.run_task(cuenta_regresiva, clave)
-            return
-        password.error = (f"Credenciales incorrectas. Te quedan {restantes} "
-                          f"intento{'s' if restantes != 1 else ''}.")
+        boton.disabled = True           # evita doble clic mientras responde el servidor
         page.update()
+        try:
+            usuario = api.login(clave, pwd)
+        except ApiError as ex:
+            boton.disabled = False
+            if ex.status == 423:        # bloqueada: el servidor indica cuántos segundos faltan
+                bloquear_ui(True)
+                page.update()
+                page.run_task(cuenta_regresiva, int(ex.extra.get("segundos", 300)))
+                return
+            if ex.status == 401:        # mensaje genérico: no revela si el correo existe
+                restantes = ex.extra.get("intentos_restantes", 0)
+                password.error = (f"Credenciales incorrectas. Te quedan {restantes} "
+                                  f"intento{'s' if restantes != 1 else ''}.")
+            else:
+                aviso.value = ex.mensaje
+                aviso.visible = True
+            page.update()
+            return
+        boton.disabled = False
+        password.value = ""
+        al_entrar(usuario)
 
     boton.on_click = autenticar
     correo.on_submit = autenticar
@@ -455,13 +378,6 @@ class Shell:
             ),
         )
 
-        pie_pagina = ft.Container(
-            bgcolor=WHITE,
-            border=ft.Border.only(top=ft.BorderSide(1, BORDER)),
-            padding=ft.Padding.symmetric(horizontal=32, vertical=8),
-            content=ft.Text("Propuesta académica • Datos de ejemplo", size=11, color=MUTED),
-        )
-
         # Zona de contenido: cada página decide si hace scroll (el panel) o si solo
         # una parte interna lo hace (el formulario de Altas).
         self.host = ft.Container(expand=True, bgcolor=BG, padding=32)
@@ -474,7 +390,7 @@ class Shell:
             controls=[ft.Row(expand=True, spacing=0, vertical_alignment=ft.CrossAxisAlignment.STRETCH, controls=[
                 barra_lateral,
                 ft.Column(expand=True, spacing=0, horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
-                          controls=[encabezado, self.host, pie_pagina]),
+                          controls=[encabezado, self.host]),
             ])],
         )
 
@@ -543,9 +459,29 @@ def build_panel(page: ft.Page, navegar) -> ft.Control:
             ]), padding=ft.Padding.symmetric(horizontal=18, vertical=18)),
         )
 
-    # Actividad reciente: altas nuevas primero, luego ejemplos
-    nuevas = [(r["nombre_completo"], "Alta", "Completada") for r in reversed(Datos.registros)]
-    filas_datos = (nuevas + Datos.actividad)[:6]
+    # Datos reales desde la API; si falla, el panel se muestra en ceros con un aviso
+    error_panel = None
+    try:
+        resumen = api.resumen_panel()
+    except ApiError as ex:
+        error_panel = ex.mensaje
+        resumen = {"alumnos_nuevo_ingreso": 0, "grupos": 0, "expedientes_pendientes": 0,
+                   "reinscripciones_hoy": 0, "pendientes": [], "actividad": []}
+    filas_datos = [(a["alumno"], a["tramite"], a["estado"]) for a in resumen["actividad"]]
+
+    lineas_pendientes: list[ft.Control] = []
+    for p in resumen["pendientes"]:
+        if lineas_pendientes:
+            lineas_pendientes.append(ft.Divider(height=1, color=BORDER))
+        lineas_pendientes.append(ft.Text(f"{p['cantidad']} · {p['documento']}", size=14, color=TEXT))
+    if not lineas_pendientes:
+        lineas_pendientes.append(ft.Text("Sin documentos pendientes", size=14, color=MUTED))
+
+    aviso_error = ft.Container(
+        bgcolor=WARN_BG, border_radius=8, padding=12,
+        content=ft.Text(f"No se pudieron cargar los datos del servidor: {error_panel}",
+                        size=13, color=WARN_FG),
+    )
 
     def celda(texto_o_control, expand):
         c = ft.Text(texto_o_control, size=13, color=TEXT) if isinstance(texto_o_control, str) else texto_o_control
@@ -579,9 +515,7 @@ def build_panel(page: ft.Page, navegar) -> ft.Control:
     pendientes = tarjeta(ft.Column(spacing=14, controls=[
         ft.Text("Pendientes", size=19, weight=ft.FontWeight.BOLD, color=NAVY),
         ft.Container(height=4),
-        ft.Text("4 certificados de preparatoria", size=14, color=TEXT),
-        ft.Divider(height=1, color=BORDER),
-        ft.Text("2 certificados médicos", size=14, color=TEXT),
+        *lineas_pendientes,
         ft.Container(height=20),
         ft.OutlinedButton(
             "Revisar expedientes",
@@ -592,11 +526,12 @@ def build_panel(page: ft.Page, navegar) -> ft.Control:
 
     return ft.Column(expand=True, scroll=ft.ScrollMode.AUTO, spacing=24, controls=[
         titulo_pagina("Panel de Secretaría", "Gestiona alumnos, expedientes y procesos escolares."),
+        *([aviso_error] if error_panel else []),
         ft.ResponsiveRow(spacing=20, run_spacing=20, controls=[
-            estadistica(Datos.total_alumnos(), "Alumnos de nuevo ingreso"),
-            estadistica(Datos.grupos, "Grupos registrados"),
-            estadistica(Datos.expedientes_pendientes(), "Expedientes pendientes"),
-            estadistica(Datos.reinscripciones, "Reinscripciones del día"),
+            estadistica(resumen["alumnos_nuevo_ingreso"], "Alumnos de nuevo ingreso"),
+            estadistica(resumen["grupos"], "Grupos registrados"),
+            estadistica(resumen["expedientes_pendientes"], "Expedientes pendientes"),
+            estadistica(resumen["reinscripciones_hoy"], "Reinscripciones del día"),
         ]),
         ft.Text("Accesos rápidos", size=19, weight=ft.FontWeight.BOLD, color=NAVY),
         ft.ResponsiveRow(spacing=20, run_spacing=20, controls=[
@@ -667,10 +602,9 @@ class FormAltas:
 
         # ---- Paso 2
         self.prepa = tf("Nombre de la preparatoria")
-        self.promedio = tf("Ej. 92.5", keyboard_type=ft.KeyboardType.NUMBER,
+        self.promedio = tf("Ej. 9.5", keyboard_type=ft.KeyboardType.NUMBER,
                            input_filter=ft.InputFilter(regex_string=r"[0-9.,]", allow=True, replacement_string=""))
         self.promedio.on_change = self._promedio_cambiado
-        self.contacto = tf("Nombre del contacto de emergencia", input_filter=letras, capitalization=palabras)
         self.cel_emerg = tf("Número de 10 dígitos", keyboard_type=ft.KeyboardType.PHONE,
                             input_filter=ft.NumbersOnlyInputFilter())
         self.correo_emerg = tf("Correo del contacto de emergencia", keyboard_type=ft.KeyboardType.EMAIL)
@@ -747,8 +681,15 @@ class FormAltas:
         self.res_estatus.content = ft.Text(texto, size=12, weight=ft.FontWeight.BOLD,
                                            color=OK_FG if ok else WARN_FG)
 
-    def _refrescar_cupo(self):
-        self.res_cupo.value = " · ".join(f"{t} {Datos.lugares(t)}" for t in TURNOS)
+    def _refrescar_cupo(self) -> dict | None:
+        """Consulta los lugares al servidor y actualiza el resumen lateral."""
+        try:
+            cupo = api.cupo()
+        except ApiError:
+            self.res_cupo.value = "No disponible"
+            return None
+        self.res_cupo.value = " · ".join(f"{t} {cupo['turnos'].get(t, 0)}" for t in TURNOS)
+        return cupo
 
     def _refrescar_docs(self):
         n = len(self.archivos)
@@ -829,14 +770,25 @@ class FormAltas:
             return False
         return True
 
+    def _no_duplicado(self) -> bool:
+        """Pregunta al servidor si la ficha o la CURP ya están registradas."""
+        try:
+            dup = api.verificar(self._txt(self.ficha), self._txt(self.curp).upper())
+        except ApiError:
+            return True     # sin respuesta no se bloquea: el servidor vuelve a validar al guardar
+        ok = True
+        if dup.get("ficha"):
+            self.ficha.error = "Esta ficha ya está registrada"
+            ok = False
+        if dup.get("curp"):
+            self.curp.error = "Esta CURP ya está registrada"
+            ok = False
+        return ok
+
     def validar_paso(self, paso: int) -> bool:
         ok = True
         if paso == 0:
             ok &= self._requerido(self.ficha, v.validar_ficha)
-            ficha = self._txt(self.ficha)
-            if self.ficha.error is None and any(r["ficha"] == ficha for r in Datos.registros):
-                self.ficha.error = "Esta ficha ya está registrada"
-                ok = False
             ok &= self._requerido(self.nombre, v.validar_nombre)
             ok &= self._requerido(self.ap_paterno, v.validar_apellido)
             ok &= self._requerido(self.ap_materno, v.validar_apellido)
@@ -847,10 +799,6 @@ class FormAltas:
             ref = self.fecha if fecha_ok else None
 
             ok &= self._requerido(self.curp, v.validar_curp, fecha=ref)
-            curp = self._txt(self.curp).upper()
-            if self.curp.error is None and any(r["curp"] == curp for r in Datos.registros):
-                self.curp.error = "Esta CURP ya está registrada"
-                ok = False
             ok &= self._requerido(self.rfc, v.validar_rfc, fecha=ref)
             ok &= self._requerido(self.nss, v.validar_nss)
             ok &= self._requerido(self.ine, v.validar_ine, fecha=ref)
@@ -859,10 +807,11 @@ class FormAltas:
             ok &= self._requerido(self.celular, v.validar_celular)
             ok &= self._requerido(self.correo, v.validar_correo)
             ok &= self._requerido(self.domicilio, v.validar_domicilio)
+            if self.ficha.error is None and self.curp.error is None:
+                ok &= self._no_duplicado()
         elif paso == 1:
             ok &= self._requerido(self.prepa, v.validar_preparatoria)
             ok &= self._requerido(self.promedio, v.validar_promedio)
-            ok &= self._requerido(self.contacto, lambda t: v.validar_nombre(t, "Contacto"))
             ok &= self._requerido(self.cel_emerg, v.validar_celular_emergencia,
                                   celular_alumno=self._txt(self.celular))
             ok &= self._requerido(self.correo_emerg, v.validar_correo_emergencia,
@@ -883,7 +832,8 @@ class FormAltas:
     # Navegación entre pasos
     # ------------------------------------------------------------------
     def _sin_cupo(self) -> bool:
-        if Datos.lugares_total() > 0:
+        cupo = self._refrescar_cupo()
+        if cupo is None or cupo["total"] > 0:   # sin respuesta no se bloquea: el servidor valida al guardar
             return False
         self.page.show_dialog(ft.AlertDialog(
             title=ft.Text("Cupo completo"),
@@ -921,7 +871,7 @@ class FormAltas:
     def hay_datos(self) -> bool:
         campos = [self.ficha, self.nombre, self.ap_paterno, self.ap_materno, self.curp, self.rfc,
                   self.nss, self.ine, self.celular, self.correo, self.domicilio, self.prepa,
-                  self.promedio, self.contacto, self.cel_emerg, self.correo_emerg, self.alergias]
+                  self.promedio, self.cel_emerg, self.correo_emerg, self.alergias]
         return (any(self._txt(c) for c in campos) or self.fecha is not None
                 or self.genero.value is not None or bool(self.archivos))
 
@@ -956,10 +906,8 @@ class FormAltas:
             self.page.pop_dialog()
             try:
                 self.al_guardar(self.registro())
-            except CupoLleno as ex:
-                self._error_guardado(str(ex))
-            except OSError as ex:
-                self._error_guardado(f"No se pudieron guardar los archivos PDF: {ex}")
+            except ApiError as ex:
+                self._error_api(ex)
 
         self.page.show_dialog(ft.AlertDialog(
             title=ft.Text("¿Confirmar la inscripción?"),
@@ -969,6 +917,35 @@ class FormAltas:
                      ft.TextButton("No", on_click=lambda _: self.page.pop_dialog())],
             actions_alignment=ft.MainAxisAlignment.END,
         ))
+
+    def _error_api(self, ex: ApiError):
+        """Muestra el error del servidor; si trae errores por campo, los marca en el
+        formulario y regresa al primer paso afectado."""
+        campos = {
+            "ficha": (self.ficha, 0), "nombre": (self.nombre, 0), "ap_paterno": (self.ap_paterno, 0),
+            "ap_materno": (self.ap_materno, 0), "fecha_nacimiento": (self.txt_fecha, 0),
+            "curp": (self.curp, 0), "rfc": (self.rfc, 0), "nss": (self.nss, 0), "ine": (self.ine, 0),
+            "celular": (self.celular, 0), "correo": (self.correo, 0), "domicilio": (self.domicilio, 0),
+            "preparatoria": (self.prepa, 1), "promedio": (self.promedio, 1),
+            "celular_emergencia": (self.cel_emerg, 1),
+            "correo_emergencia": (self.correo_emerg, 1), "alergias": (self.alergias, 1),
+        }
+        pasos = []
+        for campo, msg in ex.errores.items():
+            if campo in campos:
+                control, paso = campos[campo]
+                control.error = msg
+                pasos.append(paso)
+            elif campo == "genero":
+                self.genero.error_text = msg
+                pasos.append(0)
+            elif campo == "documentos":
+                self.aviso_docs.value = msg
+                self.aviso_docs.visible = True
+                pasos.append(2)
+        if pasos:
+            self.paso = min(pasos)
+        self._error_guardado(ex.mensaje)
 
     def _error_guardado(self, mensaje: str):
         self._refrescar_cupo()
@@ -998,7 +975,6 @@ class FormAltas:
             "domicilio": t(self.domicilio),
             "preparatoria": t(self.prepa),
             "promedio": float(t(self.promedio).replace(",", ".")),
-            "contacto_emergencia": t(self.contacto),
             "celular_emergencia": t(self.cel_emerg),
             "correo_emergencia": t(self.correo_emerg),
             "alergias": t(self.alergias) or "Ninguna",
@@ -1072,12 +1048,11 @@ class FormAltas:
             self.titulo_card.value = "Datos académicos"
             self.cuerpo.controls = [
                 f(etiqueta("Nombre de la preparatoria", self.prepa),
-                  etiqueta("Promedio general (1 a 100)", self.promedio)),
+                  etiqueta("Promedio general (1 a 10)", self.promedio)),
                 ft.Text("Contacto de emergencia y salud", size=16, weight=ft.FontWeight.BOLD, color=NAVY),
-                f(etiqueta("Nombre del contacto", self.contacto),
-                  etiqueta("Celular de emergencia", self.cel_emerg)),
-                f(etiqueta("Correo electrónico de emergencia", self.correo_emerg),
-                  etiqueta("Alergias (opcional)", self.alergias)),
+                f(etiqueta("Celular de emergencia", self.cel_emerg),
+                  etiqueta("Correo electrónico de emergencia", self.correo_emerg)),
+                f(etiqueta("Alergias (opcional)", self.alergias)),
             ]
         elif self.paso == 2:
             self.titulo_card.value = "Documentos"
@@ -1108,7 +1083,7 @@ class FormAltas:
             ("Celular", t(self.celular)), ("Correo personal", t(self.correo)),
             ("Domicilio", t(self.domicilio)),
             ("Preparatoria", t(self.prepa)), ("Promedio", prom), ("Turno", turno),
-            ("Contacto de emergencia", f"{t(self.contacto)} · {t(self.cel_emerg)} · {t(self.correo_emerg)}"),
+            ("Contacto de emergencia", f"{t(self.cel_emerg)} · {t(self.correo_emerg)}"),
             ("Alergias", t(self.alergias) or "Ninguna"),
             ("Documentos PDF", f"{len(self.archivos)} de {len(DOCUMENTOS)} cargados"),
         ]
@@ -1154,7 +1129,19 @@ def build_altas(page: ft.Page, picker, usuario: dict, navegar) -> ft.Control:
         navegar("/secretaria")
 
     def guardar(registro: dict):
-        registro = Datos.registrar(registro, usuario)   # puede lanzar CupoLleno / OSError
+        # La subida de los PDF puede tardar: diálogo modal con progreso mientras responde la API
+        page.show_dialog(ft.AlertDialog(
+            modal=True,
+            title=ft.Text("Registrando alumno"),
+            content=ft.Row(tight=True, spacing=16, controls=[
+                ft.ProgressRing(width=28, height=28),
+                ft.Text("Guardando datos y subiendo documentos…"),
+            ]),
+        ))
+        try:
+            registro = api.registrar_alta(registro)     # puede lanzar ApiError
+        finally:
+            page.pop_dialog()
         navegar("/secretaria")
         page.show_dialog(ft.AlertDialog(
             title=ft.Text("Alta completada con éxito"),
@@ -1198,6 +1185,10 @@ def main(page: ft.Page):
         navegar("/secretaria")
 
     def cerrar_sesion():
+        try:
+            api.logout()            # registra la hora de salida en la bitácora
+        except ApiError:
+            pass
         sesion["usuario"] = None
         sesion["shell"] = None
         navegar("/")
@@ -1208,6 +1199,15 @@ def main(page: ft.Page):
         return build_panel(page, navegar)
 
     def route_change(e=None):
+        # Si el servidor rechazó el token (venció o la cuenta se desactivó), volver al login
+        expirada = False
+        if api.sesion_vencida:
+            api.sesion_vencida = False
+            if sesion["usuario"] is not None:
+                sesion["usuario"] = None
+                sesion["shell"] = None
+                expirada = True
+
         ruta = page.route or "/"
         usuario = sesion["usuario"]
 
@@ -1223,6 +1223,8 @@ def main(page: ft.Page):
             page.views.clear()
             page.views.append(build_login(page, entrar))
             page.update()
+            if expirada:
+                snackbar(page, "Tu sesión expiró. Inicia sesión de nuevo.")
             return
 
         shell: Shell | None = sesion["shell"]
@@ -1233,7 +1235,11 @@ def main(page: ft.Page):
             page.views.clear()
             page.views.append(shell.view)
         if shell.activo != ruta:               # volver a pulsar la sección actual no reinicia nada
-            shell.mostrar(ruta, contenido_para(ruta, usuario))
+            contenido = contenido_para(ruta, usuario)
+            if api.sesion_vencida:             # la API devolvió 401 al cargar la vista
+                route_change()
+                return
+            shell.mostrar(ruta, contenido)
         page.update()
 
     page.on_route_change = route_change
