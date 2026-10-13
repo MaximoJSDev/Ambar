@@ -106,6 +106,30 @@ class ApiClient:
     def resumen_panel(self) -> dict:
         return self._request("GET", "/panel/resumen")
 
+    def expediente(self, q: str) -> dict:
+        """Expediente por número de control o CURP. 404 si no existe."""
+        return self._request("GET", "/alumnos/expediente", params={"q": q})
+
+    def descargar_documento(self, id_documento: int, destino: Path) -> Path:
+        """Descarga un PDF del servidor a `destino` por bloques (pueden pesar cientos de MB)."""
+        ruta = f"/alumnos/documentos/{id_documento}"
+        headers = {"Authorization": f"Bearer {self.token}"} if self.token else {}
+        try:
+            with self._http.stream("GET", ruta, headers=headers) as r:
+                if not r.is_success:
+                    r.read()                    # en streaming hay que leer el cuerpo para poder parsear el error
+                    raise self._error(r, ruta)
+                with destino.open("wb") as f:
+                    for bloque in r.iter_bytes(1024 * 1024):
+                        f.write(bloque)
+        except httpx.ConnectError:
+            raise ApiError(0, f"No se pudo conectar con el servidor ({self.base_url}).")
+        except httpx.TimeoutException:
+            raise ApiError(0, "El servidor tardó demasiado en responder.")
+        except httpx.HTTPError as ex:
+            raise ApiError(0, f"Error de red: {ex}")
+        return destino
+
     def registrar_alta(self, registro: dict) -> dict:
         """Envía el registro de FormAltas.registro(): datos en JSON y los PDF en multipart
         (se leen del disco por bloques, no se cargan completos en memoria)."""

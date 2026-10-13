@@ -1,14 +1,15 @@
-"""Altas de alumnos de nuevo ingreso (datos en JSON + 6 PDF en multipart)."""
+"""Altas y consulta de alumnos (datos en JSON + 6 PDF en multipart)."""
 import logging
 import tempfile
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi.responses import FileResponse
 from pydantic import ValidationError
 
 from ambar_common import validators as v
 
-from .. import servicios
+from .. import consultas, servicios
 from ..config import settings
 from ..constantes import DOCUMENTOS, ROL_SECRETARIA
 from ..deps import requiere_roles
@@ -31,6 +32,28 @@ def verificar(ficha: str = Query(""), curp: str = Query(""), _: dict = Depends(s
     return servicios.verificar_duplicados(ficha, curp)
 
 
+# --- Consultas -------------------------------------------------------------
+@router.get("/expediente")
+def expediente(q: str = Query(..., min_length=1, max_length=40), _: dict = Depends(solo_secretaria)):
+    """Expediente completo por número de control o CURP."""
+    try:
+        return consultas.buscar_expediente(q)
+    except consultas.NoEncontrado:
+        raise HTTPException(404, {"mensaje": "No se encontró ningún alumno con ese número de control o CURP"})
+
+
+@router.get("/documentos/{id_documento}")
+def descargar_documento(id_documento: int, _: dict = Depends(solo_secretaria)):
+    """Sirve el PDF guardado en el servidor."""
+    try:
+        ruta, nombre = consultas.ruta_documento(id_documento)
+    except consultas.NoEncontrado:
+        raise HTTPException(404, {"mensaje": "El documento no existe en el servidor"})
+    return FileResponse(ruta, media_type="application/pdf", filename=nombre,
+                        content_disposition_type="inline")
+
+
+# --- Altas -----------------------------------------------------------------
 def _copiar_por_bloques(archivo: UploadFile, destino: Path) -> int:
     """Copia el PDF a disco sin cargarlo en memoria; corta si pasa del máximo."""
     total = 0

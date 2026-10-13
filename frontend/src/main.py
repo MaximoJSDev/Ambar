@@ -1,6 +1,13 @@
 import asyncio
+import atexit
 import datetime
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
 import time
+from pathlib import Path
 
 import flet as ft
 
@@ -51,7 +58,7 @@ NAV = [
     ("/estadisticas", "Estadísticas", ft.Icons.BAR_CHART),
     ("/bitacora", "Bitácora", ft.Icons.FORMAT_LIST_BULLETED),
 ]
-IMPLEMENTADAS = {"/secretaria", "/altas"}
+IMPLEMENTADAS = {"/secretaria", "/altas", "/consultas"}
 
 
 # =====================================================================
@@ -520,7 +527,7 @@ def build_panel(page: ft.Page, navegar) -> ft.Control:
         ft.OutlinedButton(
             "Revisar expedientes",
             style=estilo_secundario(),
-            on_click=lambda e: snackbar(page, "El módulo «Consultas» estará disponible próximamente."),
+            on_click=lambda e: navegar("/consultas"),
         ),
     ]), col={"xs": 12, "lg": 4})
 
@@ -1161,7 +1168,250 @@ def build_altas(page: ft.Page, picker, usuario: dict, navegar) -> ft.Control:
 
 
 # =====================================================================
-# 4. APLICACIÓN Y RUTAS
+# 4. CONSULTAS — expediente del alumno
+# =====================================================================
+_dir_pdf: str | None = None
+
+
+def _carpeta_pdf_temporal() -> Path:
+    """Carpeta donde se descargan los PDF para abrirlos; se borra al cerrar la app."""
+    global _dir_pdf
+    if _dir_pdf is None:
+        _dir_pdf = tempfile.mkdtemp(prefix="sige_pdf_")
+        atexit.register(shutil.rmtree, _dir_pdf, ignore_errors=True)
+    return Path(_dir_pdf)
+
+
+def abrir_archivo(ruta: Path):
+    """Abre el archivo con el visor predeterminado del sistema (app de escritorio)."""
+    if sys.platform.startswith("win"):
+        os.startfile(ruta)
+    elif sys.platform == "darwin":
+        subprocess.Popen(["open", str(ruta)])
+    else:
+        subprocess.Popen(["xdg-open", str(ruta)])
+
+
+def ordinal_semestre(n: int) -> str:
+    return f"{n}.{'er' if n in (1, 3) else 'º'} semestre"
+
+
+def chip(texto: str, ok: bool) -> ft.Container:
+    return ft.Container(
+        padding=ft.Padding.symmetric(horizontal=12, vertical=4),
+        border_radius=14,
+        bgcolor=OK_BG if ok else WARN_BG,
+        content=ft.Text(texto, size=12, weight=ft.FontWeight.BOLD, color=OK_FG if ok else WARN_FG),
+    )
+
+
+class ConsultaExpediente:
+    SECCIONES = [("personales", "Datos personales"), ("contacto", "Contacto"),
+                 ("academicos", "Datos académicos"), ("documentos", "Documentos")]
+    CAMPOS = {
+        "personales": [
+            ("nombres", "Nombre(s)"), ("apellido_paterno", "Apellido paterno"),
+            ("apellido_materno", "Apellido materno"), ("fecha_nacimiento", "Fecha de nacimiento"),
+            ("genero", "Género"), ("curp", "CURP"), ("rfc", "RFC"),
+            ("ine", "Clave de elector (INE)"), ("nss", "Número de seguro social"),
+        ],
+        "contacto": [
+            ("domicilio", "Domicilio"), ("celular", "Celular"),
+            ("correo_personal", "Correo personal"), ("correo_institucional", "Correo institucional"),
+            ("celular_emergencia", "Celular de emergencia"), ("correo_emergencia", "Correo de emergencia"),
+            ("alergias", "Alergias"),
+        ],
+        "academicos": [
+            ("numero_ficha", "Número de ficha"), ("preparatoria", "Preparatoria de procedencia"),
+            ("promedio", "Promedio de preparatoria"), ("turno", "Turno"),
+            ("semestre", "Semestre actual"), ("grupo", "Grupo"),
+            ("periodo", "Periodo escolar"), ("estatus", "Estatus"),
+            ("motivo_baja", "Motivo de baja"),
+        ],
+    }
+
+    def __init__(self, page: ft.Page, navegar):
+        self.page = page
+        self.navegar = navegar
+        self.datos: dict | None = None
+        self.seccion = "personales"
+
+        self.entrada = tf("Número de control o CURP", on_submit=self.buscar,
+                          capitalization=ft.TextCapitalization.CHARACTERS)
+        self.boton = ft.FilledButton("Buscar", style=estilo_primario(), height=46, on_click=self.buscar)
+        self.aviso = ft.Text("", color=ft.Colors.RED_700, size=13, weight=ft.FontWeight.W_600, visible=False)
+        self.resultado = ft.Column(spacing=20)
+        self._pintar()
+
+        buscador = tarjeta(ft.Column(spacing=8, controls=[
+            ft.Row(vertical_alignment=ft.CrossAxisAlignment.END, spacing=16, controls=[
+                etiqueta("Número de control o CURP", self.entrada),
+                self.boton,
+            ]),
+            self.aviso,
+        ]), padding=ft.Padding.symmetric(horizontal=20, vertical=16))
+
+        self.vista = ft.Column(expand=True, scroll=ft.ScrollMode.AUTO, spacing=24, controls=[
+            titulo_pagina("Expediente del alumno",
+                          "Consulta la información académica y los documentos del estudiante."),
+            buscador,
+            self.resultado,
+        ])
+
+    # --- acciones -------------------------------------------------------
+    def buscar(self, e=None):
+        q = (self.entrada.value or "").strip()
+        self.entrada.error = None
+        self.aviso.visible = False
+        if not q:
+            self.entrada.error = "Escribe un número de control o una CURP"
+            self.page.update()
+            return
+        self.boton.disabled = True
+        self.page.update()
+        try:
+            self.datos = api.expediente(q)
+            self.seccion = "personales"
+        except ApiError as ex:
+            self.datos = None
+            if ex.status == 401:            # sesión vencida: route_change regresa al login
+                self.navegar("/consultas")
+                return
+            self.aviso.value = ex.mensaje
+            self.aviso.visible = True
+        finally:
+            self.boton.disabled = False
+        self._pintar()
+        self.page.update()
+
+    def _cambiar_seccion(self, clave: str):
+        self.seccion = clave
+        self._pintar()
+        self.page.update()
+
+    def ver_pdf(self, doc: dict):
+        snackbar(self.page, f"Abriendo «{doc['documento']}»…")
+        try:
+            destino = _carpeta_pdf_temporal() / f"{self.datos['numero_control']}_{doc['id_documento']}.pdf"
+            api.descargar_documento(doc["id_documento"], destino)
+            abrir_archivo(destino)
+        except ApiError as ex:
+            if ex.status == 401:
+                self.navegar("/consultas")
+                return
+            snackbar(self.page, ex.mensaje)
+        except OSError as ex:
+            snackbar(self.page, f"No se pudo abrir el PDF: {ex}")
+
+    # --- vista ----------------------------------------------------------
+    def _pintar(self):
+        if self.datos is None:
+            self.resultado.controls = [tarjeta(
+                ft.Text("Busca un alumno por número de control o CURP para ver su expediente.",
+                        size=14, color=MUTED))]
+            return
+        self.resultado.controls = [self._encabezado(), self._pestanas()]
+
+    def _encabezado(self) -> ft.Control:
+        d = self.datos
+        p = d["personales"]
+        iniciales = (p["nombres"][:1] + p["apellido_paterno"][:1]).upper()
+        activo = d["estatus"] == "Activo"
+        return tarjeta(ft.Row(spacing=20, vertical_alignment=ft.CrossAxisAlignment.CENTER, controls=[
+            ft.Container(width=62, height=62, border_radius=31, bgcolor="#D6E3F7",
+                         alignment=ft.Alignment.CENTER,
+                         content=ft.Text(iniciales, size=20, weight=ft.FontWeight.BOLD, color=NAVY)),
+            ft.Column(expand=True, spacing=6, controls=[
+                ft.Text(d["nombre_completo"], size=22, weight=ft.FontWeight.BOLD, color=NAVY),
+                ft.Text(f"{d['numero_control']} • Turno {d['academicos']['turno']}", size=14, color=MUTED),
+            ]),
+            ft.Row(spacing=12, controls=[
+                chip(ordinal_semestre(d["semestre_actual"]), True),
+                chip("Inscripción activa" if activo else "Inscripción inactiva", activo),
+            ]),
+        ]), padding=ft.Padding.symmetric(horizontal=20, vertical=20))
+
+    def _pestanas(self) -> ft.Control:
+        def pestana(clave, texto):
+            activa = clave == self.seccion
+            return ft.Container(
+                ink=True, on_click=lambda e, c=clave: self._cambiar_seccion(c),
+                padding=ft.Padding.symmetric(horizontal=22, vertical=14),
+                border=ft.Border.only(bottom=ft.BorderSide(3, NAVY if activa else ft.Colors.TRANSPARENT)),
+                content=ft.Text(texto, size=14, color=NAVY if activa else MUTED,
+                                weight=ft.FontWeight.BOLD if activa else ft.FontWeight.NORMAL),
+            )
+
+        barra = ft.Container(
+            border=ft.Border.only(bottom=ft.BorderSide(1, BORDER)),
+            content=ft.Row(spacing=0, scroll=ft.ScrollMode.AUTO,
+                           controls=[pestana(c, t) for c, t in self.SECCIONES]),
+        )
+        cuerpo = self._documentos() if self.seccion == "documentos" else self._campos(self.seccion)
+        return ft.Container(
+            bgcolor=WHITE, border=ft.Border.all(1, BORDER), border_radius=10,
+            content=ft.Column(spacing=0, controls=[
+                barra,
+                ft.Container(padding=ft.Padding.all(20), content=cuerpo),
+            ]),
+        )
+
+    def _campos(self, seccion: str) -> ft.Control:
+        valores = self.datos[seccion]
+        titulo = dict(self.SECCIONES)[seccion]
+        celdas = [
+            ft.Container(col={"xs": 12, "md": 6}, content=ft.Column(spacing=2, controls=[
+                ft.Text(etiqueta_campo, size=12, color=MUTED),
+                ft.Text(str(valores[clave]), size=15, weight=ft.FontWeight.W_600, color=TEXT, selectable=True),
+            ]))
+            for clave, etiqueta_campo in self.CAMPOS[seccion] if clave in valores
+        ]
+        return ft.Column(spacing=16, controls=[
+            ft.Text(titulo, size=19, weight=ft.FontWeight.BOLD, color=NAVY),
+            ft.ResponsiveRow(spacing=20, run_spacing=16, controls=celdas),
+        ])
+
+    def _documentos(self) -> ft.Control:
+        def celda(contenido, expand):
+            if isinstance(contenido, str):
+                contenido = ft.Text(contenido, size=14, color=TEXT)
+            return ft.Container(expand=expand, content=contenido)
+
+        def encabezado(texto):
+            return ft.Text(texto, size=13, weight=ft.FontWeight.BOLD, color=TEXT)
+
+        filas = [ft.Container(
+            bgcolor="#EEF2F8", border_radius=6,
+            padding=ft.Padding.symmetric(horizontal=16, vertical=12),
+            content=ft.Row(controls=[celda(encabezado("Documento"), 5), celda(encabezado("Estado"), 3),
+                                     celda(encabezado("Acciones"), 3)]),
+        )]
+        for doc in self.datos["documentos"]:
+            recibido = doc["estado"] == "Recibido"
+            accion = (ft.TextButton("Ver PDF", style=ft.ButtonStyle(color=NAVY),
+                                    on_click=lambda e, d=doc: self.ver_pdf(d))
+                      if recibido else ft.Text("—", size=16, weight=ft.FontWeight.BOLD, color=TEXT))
+            filas.append(ft.Container(
+                padding=ft.Padding.symmetric(horizontal=16, vertical=6),
+                border=ft.Border.only(bottom=ft.BorderSide(1, BORDER)),
+                content=ft.Row(vertical_alignment=ft.CrossAxisAlignment.CENTER, controls=[
+                    celda(doc["documento"], 5),
+                    celda(ft.Row([chip(doc["estado"], recibido)]), 3),
+                    celda(accion, 3),
+                ]),
+            ))
+        return ft.Column(spacing=14, controls=[
+            ft.Text("Documentos del expediente", size=19, weight=ft.FontWeight.BOLD, color=NAVY),
+            ft.Column(spacing=0, controls=filas),
+        ])
+
+
+def build_consultas(page: ft.Page, navegar) -> ft.Control:
+    return ConsultaExpediente(page, navegar).vista
+
+
+# =====================================================================
+# 5. APLICACIÓN Y RUTAS
 # =====================================================================
 def main(page: ft.Page):
     page.title = "SIGE - Sistema Integral de Gestión Escolar"
@@ -1196,6 +1446,8 @@ def main(page: ft.Page):
     def contenido_para(ruta: str, usuario: dict) -> ft.Control:
         if ruta == "/altas":
             return build_altas(page, selector_archivos, usuario, navegar)
+        if ruta == "/consultas":
+            return build_consultas(page, navegar)
         return build_panel(page, navegar)
 
     def route_change(e=None):
