@@ -96,7 +96,9 @@ def validar_curp(valor: str, fecha: datetime.date | None = None) -> str | None:
     return None
 
 
-def validar_rfc(valor: str, fecha: datetime.date | None = None) -> str | None:
+def validar_rfc(valor: str | None, fecha: datetime.date | None = None) -> str | None:
+    if not valor or not valor.strip():
+        return None
     v = valor.strip().upper()
     if len(v) != 13:
         return "El RFC debe tener 13 caracteres"
@@ -148,8 +150,10 @@ def validar_promedio(valor: str) -> str | None:
     return None
 
 
-def validar_ine(valor: str, fecha: datetime.date | None = None) -> str | None:
+def validar_ine(valor: str | None, fecha: datetime.date | None = None) -> str | None:
     """Clave de elector: 6 letras + AAMMDD + entidad (2) + H/M + 3 dígitos = 18."""
+    if not valor or not valor.strip():
+        return None
     v = valor.strip().upper()
     if len(v) != 18:
         return "La clave de elector debe tener 18 caracteres"
@@ -242,4 +246,3 @@ def validar_pdf(nombre: str, tamano: int | None, ruta: str | None = None,
         except OSError:
             return "No se pudo leer el archivo"
     return None
-

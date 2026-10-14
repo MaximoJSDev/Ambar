@@ -6,12 +6,17 @@ interfaz. `httpx.Client` es seguro entre hilos.
 """
 import contextlib
 import json
+import logging
 import os
 from pathlib import Path
+import time
 
 import httpx
 
+from ambar_common.logging_config import configure_file_logging
+
 URL_API = os.getenv("SIGE_API_URL", "http://127.0.0.1:8000")
+log = configure_file_logging("sige.frontend", "frontend.log")
 
 # nombre visible del documento (el de main.DOCUMENTOS) -> campo multipart del backend
 CAMPO_DOCUMENTO = {
@@ -49,14 +54,33 @@ class ApiClient:
     # ------------------------------------------------------------------
     def _request(self, metodo: str, ruta: str, **kw):
         headers = {"Authorization": f"Bearer {self.token}"} if self.token else {}
+        started = time.perf_counter()
         try:
             r = self._http.request(metodo, ruta, headers=headers, **kw)
-        except httpx.ConnectError:
+        except httpx.ConnectError as ex:
+            log.warning(
+                "API connection error method=%s path=%s error_type=%s elapsed_ms=%.1f",
+                metodo, ruta, type(ex).__name__, (time.perf_counter() - started) * 1000,
+            )
             raise ApiError(0, f"No se pudo conectar con el servidor ({self.base_url}).")
-        except httpx.TimeoutException:
+        except httpx.TimeoutException as ex:
+            log.warning(
+                "API timeout method=%s path=%s timeout_type=%s elapsed_ms=%.1f",
+                metodo, ruta, type(ex).__name__, (time.perf_counter() - started) * 1000,
+            )
             raise ApiError(0, "El servidor tardó demasiado en responder.")
         except httpx.HTTPError as ex:
+            log.warning(
+                "API HTTP error method=%s path=%s error_type=%s elapsed_ms=%.1f",
+                metodo, ruta, type(ex).__name__, (time.perf_counter() - started) * 1000,
+            )
             raise ApiError(0, f"Error de red: {ex}")
+        elapsed_ms = (time.perf_counter() - started) * 1000
+        log_method = log.warning if r.status_code >= 500 else log.info
+        log_method(
+            "API response method=%s path=%s status=%s elapsed_ms=%.1f",
+            metodo, ruta, r.status_code, elapsed_ms,
+        )
         if r.is_success:
             return r.json() if r.content else None
         raise self._error(r, ruta)

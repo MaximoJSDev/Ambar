@@ -78,9 +78,16 @@ def tf(hint: str = "", **kw) -> ft.TextField:
         text_size=13,
         filled=True,
         fill_color=WHITE,
-        border_radius=6,
-        border_color=BORDER,
-        focused_border_color=NAVY,
+        border={
+            ft.ControlState.DEFAULT: ft.OutlineInputBorder(
+                border_radius=6,
+                side=ft.BorderSide(color=BORDER),
+            ),
+            ft.ControlState.FOCUSED: ft.OutlineInputBorder(
+                border_radius=6,
+                side=ft.BorderSide(color=NAVY),
+            ),
+        },
         hint_style=ft.TextStyle(color="#7A8799", size=13),
         content_padding=ft.Padding.symmetric(horizontal=12, vertical=12),
         on_change=_limpiar_error,
@@ -567,15 +574,15 @@ class FormAltas:
         self.archivos: dict[str, dict] = {}
         self.errores_docs: dict[str, str] = {}
 
-        letras = ft.InputFilter(regex_string=r"[A-Za-zÁÉÍÓÚÜÑáéíóúüñ '\-]", allow=True,
+        letras = ft.InputFilter(regex_string=r"^[A-Za-zÁÉÍÓÚÜÑáéíóúüñ '\-]*$", allow=True,
                                 replacement_string="", unicode=True)
-        alfanum = ft.InputFilter(regex_string=r"[A-Za-z0-9&Ññ]", allow=True, replacement_string="")
+        alfanum = ft.InputFilter(regex_string=r"^[A-Za-z0-9&Ññ]*$", allow=True, replacement_string="")
         mayus = ft.TextCapitalization.CHARACTERS
         palabras = ft.TextCapitalization.WORDS
 
         # ---- Paso 1
         self.ficha = tf("Ej. 2026-00123", autofocus=True,
-                        input_filter=ft.InputFilter(regex_string=r"[0-9\-]", allow=True, replacement_string=""))
+                        input_filter=ft.InputFilter(regex_string=r"^[0-9\-]*$", allow=True, replacement_string=""))
         self.nombre = tf("Ingresa el nombre o nombres", input_filter=letras, capitalization=palabras)
         self.ap_paterno = tf("Ingresa el apellido paterno", input_filter=letras, capitalization=palabras)
         self.ap_materno = tf("Ingresa el apellido materno", input_filter=letras, capitalization=palabras)
@@ -610,7 +617,7 @@ class FormAltas:
         # ---- Paso 2
         self.prepa = tf("Nombre de la preparatoria")
         self.promedio = tf("Ej. 9.5", keyboard_type=ft.KeyboardType.NUMBER,
-                           input_filter=ft.InputFilter(regex_string=r"[0-9.,]", allow=True, replacement_string=""))
+                           input_filter=ft.InputFilter(regex_string=r"^[0-9.,]*$", allow=True, replacement_string=""))
         self.promedio.on_change = self._promedio_cambiado
         self.cel_emerg = tf("Número de 10 dígitos", keyboard_type=ft.KeyboardType.PHONE,
                             input_filter=ft.NumbersOnlyInputFilter())
@@ -806,9 +813,11 @@ class FormAltas:
             ref = self.fecha if fecha_ok else None
 
             ok &= self._requerido(self.curp, v.validar_curp, fecha=ref)
-            ok &= self._requerido(self.rfc, v.validar_rfc, fecha=ref)
+            self.rfc.error = v.validar_rfc(self._txt(self.rfc), fecha=ref)
+            ok &= self.rfc.error is None
             ok &= self._requerido(self.nss, v.validar_nss)
-            ok &= self._requerido(self.ine, v.validar_ine, fecha=ref)
+            self.ine.error = v.validar_ine(self._txt(self.ine), fecha=ref)
+            ok &= self.ine.error is None
             self.genero.error_text = v.validar_genero(self.genero.value)
             ok &= self.genero.error_text is None
             ok &= self._requerido(self.celular, v.validar_celular)
@@ -973,9 +982,9 @@ class FormAltas:
             "nombre_completo": f"{t(self.nombre)} {t(self.ap_paterno)} {t(self.ap_materno)}",
             "fecha_nacimiento": self.fecha,
             "curp": t(self.curp).upper(),
-            "rfc": t(self.rfc).upper(),
+            "rfc": t(self.rfc).upper() or None,
             "nss": t(self.nss),
-            "ine": t(self.ine).upper(),
+            "ine": t(self.ine).upper() or None,
             "genero": self.genero.value,
             "celular": t(self.celular),
             "correo": t(self.correo),
@@ -1046,8 +1055,8 @@ class FormAltas:
                 f(etiqueta("Número de ficha", self.ficha), etiqueta("Nombre(s)", self.nombre)),
                 f(etiqueta("Apellido paterno", self.ap_paterno), etiqueta("Apellido materno", self.ap_materno)),
                 f(etiqueta("Fecha de nacimiento", self.txt_fecha), etiqueta("CURP", self.curp)),
-                f(etiqueta("RFC", self.rfc), etiqueta("Número de seguro social", self.nss)),
-                f(etiqueta("INE", self.ine), etiqueta("Género", ft.Row([self.genero]))),
+                f(etiqueta("RFC (opcional)", self.rfc), etiqueta("Número de seguro social", self.nss)),
+                f(etiqueta("INE (opcional)", self.ine), etiqueta("Género", ft.Row([self.genero]))),
                 f(etiqueta("Teléfono celular", self.celular), etiqueta("Correo personal", self.correo)),
                 f(etiqueta("Domicilio", self.domicilio)),
             ]
@@ -1422,9 +1431,9 @@ def main(page: ft.Page):
 
     sesion: dict = {"usuario": None, "shell": None}
 
-    # Un solo selector de archivos para toda la aplicación (servicio de Flet)
+    # Flet registra el servicio en la página al construirlo; conservar la referencia
+    # permite reutilizarlo aunque se reemplacen las vistas al navegar.
     selector_archivos = ft.FilePicker()
-    page.services.append(selector_archivos)
 
     def navegar(ruta: str):
         page.route = ruta

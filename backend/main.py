@@ -5,11 +5,14 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from sqlalchemy import text
 
+from ambar_common.logging_config import configure_file_logging
+
 from .config import settings
 from .db import engine
 from .routers import alumnos, auth, panel
 
 logging.basicConfig(level=logging.INFO)
+configure_file_logging("sige", "backend.log")
 
 
 @asynccontextmanager

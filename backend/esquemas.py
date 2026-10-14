@@ -32,9 +32,9 @@ class AltaIn(BaseModel):
     ap_materno: str
     fecha_nacimiento: datetime.date
     curp: str
-    rfc: str
+    rfc: str | None = None
     nss: str
-    ine: str
+    ine: str | None = None
     genero: str
     celular: str
     correo: str
@@ -47,8 +47,8 @@ class AltaIn(BaseModel):
 
     @field_validator("curp", "rfc", "ine")
     @classmethod
-    def _mayusculas(cls, valor: str) -> str:
-        return valor.upper()
+    def _mayusculas(cls, valor: str | None) -> str | None:
+        return valor.upper() if valor else None
 
     @field_validator("alergias")
     @classmethod

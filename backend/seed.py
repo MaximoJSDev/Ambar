@@ -2,6 +2,7 @@
 
     python -m backend.seed --correo secretaria@acapulco.tecnm.mx --nombres "María" --apellidos "López Pérez"
     python -m backend.seed --correo secretaria2@acapulco.tecnm.mx --nombres "Anna" --apellidos "Herrera Escobar"
+    python -m backend.seed --correo secretaria3@acapulco.tecnm.mx --nombres "Emmanuel" --apellidos "Garnica Saida"
 
 Es idempotente. Si el usuario ya existe, actualiza su nombre (personal_secretaria) y contraseña (sirve
 para restablecerla). Las materias y los docentes son DE EJEMPLO: reemplázalos por

@@ -80,6 +80,14 @@ flet run -d
 ```
 *Esto abrirá la ventana de la aplicación de escritorio nativa.*
 
+### Logs de diagnóstico
+El cliente y el servidor guardan logs rotativos en `~/.ambar/logs` (`frontend.log`
+y `backend.log`, con hasta tres respaldos de 5 MB cada uno). En Windows, la ruta
+predeterminada es `%USERPROFILE%\.ambar\logs`. Para guardar ambos archivos en otra
+ubicación, configura `SIGE_LOG_DIR` en los dos procesos antes de iniciarlos. Los
+logs registran rutas de API, códigos de respuesta, tiempos y etapas del login;
+no registran contraseñas ni tokens.
+
 ---
 
 ## Estructura Recomendada del Proyecto
