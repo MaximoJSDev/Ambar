@@ -58,7 +58,7 @@ class ReporteExpedienteTests(unittest.TestCase):
 
     def test_endpoint_entrega_pdf_con_nombre_del_expediente(self):
         with patch("backend.routers.alumnos.servicios.buscar_expediente", return_value=self.datos):
-            respuesta = descargar_expediente_pdf("26320700", {})
+            respuesta = descargar_expediente_pdf("26320700", {}, False)
         self.assertEqual(respuesta.media_type, "application/pdf")
         self.assertEqual(
             respuesta.headers["content-disposition"],
