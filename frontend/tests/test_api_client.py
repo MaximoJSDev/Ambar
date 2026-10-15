@@ -1,3 +1,4 @@
+import json
 import unittest
 
 import httpx
@@ -70,3 +71,100 @@ class ApiClientTests(unittest.TestCase):
             self.assertEqual(cliente.descargar_expediente("26320700"), pdf)
         finally:
             cliente._http.close()
+
+    def test_gestion_secretarias_usa_endpoints_de_administracion(self):
+        solicitudes = []
+
+        def responder(request: httpx.Request) -> httpx.Response:
+            solicitudes.append((request.method, request.url.path))
+            if request.method == "GET":
+                return httpx.Response(200, json=[])
+            return httpx.Response(200, json={"mensaje": "Cuenta dada de baja"})
+
+        cliente = ApiClient()
+        cliente._http.close()
+        cliente._http = httpx.Client(
+            base_url="http://test",
+            transport=httpx.MockTransport(responder),
+        )
+        try:
+            self.assertEqual(cliente.secretarias(), [])
+            cliente.crear_secretaria({
+                "nombres": "Ana",
+                "apellidos": "López",
+                "correo": "ana@example.com",
+                "password": "contraseña-segura",
+            })
+            cliente.dar_baja_secretaria(12)
+        finally:
+            cliente._http.close()
+
+        self.assertEqual(solicitudes, [
+            ("GET", "/administracion/secretarias"),
+            ("POST", "/administracion/secretarias"),
+            ("DELETE", "/administracion/secretarias/12"),
+        ])
+
+    def test_bitacora_usa_endpoint_admin(self):
+        def responder(request: httpx.Request) -> httpx.Response:
+            self.assertEqual(request.method, "GET")
+            self.assertEqual(request.url.path, "/administracion/bitacora")
+            return httpx.Response(200, json=[])
+
+        cliente = ApiClient()
+        cliente._http.close()
+        cliente._http = httpx.Client(
+            base_url="http://test",
+            transport=httpx.MockTransport(responder),
+        )
+        try:
+            self.assertEqual(cliente.bitacora(), [])
+        finally:
+            cliente._http.close()
+
+    def test_crear_docente_usa_endpoint_de_personal(self):
+        def responder(request: httpx.Request) -> httpx.Response:
+            self.assertEqual(request.method, "POST")
+            self.assertEqual(request.url.path, "/personal/docentes")
+            self.assertEqual(json.loads(request.read()), {"nombres": "María"})
+            return httpx.Response(201, json={"id_usuario": 1})
+
+        cliente = ApiClient()
+        cliente._http.close()
+        cliente._http = httpx.Client(
+            base_url="http://test",
+            transport=httpx.MockTransport(responder),
+        )
+        try:
+            self.assertEqual(cliente.crear_docente({"nombres": "María"}), {"id_usuario": 1})
+        finally:
+            cliente._http.close()
+
+    def test_consultar_y_dar_de_baja_maestro_usan_endpoints_personal(self):
+        solicitudes = []
+
+        def responder(request: httpx.Request) -> httpx.Response:
+            solicitudes.append((request.method, request.url.path))
+            if request.method == "DELETE":
+                return httpx.Response(200, json={"mensaje": "Cuenta dada de baja"})
+            return httpx.Response(200, json=[])
+
+        cliente = ApiClient()
+        cliente._http.close()
+        cliente._http = httpx.Client(
+            base_url="http://test",
+            transport=httpx.MockTransport(responder),
+        )
+        try:
+            self.assertEqual(cliente.docentes(), [])
+            self.assertEqual(
+                cliente.dar_baja_docente(8),
+                {"mensaje": "Cuenta dada de baja"},
+            )
+        finally:
+            cliente._http.close()
+
+        self.assertEqual(solicitudes, [
+            ("GET", "/personal/docentes"),
+            ("DELETE", "/personal/docentes/8"),
+        ])

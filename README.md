@@ -95,6 +95,16 @@ de los datos junto con quién y cuándo hizo cada cambio. Al iniciar, el backend
 elimina la antigua marca de ocultación si existe y crea las estructuras de
 historial necesarias; las bases nuevas ya las incluyen desde `ambar-db.sql`.
 
+Administración también puede crear cuentas de Secretaría desde **Alta de
+secretaría** y revisar o dar de baja cuentas desde **Consulta de secretarías**.
+Las bajas desactivan el acceso sin eliminar los datos de la cuenta.
+La **Bitácora** de accesos queda disponible en el menú de Administración; las
+opciones de Cambio de campus y Bitácora no aparecen en el menú de Secretaría.
+Secretaría puede crear cuentas de maestros desde **Alta de maestros** y
+consultarlas desde **Consulta de maestros**. Desde la consulta también puede
+desactivar el acceso sin borrar los datos; cada cuenta queda asociada a un
+registro docente y el correo debe ser único.
+
 ### Ejecutar el Backend (FastAPI)
 Desde la raíz del repositorio y con el entorno virtual del backend activado:
 ```bash

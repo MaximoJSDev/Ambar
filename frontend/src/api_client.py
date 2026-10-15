@@ -206,6 +206,27 @@ class ApiClient:
     def historial_alumno(self, numero_control: str) -> list[dict]:
         return self._request("GET", f"/alumnos/{numero_control}/historial")
 
+    def secretarias(self) -> list[dict]:
+        return self._request("GET", "/administracion/secretarias")
+
+    def crear_secretaria(self, datos: dict) -> dict:
+        return self._request("POST", "/administracion/secretarias", json=datos)
+
+    def dar_baja_secretaria(self, id_usuario: int) -> dict:
+        return self._request("DELETE", f"/administracion/secretarias/{id_usuario}")
+
+    def crear_docente(self, datos: dict) -> dict:
+        return self._request("POST", "/personal/docentes", json=datos)
+
+    def docentes(self) -> list[dict]:
+        return self._request("GET", "/personal/docentes")
+
+    def dar_baja_docente(self, id_usuario: int) -> dict:
+        return self._request("DELETE", f"/personal/docentes/{id_usuario}")
+
+    def bitacora(self) -> list[dict]:
+        return self._request("GET", "/administracion/bitacora")
+
     def registrar_alta(self, registro: dict) -> dict:
         """Envía el registro de FormAltas.registro(): datos en JSON y los PDF en multipart
         (se leen del disco por bloques, no se cargan completos en memoria)."""

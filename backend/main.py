@@ -8,7 +8,7 @@ from sqlalchemy import text
 from ambar_common.logging_config import configure_file_logging
 
 from .config import engine, settings
-from .routers import alumnos, auth, panel
+from .routers import admin, alumnos, auth, panel, personal
 
 logging.basicConfig(level=logging.INFO)
 configure_file_logging("sige", "backend.log")
@@ -45,6 +45,8 @@ app = FastAPI(title="SIGE API", version="1.0.0", lifespan=lifespan)
 app.include_router(auth.router)
 app.include_router(alumnos.router)
 app.include_router(panel.router)
+app.include_router(admin.router)
+app.include_router(personal.router)
 
 
 @app.get("/salud", tags=["Sistema"])
