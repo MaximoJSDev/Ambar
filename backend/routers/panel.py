@@ -15,7 +15,8 @@ def resumen(_: dict = Depends(requiere_roles(ROL_SECRETARIA))):
     en_tipos = bindparam("tipos", expanding=True)
     with engine.connect() as conn:
         nuevos = conn.execute(
-            text("SELECT COUNT(*) FROM alumnos WHERE semestre_actual = :s AND estatus = 'Activo'"),
+            text("""SELECT COUNT(*) FROM alumnos
+                    WHERE semestre_actual = :s AND estatus = 'Activo' AND eliminado = FALSE"""),
             {"s": SEMESTRE_INGRESO},
         ).scalar_one()
 
@@ -27,7 +28,7 @@ def resumen(_: dict = Depends(requiere_roles(ROL_SECRETARIA))):
         # Expediente pendiente = alumno activo sin alguno de los documentos requeridos
         pendientes = conn.execute(
             text("""SELECT COUNT(*) FROM alumnos a
-                    WHERE a.estatus = 'Activo' AND (
+                    WHERE a.estatus = 'Activo' AND a.eliminado = FALSE AND (
                         SELECT COUNT(*) FROM expedientes_digitales e
                         WHERE e.numero_control = a.numero_control
                           AND e.tipo_documento IN :tipos) < :n""").bindparams(en_tipos),
@@ -38,7 +39,7 @@ def resumen(_: dict = Depends(requiere_roles(ROL_SECRETARIA))):
         for visible, tipo_bd in DOCUMENTOS.values():
             cantidad = conn.execute(
                 text("""SELECT COUNT(*) FROM alumnos a
-                        WHERE a.estatus = 'Activo' AND NOT EXISTS (
+                        WHERE a.estatus = 'Activo' AND a.eliminado = FALSE AND NOT EXISTS (
                             SELECT 1 FROM expedientes_digitales e
                             WHERE e.numero_control = a.numero_control AND e.tipo_documento = :t)"""),
                 {"t": tipo_bd},
@@ -53,6 +54,7 @@ def resumen(_: dict = Depends(requiere_roles(ROL_SECRETARIA))):
                             WHERE e.numero_control = a.numero_control
                               AND e.tipo_documento IN :tipos) AS docs
                     FROM alumnos a
+                    WHERE a.eliminado = FALSE
                     ORDER BY (SELECT MAX(i.id_inscripcion) FROM inscripciones_grupos i
                               WHERE i.numero_control = a.numero_control) DESC,
                              a.numero_control DESC

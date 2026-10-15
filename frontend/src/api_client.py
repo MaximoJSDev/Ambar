@@ -130,17 +130,22 @@ class ApiClient:
     def resumen_panel(self) -> dict:
         return self._request("GET", "/panel/resumen")
 
-    def expediente(self, q: str) -> dict:
+    def expediente(self, q: str, incluir_bajas: bool = False) -> dict:
         """Expediente por número de control o CURP. 404 si no existe."""
-        return self._request("GET", "/alumnos/expediente", params={"q": q})
+        return self._request(
+            "GET", "/alumnos/expediente",
+            params={"q": q, "incluir_bajas": incluir_bajas},
+        )
 
-    def descargar_expediente(self, q: str) -> bytes:
+    def descargar_expediente(self, q: str, incluir_bajas: bool = False) -> bytes:
         """Devuelve el PDF del expediente por número de control o CURP."""
         ruta = "/alumnos/expediente/pdf"
         headers = {"Authorization": f"Bearer {self.token}"} if self.token else {}
         started = time.perf_counter()
         try:
-            response = self._http.get(ruta, params={"q": q}, headers=headers)
+            response = self._http.get(
+                ruta, params={"q": q, "incluir_bajas": incluir_bajas}, headers=headers,
+            )
         except httpx.ConnectError as ex:
             log.warning(
                 "API connection error method=GET path=%s error_type=%s elapsed_ms=%.1f",
@@ -168,12 +173,16 @@ class ApiClient:
             raise self._error(response, ruta)
         return response.content
 
-    def descargar_documento(self, id_documento: int, destino: Path) -> Path:
+    def descargar_documento(
+        self, id_documento: int, destino: Path, incluir_bajas: bool = False,
+    ) -> Path:
         """Descarga un PDF del servidor a `destino` por bloques (pueden pesar cientos de MB)."""
         ruta = f"/alumnos/documentos/{id_documento}"
         headers = {"Authorization": f"Bearer {self.token}"} if self.token else {}
         try:
-            with self._http.stream("GET", ruta, headers=headers) as r:
+            with self._http.stream(
+                "GET", ruta, params={"incluir_bajas": incluir_bajas}, headers=headers,
+            ) as r:
                 if not r.is_success:
                     r.read()                    # en streaming hay que leer el cuerpo para poder parsear el error
                     raise self._error(r, ruta)
@@ -187,6 +196,15 @@ class ApiClient:
         except httpx.HTTPError as ex:
             raise ApiError(0, f"Error de red: {ex}")
         return destino
+
+    def actualizar_alumno(self, numero_control: str, datos: dict) -> None:
+        self._request("PUT", f"/alumnos/{numero_control}", json=datos)
+
+    def eliminar_alumno(self, numero_control: str) -> dict:
+        return self._request("DELETE", f"/alumnos/{numero_control}")
+
+    def historial_alumno(self, numero_control: str) -> list[dict]:
+        return self._request("GET", f"/alumnos/{numero_control}/historial")
 
     def registrar_alta(self, registro: dict) -> dict:
         """Envía el registro de FormAltas.registro(): datos en JSON y los PDF en multipart

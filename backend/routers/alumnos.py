@@ -12,12 +12,14 @@ from ambar_common import validators as v
 
 from .. import reportes, servicios
 from ..config import settings
-from ..constantes import DOCUMENTOS, ROL_SECRETARIA
-from ..deps import requiere_roles
+from ..constantes import DOCUMENTOS, ROL_ADMINISTRADOR, ROL_SECRETARIA
+from ..deps import requiere_roles, usuario_actual
 from ..esquemas import AltaIn, AltaOut
 
 router = APIRouter(prefix="/alumnos", tags=["Alumnos"])
 solo_secretaria = requiere_roles(ROL_SECRETARIA)
+solo_administrador = requiere_roles(ROL_ADMINISTRADOR)
+secretaria_o_administrador = requiere_roles(ROL_SECRETARIA, ROL_ADMINISTRADOR)
 log = logging.getLogger("sige")
 
 
@@ -35,10 +37,16 @@ def verificar(ficha: str = Query(""), curp: str = Query(""), _: dict = Depends(s
 
 # --- Consultas -------------------------------------------------------------
 @router.get("/expediente")
-def expediente(q: str = Query(..., min_length=1, max_length=40), _: dict = Depends(solo_secretaria)):
+def expediente(
+    q: str = Query(..., min_length=1, max_length=40),
+    usuario: dict = Depends(usuario_actual),
+    incluir_bajas: bool = Query(False),
+):
     """Expediente completo por número de control o CURP."""
+    if incluir_bajas and usuario["rol"] != ROL_ADMINISTRADOR:
+        raise HTTPException(403, {"mensaje": "Solo Administración puede consultar expedientes dados de baja"})
     try:
-        return servicios.buscar_expediente(q)
+        return servicios.buscar_expediente(q, incluir_bajas)
     except servicios.NoEncontrado:
         raise HTTPException(404, {"mensaje": "No se encontró ningún alumno con ese número de control o CURP"})
 
@@ -46,11 +54,14 @@ def expediente(q: str = Query(..., min_length=1, max_length=40), _: dict = Depen
 @router.get("/expediente/pdf")
 def descargar_expediente_pdf(
     q: str = Query(..., min_length=1, max_length=40),
-    _: dict = Depends(solo_secretaria),
+    usuario: dict = Depends(usuario_actual),
+    incluir_bajas: bool = Query(False),
 ):
     """Descarga una ficha PDF con membrete institucional y el estado del expediente."""
+    if incluir_bajas and usuario["rol"] != ROL_ADMINISTRADOR:
+        raise HTTPException(403, {"mensaje": "Solo Administración puede consultar expedientes dados de baja"})
     try:
-        datos = servicios.buscar_expediente(q)
+        datos = servicios.buscar_expediente(q, incluir_bajas)
     except servicios.NoEncontrado:
         raise HTTPException(404, {"mensaje": "No se encontró ningún alumno con ese número de control o CURP"})
 
@@ -65,14 +76,62 @@ def descargar_expediente_pdf(
 
 
 @router.get("/documentos/{id_documento}")
-def descargar_documento(id_documento: int, _: dict = Depends(solo_secretaria)):
+def descargar_documento(
+    id_documento: int,
+    usuario: dict = Depends(usuario_actual),
+    incluir_bajas: bool = Query(False),
+):
     """Sirve el PDF guardado en el servidor."""
+    if incluir_bajas and usuario["rol"] != ROL_ADMINISTRADOR:
+        raise HTTPException(403, {"mensaje": "Solo Administración puede consultar expedientes dados de baja"})
     try:
-        ruta, nombre = servicios.ruta_documento(id_documento)
+        ruta, nombre = servicios.ruta_documento(id_documento, incluir_bajas)
     except servicios.NoEncontrado:
         raise HTTPException(404, {"mensaje": "El documento no existe en el servidor"})
     return FileResponse(ruta, media_type="application/pdf", filename=nombre,
                         content_disposition_type="inline")
+
+
+@router.put("/{numero_control}")
+def actualizar_alumno(
+    numero_control: str,
+    datos: AltaIn,
+    usuario: dict = Depends(secretaria_o_administrador),
+):
+    """Modifica datos personales y de contacto sin cambiar el historial académico."""
+    errores = servicios.validar_alta(datos)
+    if errores:
+        raise HTTPException(422, {"mensaje": "Revisa los datos capturados", "errores": errores})
+    try:
+        servicios.actualizar_alumno(numero_control, datos, usuario["id_usuario"])
+        return {"mensaje": "Datos del alumno actualizados"}
+    except servicios.NoEncontrado:
+        raise HTTPException(404, {"mensaje": "No se encontró el alumno"})
+    except servicios.Conflicto as ex:
+        raise HTTPException(409, {"mensaje": ex.mensaje, "errores": ex.errores})
+
+
+@router.delete("/{numero_control}")
+def eliminar_alumno(
+    numero_control: str,
+    usuario: dict = Depends(secretaria_o_administrador),
+):
+    """Da de baja el expediente y conserva su historial administrativo."""
+    try:
+        servicios.eliminar_alumno(numero_control, usuario["id_usuario"])
+        return {"mensaje": "Expediente dado de baja; el historial se conserva"}
+    except servicios.NoEncontrado:
+        raise HTTPException(404, {"mensaje": "No se encontró el alumno"})
+
+
+@router.get("/{numero_control}/historial", dependencies=[Depends(solo_administrador)])
+def historial_alumno(numero_control: str):
+    """Historial de modificaciones y bajas, disponible solo para Administración."""
+    try:
+        servicios.buscar_expediente(numero_control, incluir_bajas=True)
+    except servicios.NoEncontrado:
+        raise HTTPException(404, {"mensaje": "No se encontró el alumno"})
+    return servicios.historial_alumno(numero_control)
 
 
 # --- Altas -----------------------------------------------------------------

@@ -66,10 +66,25 @@ CREATE TABLE alumnos (
     semestre_actual INT NOT NULL DEFAULT 1,
     estatus ENUM('Activo', 'Inactivo') NOT NULL DEFAULT 'Activo',
     motivo_baja VARCHAR(255),
+    eliminado BOOLEAN NOT NULL DEFAULT FALSE,
     FOREIGN KEY (id_usuario) REFERENCES usuarios(id_usuario),
     CONSTRAINT chk_promedio_prepa CHECK (promedio_preparatoria BETWEEN 0 AND 10),
     CONSTRAINT chk_semestre_actual CHECK (semestre_actual >= 1),
     INDEX idx_alumnos_estatus (estatus)
+);
+
+CREATE TABLE historial_alumnos (
+    id_historial INT AUTO_INCREMENT PRIMARY KEY,
+    numero_control VARCHAR(20) NOT NULL,
+    accion ENUM('MODIFICACION', 'BAJA') NOT NULL,
+    datos_anteriores LONGTEXT NOT NULL,
+    datos_nuevos LONGTEXT,
+    id_usuario INT NOT NULL,
+    fecha TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (numero_control) REFERENCES alumnos(numero_control)
+        ON UPDATE CASCADE ON DELETE RESTRICT,
+    FOREIGN KEY (id_usuario) REFERENCES usuarios(id_usuario),
+    INDEX idx_historial_alumno_fecha (numero_control, fecha)
 );
 
 CREATE TABLE expedientes_digitales (

@@ -10,6 +10,7 @@ simultáneas no se repartan el mismo cupo ni el mismo consecutivo:
 Si algo falla después del paso 4 se borran los PDF copiados y se hace rollback.
 """
 import logging
+import json
 import re
 import shutil
 import unicodedata
@@ -199,13 +200,16 @@ def _check_violado(exc: DBAPIError) -> bool:
     return bool(args) and args[0] in ERRNO_CHECK_VIOLADO
 
 
-def buscar_expediente(q: str) -> dict:
+def buscar_expediente(q: str, incluir_bajas: bool = False) -> dict:
     """Busca por número de control o CURP (exactos)."""
     q = q.strip()
     with engine.connect() as conn:
         a = conn.execute(
-            text("SELECT * FROM alumnos WHERE numero_control = :q OR curp = :cu LIMIT 1"),
-            {"q": q, "cu": q.upper()},
+            text("""SELECT * FROM alumnos
+                    WHERE (numero_control = :q OR curp = :cu)
+                      AND (:incluir_bajas OR eliminado = FALSE)
+                    LIMIT 1"""),
+            {"q": q, "cu": q.upper(), "incluir_bajas": incluir_bajas},
         ).mappings().first()
         if a is None:
             raise NoEncontrado()
@@ -233,6 +237,7 @@ def buscar_expediente(q: str) -> dict:
         "nombre_completo": nombre,
         "semestre_actual": a["semestre_actual"],
         "estatus": a["estatus"],
+        "eliminado": bool(a["eliminado"]),
         "personales": {
             "nombres": a["nombres"],
             "apellido_paterno": a["apellido_paterno"],
@@ -275,12 +280,16 @@ def buscar_expediente(q: str) -> dict:
     }
 
 
-def ruta_documento(id_documento: int) -> tuple[Path, str]:
+def ruta_documento(id_documento: int, incluir_bajas: bool = False) -> tuple[Path, str]:
     """Devuelve la ruta absoluta del PDF y el nombre sugerido para descargarlo."""
     with engine.connect() as conn:
         fila = conn.execute(
-            text("SELECT numero_control, tipo_documento, ruta_archivo FROM expedientes_digitales WHERE id_documento = :i"),
-            {"i": id_documento},
+            text("""SELECT e.numero_control, e.tipo_documento, e.ruta_archivo
+                    FROM expedientes_digitales e
+                    JOIN alumnos a ON a.numero_control = e.numero_control
+                    WHERE e.id_documento = :i
+                      AND (:incluir_bajas OR a.eliminado = FALSE)"""),
+            {"i": id_documento, "incluir_bajas": incluir_bajas},
         ).mappings().first()
     if fila is None:
         raise NoEncontrado()
@@ -289,6 +298,134 @@ def ruta_documento(id_documento: int) -> tuple[Path, str]:
     if not ruta.is_relative_to(base) or not ruta.is_file():
         raise NoEncontrado()
     return ruta, f"{fila['numero_control']}_{ruta.name}"
+
+
+def _guardar_historial(
+    conn,
+    numero_control: str,
+    accion: str,
+    anterior: dict,
+    nuevo: dict | None,
+    id_usuario: int,
+) -> None:
+    conn.execute(
+        text("""INSERT INTO historial_alumnos
+                    (numero_control, accion, datos_anteriores, datos_nuevos, id_usuario)
+                VALUES (:numero, :accion, :anterior, :nuevo, :usuario)"""),
+        {
+            "numero": numero_control,
+            "accion": accion,
+            "anterior": json.dumps(anterior, ensure_ascii=False, default=str),
+            "nuevo": json.dumps(nuevo, ensure_ascii=False, default=str) if nuevo is not None else None,
+            "usuario": id_usuario,
+        },
+    )
+
+
+def actualizar_alumno(numero_control: str, datos: AltaIn, id_usuario: int) -> None:
+    errores = validar_alta(datos)
+    if errores:
+        raise Conflicto("Revisa los datos capturados", errores)
+
+    try:
+        with engine.begin() as conn:
+            anterior = conn.execute(
+                text("SELECT * FROM alumnos WHERE numero_control = :numero FOR UPDATE"),
+                {"numero": numero_control},
+            ).mappings().first()
+            if anterior is None or anterior["eliminado"]:
+                raise NoEncontrado()
+
+            duplicados = conn.execute(
+                text("""SELECT numero_ficha, curp FROM alumnos
+                        WHERE numero_control != :numero
+                          AND (numero_ficha = :ficha OR curp = :curp)"""),
+                {"numero": numero_control, "ficha": datos.ficha, "curp": datos.curp},
+            ).mappings().all()
+            errores_duplicados = {}
+            if any(f["numero_ficha"] == datos.ficha for f in duplicados):
+                errores_duplicados["ficha"] = "Esta ficha ya está registrada"
+            if any(f["curp"] == datos.curp for f in duplicados):
+                errores_duplicados["curp"] = "Esta CURP ya está registrada"
+            if errores_duplicados:
+                raise Conflicto("Los datos ya están registrados para otro alumno", errores_duplicados)
+
+            conn.execute(
+                text("""UPDATE alumnos SET
+                            numero_ficha = :ficha, nombres = :nombre,
+                            apellido_paterno = :ap_paterno, apellido_materno = :ap_materno,
+                            fecha_nacimiento = :fecha, genero = :genero, curp = :curp,
+                            rfc = :rfc, ine = :ine, nss = :nss, domicilio = :domicilio,
+                            celular = :celular, celular_emergencia = :celular_emergencia,
+                            correo_personal = :correo, correo_emergencia = :correo_emergencia,
+                            alergias = :alergias, preparatoria_procedencia = :preparatoria,
+                            promedio_preparatoria = :promedio
+                        WHERE numero_control = :numero"""),
+                {
+                    "numero": numero_control, "ficha": datos.ficha, "nombre": datos.nombre,
+                    "ap_paterno": datos.ap_paterno, "ap_materno": datos.ap_materno,
+                    "fecha": datos.fecha_nacimiento, "genero": datos.genero, "curp": datos.curp,
+                    "rfc": datos.rfc, "ine": datos.ine, "nss": datos.nss,
+                    "domicilio": datos.domicilio, "celular": re.sub(r"[\s-]", "", datos.celular),
+                    "celular_emergencia": re.sub(r"[\s-]", "", datos.celular_emergencia),
+                    "correo": datos.correo, "correo_emergencia": datos.correo_emergencia,
+                    "alergias": datos.alergias, "preparatoria": datos.preparatoria,
+                    "promedio": datos.promedio,
+                },
+            )
+            nuevo = conn.execute(
+                text("SELECT * FROM alumnos WHERE numero_control = :numero"),
+                {"numero": numero_control},
+            ).mappings().one()
+            _guardar_historial(
+                conn, numero_control, "MODIFICACION", dict(anterior), dict(nuevo), id_usuario,
+            )
+    except IntegrityError as exc:
+        raise Conflicto("La ficha, CURP o correo ya está registrado.") from exc
+
+
+def eliminar_alumno(numero_control: str, id_usuario: int) -> None:
+    with engine.begin() as conn:
+        anterior = conn.execute(
+            text("SELECT * FROM alumnos WHERE numero_control = :numero FOR UPDATE"),
+            {"numero": numero_control},
+        ).mappings().first()
+        if anterior is None or anterior["eliminado"]:
+            raise NoEncontrado()
+        conn.execute(
+            text("UPDATE alumnos SET eliminado = TRUE WHERE numero_control = :numero"),
+            {"numero": numero_control},
+        )
+        nuevo = dict(anterior) | {"eliminado": True}
+        _guardar_historial(
+            conn, numero_control, "BAJA", dict(anterior), nuevo, id_usuario,
+        )
+
+
+def historial_alumno(numero_control: str) -> list[dict]:
+    with engine.connect() as conn:
+        filas = conn.execute(
+            text("""SELECT h.id_historial, h.numero_control, h.accion,
+                           h.datos_anteriores, h.datos_nuevos, h.fecha,
+                           u.correo AS usuario
+                    FROM historial_alumnos h
+                    JOIN usuarios u ON u.id_usuario = h.id_usuario
+                    WHERE h.numero_control = :numero
+                    ORDER BY h.fecha DESC, h.id_historial DESC"""),
+            {"numero": numero_control},
+        ).mappings().all()
+    return [
+        {
+            "id_historial": fila["id_historial"],
+            "numero_control": fila["numero_control"],
+            "accion": fila["accion"],
+            "datos_anteriores": json.loads(fila["datos_anteriores"]),
+            "datos_nuevos": json.loads(fila["datos_nuevos"]) if fila["datos_nuevos"] else None,
+            "fecha": fila["fecha"].isoformat(sep=" ", timespec="seconds"),
+            "usuario": fila["usuario"],
+        }
+        for fila in filas
+    ]
 
 
 # --------------------------------------------------------------------------
@@ -376,12 +513,13 @@ def registrar_alta(d: AltaIn, pdfs: dict[str, str], usuario: dict) -> dict:
 
                 # La BD guarda solo la ruta, relativa a STORAGE_DIR (portable entre servidores)
                 tipos = {visible: tipo_bd for visible, tipo_bd in DOCUMENTOS.values()}
-                conn.execute(
-                    text("""INSERT INTO expedientes_digitales (numero_control, tipo_documento, ruta_archivo)
-                            VALUES (:numero, :tipo, :ruta)"""),
-                    [{"numero": numero, "tipo": tipos[doc], "ruta": f"{numero}/{Path(ruta).name}"}
-                     for doc, ruta in rutas.items()],
-                )
+                if rutas:
+                    conn.execute(
+                        text("""INSERT INTO expedientes_digitales (numero_control, tipo_documento, ruta_archivo)
+                                VALUES (:numero, :tipo, :ruta)"""),
+                        [{"numero": numero, "tipo": tipos[doc], "ruta": f"{numero}/{Path(ruta).name}"}
+                         for doc, ruta in rutas.items()],
+                    )
 
                 id_grupos = conn.execute(
                     text("SELECT id_grupo FROM grupos WHERE id_paquete = :p AND periodo_escolar = :per"),

@@ -1,6 +1,7 @@
 import asyncio
 import atexit
 import datetime
+import json
 import os
 import shutil
 import subprocess
@@ -316,7 +317,11 @@ class Shell:
         self._items: dict[str, tuple[ft.Container, ft.Icon, ft.Text]] = {}
 
         items = []
-        for destino, nombre, icono in NAV:
+        nav = (
+            [("/consultas", "Historial de alumnos", ft.Icons.HISTORY)]
+            if usuario["rol"] == "Administrador" else NAV
+        )
+        for destino, nombre, icono in nav:
             ico = ft.Icon(icono, size=18, color="#C9D3E3")
             txt = ft.Text(nombre, size=14, color="#E1E8F3")
             cont = ft.Container(
@@ -1239,11 +1244,16 @@ class ConsultaExpediente:
         ],
     }
 
-    def __init__(self, page: ft.Page, picker: ft.FilePicker, navegar):
+    def __init__(self, page: ft.Page, picker: ft.FilePicker, usuario: dict, navegar):
         self.page = page
         self.picker = picker
+        self.usuario = usuario
+        self.es_admin = usuario["rol"] == "Administrador"
         self.navegar = navegar
         self.datos: dict | None = None
+        self.incluir_bajas = False
+        self.historial: list[dict] = []
+        self.error_historial: str | None = None
         self.seccion = "personales"
         self.boton_descargar = ft.OutlinedButton(
             "Descargar expediente PDF",
@@ -1255,6 +1265,11 @@ class ConsultaExpediente:
         self.entrada = tf("Número de control o CURP", on_submit=self.buscar,
                           capitalization=ft.TextCapitalization.CHARACTERS)
         self.boton = ft.FilledButton("Buscar", style=estilo_primario(), height=46, on_click=self.buscar)
+        self.filtro_bajas = ft.Checkbox(
+            label="Incluir alumnos dados de baja",
+            value=False,
+            on_change=self._cambiar_filtro_bajas,
+        )
         self.aviso = ft.Text("", color=ft.Colors.RED_700, size=13, weight=ft.FontWeight.W_600, visible=False)
         self.resultado = ft.Column(spacing=20)
         self._pintar()
@@ -1264,12 +1279,16 @@ class ConsultaExpediente:
                 etiqueta("Número de control o CURP", self.entrada),
                 self.boton,
             ]),
+            *([self.filtro_bajas] if self.es_admin else []),
             self.aviso,
         ]), padding=ft.Padding.symmetric(horizontal=20, vertical=16))
 
         self.vista = ft.Column(expand=True, scroll=ft.ScrollMode.AUTO, spacing=24, controls=[
-            titulo_pagina("Expediente del alumno",
-                          "Consulta la información académica y los documentos del estudiante."),
+            titulo_pagina(
+                "Historial administrativo" if self.es_admin else "Expediente del alumno",
+                "Consulta expedientes, bajas y versiones anteriores."
+                if self.es_admin else "Consulta la información académica y los documentos del estudiante.",
+            ),
             buscador,
             self.resultado,
         ])
@@ -1286,8 +1305,18 @@ class ConsultaExpediente:
         self.boton.disabled = True
         self.page.update()
         try:
-            self.datos = api.expediente(q)
+            self.datos = api.expediente(q, self.es_admin and self.incluir_bajas)
             self.seccion = "personales"
+            self.historial = []
+            self.error_historial = None
+            if self.es_admin:
+                try:
+                    self.historial = api.historial_alumno(self.datos["numero_control"])
+                except ApiError as ex:
+                    if ex.status == 401:
+                        self.navegar("/consultas")
+                        return
+                    self.error_historial = ex.mensaje
         except ApiError as ex:
             self.datos = None
             if ex.status == 401:            # sesión vencida: route_change regresa al login
@@ -1300,6 +1329,11 @@ class ConsultaExpediente:
         self._pintar()
         self.page.update()
 
+    def _cambiar_filtro_bajas(self, e):
+        self.incluir_bajas = bool(e.control.value)
+        if (self.entrada.value or "").strip():
+            self.buscar()
+
     def _cambiar_seccion(self, clave: str):
         self.seccion = clave
         self._pintar()
@@ -1309,7 +1343,9 @@ class ConsultaExpediente:
         snackbar(self.page, f"Abriendo «{doc['documento']}»…")
         try:
             destino = _carpeta_pdf_temporal() / f"{self.datos['numero_control']}_{doc['id_documento']}.pdf"
-            api.descargar_documento(doc["id_documento"], destino)
+            api.descargar_documento(
+                doc["id_documento"], destino, self.es_admin and self.incluir_bajas,
+            )
             abrir_archivo(destino)
         except ApiError as ex:
             if ex.status == 401:
@@ -1328,6 +1364,7 @@ class ConsultaExpediente:
             contenido = await asyncio.to_thread(
                 api.descargar_expediente,
                 self.datos["numero_control"],
+                self.es_admin and self.incluir_bajas,
             )
             nombre = f"expediente_{self.datos['numero_control']}.pdf"
             carpeta_descargas = Path.home() / "Downloads"
@@ -1366,6 +1403,7 @@ class ConsultaExpediente:
         self.resultado.controls = [
             self._encabezado(),
             self._pestanas(),
+            *([self._panel_historial()] if self.es_admin else []),
         ]
 
     def _encabezado(self) -> ft.Control:
@@ -1385,10 +1423,197 @@ class ConsultaExpediente:
                 ft.Row(spacing=12, controls=[
                     chip(ordinal_semestre(d["semestre_actual"]), True),
                     chip("Inscripción activa" if activo else "Inscripción inactiva", activo),
+                    *([chip("Dado de baja", False)] if d["eliminado"] else []),
                 ]),
                 self.boton_descargar,
+                *([] if d["eliminado"] else [
+                    ft.Row(spacing=8, controls=[
+                        ft.OutlinedButton(
+                            "Modificar datos", style=estilo_secundario(),
+                            on_click=self._editar_alumno,
+                        ),
+                        ft.OutlinedButton(
+                            "Dar de baja", style=estilo_secundario(),
+                            on_click=self._confirmar_baja,
+                        ),
+                    ]),
+                ]),
             ]),
         ]), padding=ft.Padding.symmetric(horizontal=20, vertical=16))
+
+    def _editar_alumno(self, e=None):
+        d = self.datos
+        p, c, a = d["personales"], d["contacto"], d["academicos"]
+        genero = next((key for key, valor in v.GENEROS.items() if valor == p["genero"]), "no_especifica")
+        campos = {
+            "ficha": tf(value=a["numero_ficha"], label="Número de ficha"),
+            "nombre": tf(value=p["nombres"], label="Nombre(s)"),
+            "ap_paterno": tf(value=p["apellido_paterno"], label="Apellido paterno"),
+            "ap_materno": tf(value=p["apellido_materno"], label="Apellido materno"),
+            "fecha_nacimiento": tf(
+                value=datetime.datetime.strptime(p["fecha_nacimiento"], "%d/%m/%Y").date().isoformat(),
+                label="Fecha de nacimiento (AAAA-MM-DD)",
+            ),
+            "curp": tf(value=p["curp"], label="CURP"),
+            "rfc": tf(value="" if p["rfc"] == "—" else p["rfc"], label="RFC (opcional)"),
+            "nss": tf(value=p["nss"], label="Número de seguro social"),
+            "ine": tf(value="" if p["ine"] == "—" else p["ine"], label="INE (opcional)"),
+            "genero": ft.Dropdown(
+                label="Género",
+                value=genero,
+                options=[ft.DropdownOption(key=k, text=nombre) for k, nombre in v.GENEROS.items()],
+            ),
+            "celular": tf(value=c["celular"], label="Celular"),
+            "correo": tf(value=c["correo_personal"], label="Correo personal"),
+            "domicilio": tf(value=c["domicilio"], label="Domicilio"),
+            "preparatoria": tf(value=a["preparatoria"], label="Preparatoria"),
+            "promedio": tf(value=a["promedio"], label="Promedio"),
+            "celular_emergencia": tf(value=c["celular_emergencia"], label="Celular de emergencia"),
+            "correo_emergencia": tf(value=c["correo_emergencia"], label="Correo de emergencia"),
+            "alergias": tf(value=c["alergias"], label="Alergias"),
+        }
+        contenido = ft.ResponsiveRow(
+            spacing=12,
+            run_spacing=8,
+            controls=[
+                ft.Container(col={"xs": 12, "md": 6}, content=campo)
+                for campo in campos.values()
+            ],
+        )
+        self.page.show_dialog(ft.AlertDialog(
+            modal=True,
+            title=ft.Text("Modificar datos del alumno"),
+            content=ft.Container(
+                width=680,
+                height=520,
+                content=ft.Column(scroll=ft.ScrollMode.AUTO, controls=[contenido]),
+            ),
+            actions=[
+                ft.TextButton("Cancelar", on_click=lambda _: self.page.pop_dialog()),
+                ft.FilledButton(
+                    "Guardar cambios", style=estilo_primario(),
+                    on_click=lambda _: self._guardar_edicion(campos),
+                ),
+            ],
+        ))
+
+    def _guardar_edicion(self, campos: dict):
+        datos = {clave: (campo.value or "").strip() for clave, campo in campos.items()}
+        try:
+            datos["fecha_nacimiento"] = datetime.date.fromisoformat(datos["fecha_nacimiento"]).isoformat()
+            datos["promedio"] = float(datos["promedio"].replace(",", "."))
+        except ValueError:
+            snackbar(self.page, "Revisa la fecha (AAAA-MM-DD) y el promedio.")
+            return
+        datos["rfc"] = datos["rfc"] or None
+        datos["ine"] = datos["ine"] or None
+
+        try:
+            api.actualizar_alumno(self.datos["numero_control"], datos)
+        except ApiError as ex:
+            if ex.status == 401:
+                self.navegar("/consultas")
+                return
+            detalles = "; ".join(f"{campo}: {mensaje}" for campo, mensaje in ex.errores.items())
+            snackbar(self.page, f"{ex.mensaje}{': ' + detalles if detalles else ''}")
+            return
+
+        numero_control = self.datos["numero_control"]
+        self.page.pop_dialog()
+        self.entrada.value = numero_control
+        self.buscar()
+        snackbar(self.page, "Los datos del alumno se actualizaron.")
+
+    def _confirmar_baja(self, e=None):
+        self.page.show_dialog(ft.AlertDialog(
+            modal=True,
+            title=ft.Text("Dar de baja el expediente"),
+            content=ft.Text(
+                "El expediente dejará de aparecer para Secretaría. "
+                "El registro, sus documentos y sus versiones anteriores se conservarán "
+                "y solo Administración podrá consultarlos."
+            ),
+            actions=[
+                ft.TextButton("Cancelar", on_click=lambda _: self.page.pop_dialog()),
+                ft.FilledButton(
+                    "Confirmar baja", style=estilo_primario(),
+                    on_click=self._dar_baja,
+                ),
+            ],
+        ))
+
+    def _dar_baja(self, e=None):
+        try:
+            api.eliminar_alumno(self.datos["numero_control"])
+        except ApiError as ex:
+            if ex.status == 401:
+                self.navegar("/consultas")
+                return
+            snackbar(self.page, ex.mensaje)
+            return
+
+        numero_control = self.datos["numero_control"]
+        self.page.pop_dialog()
+        self.datos = None
+        self.historial = []
+        self._pintar()
+        self.page.update()
+        snackbar(self.page, f"Expediente {numero_control} dado de baja; el historial se conservó.")
+
+    def _panel_historial(self) -> ft.Control:
+        if self.error_historial:
+            return tarjeta(ft.Text(
+                f"No se pudo cargar el historial: {self.error_historial}",
+                color=ft.Colors.RED_700,
+            ))
+        if not self.historial:
+            cuerpo = ft.Text("Este expediente no tiene modificaciones ni bajas registradas.", color=MUTED)
+        else:
+            cuerpo = ft.Column(spacing=8, controls=[
+                ft.Container(
+                    padding=ft.Padding.symmetric(horizontal=14, vertical=10),
+                    border=ft.Border.only(bottom=ft.BorderSide(1, BORDER)),
+                    content=ft.Row(controls=[
+                        ft.Text(f"{evento['accion']} · {evento['fecha']}", expand=True,
+                                size=14, weight=ft.FontWeight.BOLD, color=NAVY),
+                        ft.Text(f"Usuario: {evento['usuario']}", size=12, color=MUTED),
+                        ft.TextButton(
+                            "Ver cambios",
+                            on_click=lambda e, item=evento: self._ver_detalle_historial(item),
+                        ),
+                    ]),
+                )
+                for evento in self.historial
+            ])
+        return tarjeta(ft.Column(spacing=12, controls=[
+            ft.Text("Historial de cambios", size=19, weight=ft.FontWeight.BOLD, color=NAVY),
+            cuerpo,
+        ]), padding=20)
+
+    def _ver_detalle_historial(self, evento: dict):
+        contenido = {
+            "acción": evento["accion"],
+            "fecha": evento["fecha"],
+            "usuario": evento["usuario"],
+            "datos anteriores": evento["datos_anteriores"],
+            "datos nuevos": evento["datos_nuevos"],
+        }
+        self.page.show_dialog(ft.AlertDialog(
+            modal=True,
+            title=ft.Text("Detalle del historial"),
+            content=ft.Container(
+                width=720,
+                height=520,
+                content=ft.Column(scroll=ft.ScrollMode.AUTO, controls=[
+                    ft.Text(
+                        json.dumps(contenido, ensure_ascii=False, indent=2),
+                        selectable=True,
+                        font_family="Consolas",
+                    ),
+                ]),
+            ),
+            actions=[ft.TextButton("Cerrar", on_click=lambda _: self.page.pop_dialog())],
+        ))
 
     def _pestanas(self) -> ft.Control:
         def pestana(clave, texto):
@@ -1465,8 +1690,8 @@ class ConsultaExpediente:
         ])
 
 
-def build_consultas(page: ft.Page, picker: ft.FilePicker, navegar) -> ft.Control:
-    return ConsultaExpediente(page, picker, navegar).vista
+def build_consultas(page: ft.Page, picker: ft.FilePicker, usuario: dict, navegar) -> ft.Control:
+    return ConsultaExpediente(page, picker, usuario, navegar).vista
 
 
 # =====================================================================
@@ -1492,7 +1717,7 @@ def main(page: ft.Page):
 
     def entrar(usuario: dict):
         sesion["usuario"] = usuario
-        navegar("/secretaria")
+        navegar("/consultas" if usuario["rol"] == "Administrador" else "/secretaria")
 
     def cerrar_sesion():
         try:
@@ -1507,7 +1732,7 @@ def main(page: ft.Page):
         if ruta == "/altas":
             return build_altas(page, selector_archivos, usuario, navegar)
         if ruta == "/consultas":
-            return build_consultas(page, selector_archivos, navegar)
+            return build_consultas(page, selector_archivos, usuario, navegar)
         return build_panel(page, navegar)
 
     def route_change(e=None):
@@ -1526,6 +1751,8 @@ def main(page: ft.Page):
         # Rutas protegidas: sin sesión siempre se vuelve al login
         if usuario is None:
             ruta = "/"
+        elif usuario["rol"] == "Administrador" and ruta != "/consultas":
+            ruta = "/consultas"
         elif ruta not in IMPLEMENTADAS:
             ruta = "/secretaria"
         page.route = ruta

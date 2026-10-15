@@ -2,6 +2,7 @@
 
 ROL_SECRETARIA = "Secretaría"
 ROL_DOCENTE = "Docente"
+ROL_ADMINISTRADOR = "Administrador"
 TURNOS = ("Matutino", "Vespertino")
 SEMESTRE_INGRESO = 1
 

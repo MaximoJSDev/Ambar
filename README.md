@@ -76,6 +76,25 @@ puedes crear o actualizar el usuario ejecutando
 `python -m backend.seed --correo TU_CORREO --nombres TU_NOMBRE --apellidos TUS_APELLIDOS`
 desde la carpeta del proyecto.
 
+Para crear una cuenta independiente de Administración, ejecuta
+`python -m backend.seed --admin-correo CORREO_ADMINISTRADOR`; se solicitará su
+contraseña de forma interactiva. Ese comando también prepara los roles y grupos,
+pero no cambia la cuenta de Secretaría.
+
+Para crear además 10 alumnos ficticios dados de alta e inscritos en los grupos del
+periodo actual, agrega `--alumnos-demo 10` al comando. La seed asigna números de
+control y correos institucionales mediante el flujo normal de altas; al no crear
+PDF, sus documentos aparecerán pendientes. Los registros demo usan fichas
+`9999-NNNNN` y se omiten si ya existen al volver a ejecutar la seed.
+
+En **Consultas**, Secretaría y Administración pueden modificar datos y dar de
+baja expedientes activos. Las bajas desaparecen de las consultas de Secretaría,
+pero conservan sus datos y documentos. Administración tiene un inicio de sesión
+y una vista propios para consultar las bajas y revisar las versiones anteriores
+de los datos junto con quién y cuándo hizo cada cambio. Al iniciar, el backend
+elimina la antigua marca de ocultación si existe y crea las estructuras de
+historial necesarias; las bases nuevas ya las incluyen desde `ambar-db.sql`.
+
 ### Ejecutar el Backend (FastAPI)
 Desde la raíz del repositorio y con el entorno virtual del backend activado:
 ```bash
