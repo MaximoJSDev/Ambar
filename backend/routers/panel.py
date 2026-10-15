@@ -4,7 +4,7 @@ from sqlalchemy import bindparam, text
 
 from ..config import settings
 from ..constantes import DOCUMENTOS, ROL_SECRETARIA, SEMESTRE_INGRESO, TIPOS_REQUERIDOS
-from ..db import engine
+from ..config import engine
 from ..deps import requiere_roles
 
 router = APIRouter(prefix="/panel", tags=["Panel"])

@@ -8,12 +8,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import text
 
 from .. import seguridad
-from ..config import settings
-from ..db import engine
-from ..deps import usuario_actual
+from ..config import engine, settings
+from ..deps import SELECT_USUARIO, usuario_actual
 from ..esquemas import LoginIn, LoginOut, UsuarioOut
-from ..login_guard import LoginGuard
-from ..usuarios import SELECT_USUARIO
+from ..seguridad import LoginGuard
 
 router = APIRouter(prefix="/auth", tags=["Sesión"])
 log = logging.getLogger("sige")

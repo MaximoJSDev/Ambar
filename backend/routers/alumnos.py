@@ -1,15 +1,16 @@
 """Altas y consulta de alumnos (datos en JSON + 6 PDF en multipart)."""
 import logging
+import re
 import tempfile
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import ValidationError
 
 from ambar_common import validators as v
 
-from .. import consultas, servicios
+from .. import reportes, servicios
 from ..config import settings
 from ..constantes import DOCUMENTOS, ROL_SECRETARIA
 from ..deps import requiere_roles
@@ -37,17 +38,38 @@ def verificar(ficha: str = Query(""), curp: str = Query(""), _: dict = Depends(s
 def expediente(q: str = Query(..., min_length=1, max_length=40), _: dict = Depends(solo_secretaria)):
     """Expediente completo por número de control o CURP."""
     try:
-        return consultas.buscar_expediente(q)
-    except consultas.NoEncontrado:
+        return servicios.buscar_expediente(q)
+    except servicios.NoEncontrado:
         raise HTTPException(404, {"mensaje": "No se encontró ningún alumno con ese número de control o CURP"})
+
+
+@router.get("/expediente/pdf")
+def descargar_expediente_pdf(
+    q: str = Query(..., min_length=1, max_length=40),
+    _: dict = Depends(solo_secretaria),
+):
+    """Descarga una ficha PDF con membrete institucional y el estado del expediente."""
+    try:
+        datos = servicios.buscar_expediente(q)
+    except servicios.NoEncontrado:
+        raise HTTPException(404, {"mensaje": "No se encontró ningún alumno con ese número de control o CURP"})
+
+    contenido = reportes.generar_expediente_pdf(datos)
+    numero = re.sub(r"[^A-Za-z0-9_-]", "_", datos["numero_control"])
+    nombre = f"expediente_{numero}.pdf"
+    return Response(
+        content=contenido,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{nombre}"'},
+    )
 
 
 @router.get("/documentos/{id_documento}")
 def descargar_documento(id_documento: int, _: dict = Depends(solo_secretaria)):
     """Sirve el PDF guardado en el servidor."""
     try:
-        ruta, nombre = consultas.ruta_documento(id_documento)
-    except consultas.NoEncontrado:
+        ruta, nombre = servicios.ruta_documento(id_documento)
+    except servicios.NoEncontrado:
         raise HTTPException(404, {"mensaje": "El documento no existe en el servidor"})
     return FileResponse(ruta, media_type="application/pdf", filename=nombre,
                         content_disposition_type="inline")

@@ -1239,11 +1239,18 @@ class ConsultaExpediente:
         ],
     }
 
-    def __init__(self, page: ft.Page, navegar):
+    def __init__(self, page: ft.Page, picker: ft.FilePicker, navegar):
         self.page = page
+        self.picker = picker
         self.navegar = navegar
         self.datos: dict | None = None
         self.seccion = "personales"
+        self.boton_descargar = ft.OutlinedButton(
+            "Descargar expediente PDF",
+            icon=ft.Icons.DOWNLOAD_OUTLINED,
+            style=estilo_secundario(),
+            on_click=lambda e: self.page.run_task(self.descargar_pdf),
+        )
 
         self.entrada = tf("Número de control o CURP", on_submit=self.buscar,
                           capitalization=ft.TextCapitalization.CHARACTERS)
@@ -1312,6 +1319,43 @@ class ConsultaExpediente:
         except OSError as ex:
             snackbar(self.page, f"No se pudo abrir el PDF: {ex}")
 
+    async def descargar_pdf(self):
+        if self.datos is None:
+            return
+        self.boton_descargar.disabled = True
+        self.page.update()
+        try:
+            contenido = await asyncio.to_thread(
+                api.descargar_expediente,
+                self.datos["numero_control"],
+            )
+            nombre = f"expediente_{self.datos['numero_control']}.pdf"
+            carpeta_descargas = Path.home() / "Downloads"
+            destino = await self.picker.save_file(
+                dialog_title="Guardar expediente PDF",
+                file_name=nombre,
+                initial_directory=str(
+                    carpeta_descargas if carpeta_descargas.is_dir() else Path.home()
+                ),
+                file_type=ft.FilePickerFileType.CUSTOM,
+                allowed_extensions=["pdf"],
+                src_bytes=contenido,
+            )
+            if destino:
+                snackbar(self.page, f"Expediente guardado en «{destino}».")
+        except ApiError as ex:
+            if ex.status == 401:
+                self.navegar("/consultas")
+                return
+            snackbar(self.page, ex.mensaje)
+        except OSError as ex:
+            snackbar(self.page, f"No se pudo guardar el PDF: {ex}")
+        except (OSError, RuntimeError, TimeoutError, ValueError) as ex:
+            snackbar(self.page, f"No se pudo guardar el expediente PDF: {ex}")
+        finally:
+            self.boton_descargar.disabled = False
+            self.page.update()
+
     # --- vista ----------------------------------------------------------
     def _pintar(self):
         if self.datos is None:
@@ -1319,7 +1363,10 @@ class ConsultaExpediente:
                 ft.Text("Busca un alumno por número de control o CURP para ver su expediente.",
                         size=14, color=MUTED))]
             return
-        self.resultado.controls = [self._encabezado(), self._pestanas()]
+        self.resultado.controls = [
+            self._encabezado(),
+            self._pestanas(),
+        ]
 
     def _encabezado(self) -> ft.Control:
         d = self.datos
@@ -1334,11 +1381,14 @@ class ConsultaExpediente:
                 ft.Text(d["nombre_completo"], size=22, weight=ft.FontWeight.BOLD, color=NAVY),
                 ft.Text(f"{d['numero_control']} • Turno {d['academicos']['turno']}", size=14, color=MUTED),
             ]),
-            ft.Row(spacing=12, controls=[
-                chip(ordinal_semestre(d["semestre_actual"]), True),
-                chip("Inscripción activa" if activo else "Inscripción inactiva", activo),
+            ft.Column(horizontal_alignment=ft.CrossAxisAlignment.END, spacing=10, controls=[
+                ft.Row(spacing=12, controls=[
+                    chip(ordinal_semestre(d["semestre_actual"]), True),
+                    chip("Inscripción activa" if activo else "Inscripción inactiva", activo),
+                ]),
+                self.boton_descargar,
             ]),
-        ]), padding=ft.Padding.symmetric(horizontal=20, vertical=20))
+        ]), padding=ft.Padding.symmetric(horizontal=20, vertical=16))
 
     def _pestanas(self) -> ft.Control:
         def pestana(clave, texto):
@@ -1415,8 +1465,8 @@ class ConsultaExpediente:
         ])
 
 
-def build_consultas(page: ft.Page, navegar) -> ft.Control:
-    return ConsultaExpediente(page, navegar).vista
+def build_consultas(page: ft.Page, picker: ft.FilePicker, navegar) -> ft.Control:
+    return ConsultaExpediente(page, picker, navegar).vista
 
 
 # =====================================================================
@@ -1431,9 +1481,10 @@ def main(page: ft.Page):
 
     sesion: dict = {"usuario": None, "shell": None}
 
-    # Flet registra el servicio en la página al construirlo; conservar la referencia
-    # permite reutilizarlo aunque se reemplacen las vistas al navegar.
+    # Montar el servicio en la página y conservarlo al reemplazar las vistas.
     selector_archivos = ft.FilePicker()
+    if not any(service is selector_archivos for service in page.services):
+        page.services.append(selector_archivos)
 
     def navegar(ruta: str):
         page.route = ruta
@@ -1456,7 +1507,7 @@ def main(page: ft.Page):
         if ruta == "/altas":
             return build_altas(page, selector_archivos, usuario, navegar)
         if ruta == "/consultas":
-            return build_consultas(page, navegar)
+            return build_consultas(page, selector_archivos, navegar)
         return build_panel(page, navegar)
 
     def route_change(e=None):

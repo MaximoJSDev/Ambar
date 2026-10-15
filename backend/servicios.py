@@ -4,14 +4,15 @@ Flujo de `registrar_alta`, bajo un candado global de MySQL para que dos altas
 simultáneas no se repartan el mismo cupo ni el mismo consecutivo:
   1. ficha y CURP no repetidas
   2. turno por promedio y grupo con lugar (si el turno está lleno, usa el otro)
-  3. número de control = AAAA + plantel + letra del apellido + consecutivo
-  4. copia de los PDF al servidor (storage.guardar_pdfs)
+  3. número de control = año(2) + tecnológico(2) + carrera(2) + secuencia(2)
+  4. copia de los PDF al servidor
   5. INSERT del alumno, rutas del expediente e inscripción a todas las materias del grupo
 Si algo falla después del paso 4 se borran los PDF copiados y se hace rollback.
 """
 import logging
 import re
 import shutil
+import unicodedata
 from datetime import date
 from pathlib import Path
 
@@ -20,15 +21,27 @@ from sqlalchemy.exc import DBAPIError, IntegrityError
 
 from ambar_common import validators as v
 
-from . import storage
-from .config import settings
+from .config import engine, settings
 from .constantes import DOCUMENTOS, SEMESTRE_INGRESO, TURNOS
-from .db import engine
 from .esquemas import AltaIn
 
 log = logging.getLogger("sige")
 NOMBRE_CANDADO = "sige_altas"
 ERRNO_CHECK_VIOLADO = (3819, 4025)      # MySQL / MariaDB
+# Constancia fiscal existe en el ENUM de la BD, aunque Altas todavía no la solicita.
+TIPOS_EXPEDIENTE = [
+    DOCUMENTOS["doc_acta_nacimiento"],
+    DOCUMENTOS["doc_curp"],
+    DOCUMENTOS["doc_comprobante_domicilio"],
+    DOCUMENTOS["doc_ine"],
+    ("Constancia de situación fiscal", "Constancia Situacion Fiscal"),
+    DOCUMENTOS["doc_certificado_preparatoria"],
+    DOCUMENTOS["doc_certificado_medico"],
+]
+
+
+class NoEncontrado(Exception):
+    pass
 
 
 class CupoLleno(Exception):
@@ -48,6 +61,29 @@ class Conflicto(Exception):
         super().__init__(mensaje)
         self.mensaje = mensaje
         self.errores = errores or {}
+
+
+def _slug(texto: str) -> str:
+    normalizado = unicodedata.normalize("NFD", texto).encode("ascii", "ignore").decode()
+    return "_".join(normalizado.lower().split())
+
+
+def guardar_pdfs(numero_control: str, archivos: dict[str, str], base: Path) -> dict[str, str]:
+    """Copia los PDF a base/<numero_control>/<documento>.pdf."""
+    destino = Path(base) / numero_control
+    destino.mkdir(parents=True, exist_ok=False)
+    guardados: dict[str, str] = {}
+    try:
+        for doc, origen in archivos.items():
+            if not origen:
+                raise OSError(f"No se pudo leer «{doc}»")
+            ruta = destino / f"{_slug(doc)}.pdf"
+            shutil.copyfile(origen, ruta)
+            guardados[doc] = str(ruta)
+    except Exception:
+        shutil.rmtree(destino, ignore_errors=True)
+        raise
+    return guardados
 
 
 # --------------------------------------------------------------------------
@@ -147,19 +183,112 @@ def verificar_duplicados(ficha: str, curp: str) -> dict[str, bool]:
         return duplicados(conn, ficha.strip(), curp.strip().upper())
 
 
-def _siguiente_consecutivo(conn, prefijo: str) -> int:
-    """Máximo + 1 (no cuenta filas: un hueco por una baja repetiría números)."""
-    maximo = conn.execute(
-        text("""SELECT COALESCE(MAX(CAST(SUBSTRING(numero_control, :ini) AS UNSIGNED)), 0)
-                FROM alumnos WHERE numero_control LIKE :patron"""),
-        {"ini": len(prefijo) + 1, "patron": prefijo + "%"},
+def _ultimo_sufijo_control(conn, prefijo: str) -> int | None:
+    """Lee carrera+secuencia más altas del año y tecnológico actuales."""
+    ultimo = conn.execute(
+        text("""SELECT MAX(CAST(SUBSTRING(numero_control, 5, 4) AS UNSIGNED))
+                FROM alumnos
+                WHERE numero_control LIKE :patron AND CHAR_LENGTH(numero_control) = 8"""),
+        {"patron": prefijo + "%"},
     ).scalar_one()
-    return int(maximo) + 1
+    return int(ultimo) if ultimo is not None else None
 
 
 def _check_violado(exc: DBAPIError) -> bool:
     args = getattr(exc.orig, "args", ())
     return bool(args) and args[0] in ERRNO_CHECK_VIOLADO
+
+
+def buscar_expediente(q: str) -> dict:
+    """Busca por número de control o CURP (exactos)."""
+    q = q.strip()
+    with engine.connect() as conn:
+        a = conn.execute(
+            text("SELECT * FROM alumnos WHERE numero_control = :q OR curp = :cu LIMIT 1"),
+            {"q": q, "cu": q.upper()},
+        ).mappings().first()
+        if a is None:
+            raise NoEncontrado()
+
+        docs = {
+            f["tipo_documento"]: f["id_documento"]
+            for f in conn.execute(
+                text("SELECT id_documento, tipo_documento FROM expedientes_digitales WHERE numero_control = :n"),
+                {"n": a["numero_control"]},
+            ).mappings()
+        }
+        grupo = conn.execute(
+            text("""SELECT p.nombre_paquete AS grupo, g.periodo_escolar AS periodo
+                    FROM inscripciones_grupos i
+                    JOIN grupos g ON g.id_grupo = i.id_grupo
+                    JOIN paquetes_horario p ON p.id_paquete = g.id_paquete
+                    WHERE i.numero_control = :n
+                    ORDER BY i.id_inscripcion DESC LIMIT 1"""),
+            {"n": a["numero_control"]},
+        ).mappings().first()
+
+    nombre = " ".join(p for p in (a["nombres"], a["apellido_paterno"], a["apellido_materno"]) if p)
+    return {
+        "numero_control": a["numero_control"],
+        "nombre_completo": nombre,
+        "semestre_actual": a["semestre_actual"],
+        "estatus": a["estatus"],
+        "personales": {
+            "nombres": a["nombres"],
+            "apellido_paterno": a["apellido_paterno"],
+            "apellido_materno": a["apellido_materno"],
+            "fecha_nacimiento": a["fecha_nacimiento"].strftime("%d/%m/%Y"),
+            "genero": v.GENEROS.get(a["genero"], a["genero"] or "—"),
+            "curp": a["curp"],
+            "rfc": a["rfc"] or "—",
+            "ine": a["ine"] or "—",
+            "nss": a["nss"] or "—",
+        },
+        "contacto": {
+            "domicilio": a["domicilio"],
+            "celular": a["celular"],
+            "correo_personal": a["correo_personal"],
+            "correo_institucional": a["correo_institucional"] or "—",
+            "celular_emergencia": a["celular_emergencia"],
+            "correo_emergencia": a["correo_emergencia"] or "—",
+            "alergias": a["alergias"] or "Ninguna",
+        },
+        "academicos": {
+            "numero_ficha": a["numero_ficha"],
+            "preparatoria": a["preparatoria_procedencia"],
+            "promedio": f"{a['promedio_preparatoria']:.2f}",
+            "turno": a["turno"],
+            "semestre": str(a["semestre_actual"]),
+            "grupo": grupo["grupo"] if grupo else "Sin grupo",
+            "periodo": grupo["periodo"] if grupo else "—",
+            "estatus": a["estatus"],
+            **({"motivo_baja": a["motivo_baja"]} if a["motivo_baja"] else {}),
+        },
+        "documentos": [
+            {
+                "documento": visible,
+                "id_documento": docs.get(tipo_bd),
+                "estado": "Recibido" if tipo_bd in docs else "Pendiente",
+            }
+            for visible, tipo_bd in TIPOS_EXPEDIENTE
+        ],
+    }
+
+
+def ruta_documento(id_documento: int) -> tuple[Path, str]:
+    """Devuelve la ruta absoluta del PDF y el nombre sugerido para descargarlo."""
+    with engine.connect() as conn:
+        fila = conn.execute(
+            text("SELECT numero_control, tipo_documento, ruta_archivo FROM expedientes_digitales WHERE id_documento = :i"),
+            {"i": id_documento},
+        ).mappings().first()
+    if fila is None:
+        raise NoEncontrado()
+    base = settings.storage_dir
+    ruta = (base / fila["ruta_archivo"]).resolve()
+    if not ruta.is_relative_to(base) or not ruta.is_file():
+        raise NoEncontrado()
+    return ruta, f"{fila['numero_control']}_{ruta.name}"
 
 
 # --------------------------------------------------------------------------
@@ -193,11 +322,21 @@ def registrar_alta(d: AltaIn, pdfs: dict[str, str], usuario: dict) -> dict:
                 paquete, turno, aviso = elegir_paquete(paquetes, v.turno_por_promedio(d.promedio))
 
                 hoy = date.today()
-                prefijo = v.prefijo_control(hoy.year, settings.plantel, d.ap_paterno)
-                consecutivo = _siguiente_consecutivo(conn, prefijo)
-                if consecutivo > 999:
-                    raise Conflicto(f"Se agotaron los números de control con el prefijo {prefijo}.")
-                numero = v.generar_numero_control(hoy.year, settings.plantel, d.ap_paterno, consecutivo)
+                prefijo = v.prefijo_control(hoy.year, settings.numero_tecnologico)
+                ultimo_sufijo = _ultimo_sufijo_control(conn, prefijo)
+                try:
+                    carrera, consecutivo = v.siguiente_carrera_secuencia(
+                        ultimo_sufijo,
+                        settings.numero_carrera,
+                    )
+                except OverflowError as exc:
+                    raise Conflicto(f"Se agotaron los números de control con el prefijo {prefijo}.") from exc
+                numero = v.generar_numero_control(
+                    hoy.year,
+                    settings.numero_tecnologico,
+                    carrera,
+                    consecutivo,
+                )
                 correo_inst = v.correo_institucional(numero, settings.dominio_institucional)
 
                 # Con el candado tomado, una carpeta con este número no pertenece a
@@ -207,7 +346,7 @@ def registrar_alta(d: AltaIn, pdfs: dict[str, str], usuario: dict) -> dict:
                     log.warning("Se elimina carpeta huérfana de expediente: %s", huerfana)
                     shutil.rmtree(huerfana)
 
-                rutas = storage.guardar_pdfs(numero, pdfs, base)
+                rutas = guardar_pdfs(numero, pdfs, base)
                 carpeta = base / numero
 
                 conn.execute(text("""

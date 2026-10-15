@@ -5,6 +5,7 @@ from pathlib import Path
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from sqlalchemy import create_engine
 from sqlalchemy.engine import URL
 
 
@@ -39,7 +40,8 @@ class Settings(BaseSettings):
     requiere_todos_los_documentos: bool = True
 
     # Reglas escolares
-    plantel: int = 1
+    numero_tecnologico: int = 32
+    numero_carrera: int = 7
     dominio_institucional: str = "acapulco.tecnm.mx"
     periodo_escolar: str = ""                   # vacío = se calcula con la fecha
 
@@ -71,3 +73,9 @@ def get_settings() -> Settings:
 
 
 settings = get_settings()
+
+engine = create_engine(
+    settings.database_url,
+    pool_pre_ping=True,
+    pool_recycle=1800,
+)

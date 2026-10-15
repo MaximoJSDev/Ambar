@@ -18,9 +18,10 @@ Antes de comenzar, asegúrate de tener instalado lo siguiente en tu equipo:
 
 ---
 
-## Instalación y Configuración del Entorno
+## Instalación manual del entorno
 
-Sigue estos pasos para configurar el proyecto en tu entorno local. Es altamente recomendable utilizar un entorno virtual para no tener conflictos con otras librerías de Python.
+Estos pasos son opcionales si vas a iniciar Ambar con `run-ambar.bat`: el
+lanzador crea y usa su propio entorno sin que tengas que activarlo.
 
 **1. Clonar el repositorio**
 ```bash
@@ -60,6 +61,21 @@ pip install -r requirements.txt
 
 ## Ejecución del Proyecto
 
+### Inicio sencillo en Windows
+Haz doble clic en `run-ambar.bat`. La primera vez instalará las dependencias y
+pedirá los datos de un servidor MySQL en ejecución. Si la base `ambar_escolar`
+no existe, la creará usando `ambar-db.sql` y pedirá los datos para crear una
+cuenta de Secretaría. La configuración se guarda localmente en `backend/.env`;
+no se vuelve a pedir en los siguientes inicios.
+
+Necesitas tener instalado Python 3 y MySQL o MariaDB. El usuario de MySQL
+configurado debe poder conectarse y crear la base de datos. Se abrirán una
+ventana para el backend y la aplicación de escritorio; cierra ambas para salir.
+Si ya tienes una base de datos, el lanzador no la modifica ni crea usuarios:
+puedes crear o actualizar el usuario ejecutando
+`python -m backend.seed --correo TU_CORREO --nombres TU_NOMBRE --apellidos TUS_APELLIDOS`
+desde la carpeta del proyecto.
+
 ### Ejecutar el Backend (FastAPI)
 Desde la raíz del repositorio y con el entorno virtual del backend activado:
 ```bash
@@ -90,23 +106,34 @@ no registran contraseñas ni tokens.
 
 ---
 
-## Estructura Recomendada del Proyecto
-
-Para mantener el orden a medida que el sistema crezca, se sugiere la siguiente estructura de carpetas:
+## Estructura del Proyecto
 
 ```text
 proyecto-ambar/
-│
-├── frontend/src                 # Todo el código de Flet (Cliente)
-│   ├── main.py               # Punto de entrada de la UI
-│   ├── vistas/               # Archivos separados para vista_login, vista_altas, etc.
-│   └── componentes/          # Botones personalizados, modales, tarjetas, etc.
-│
-├── backend/                  # Todo el código de FastAPI (Servidor)
-│   ├── main_api.py           # Punto de entrada de la API
-│   ├── rutas/                # Endpoints (login, alumnos, maestros)
-│   ├── modelos/              # Modelos de base de datos y esquemas Pydantic
-│   └── base_datos/           # Configuración de conexión a la BD
-│
-└── README.md                 # Este archivo
+├── frontend/
+│   └── src/main.py           # Aplicación de escritorio Flet
+├── backend/
+│   ├── main.py               # Aplicación FastAPI
+│   ├── config.py             # Configuración y conexión a la base de datos
+│   ├── routers/              # Endpoints de sesión, alumnos y panel
+│   ├── servicios.py          # Lógica de alumnos, expedientes y archivos
+│   ├── seguridad.py          # Contraseñas, JWT y control de intentos
+│   ├── deps.py               # Autenticación y permisos de rutas
+│   ├── esquemas.py           # Modelos de entrada y salida
+│   ├── constantes.py         # Reglas y valores compartidos
+│   └── seed.py               # Datos iniciales
+└── README.md
 ```
+
+Los números de control se generan con el formato `AA TT CC SS`: año de dos
+dígitos, número de tecnológico (`32`), número de carrera (`07`) y consecutivo
+de dos dígitos. La secuencia comienza en `00`; al llegar a `99`, aumenta el
+código de carrera y reinicia el consecutivo. El tecnológico y la carrera inicial
+se pueden configurar con `NUMERO_TECNOLOGICO` y `NUMERO_CARRERA` en
+`backend/.env`.
+
+En **Consultas**, al buscar un alumno, el botón **Descargar expediente PDF**
+genera un expediente con secciones de información personal, contacto, trayectoria
+académica y documentación. Incluye la imagen original del membrete en
+`backend/assets/membrete_institucional.png` y se guarda desde el diálogo del
+sistema. Es informativo y no tiene validez oficial.

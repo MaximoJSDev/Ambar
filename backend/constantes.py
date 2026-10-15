@@ -6,7 +6,7 @@ TURNOS = ("Matutino", "Vespertino")
 SEMESTRE_INGRESO = 1
 
 # campo del formulario multipart -> (nombre visible, valor del ENUM tipo_documento en la BD)
-# El nombre visible es el mismo que usa la app Flet y la clave que recibe storage.guardar_pdfs.
+# El nombre visible es el mismo que usa la app Flet y la clave que recibe guardar_pdfs.
 DOCUMENTOS = {
     "doc_acta_nacimiento": ("Acta de nacimiento", "Acta de Nacimiento"),
     "doc_curp": ("CURP", "CURP"),

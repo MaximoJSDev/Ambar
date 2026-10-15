@@ -15,9 +15,8 @@ import sys
 
 from sqlalchemy import text
 
-from .config import settings
+from .config import engine, settings
 from .constantes import ROL_SECRETARIA, SEMESTRE_INGRESO, TURNOS
-from .db import engine
 from .seguridad import hashear
 
 ROLES = [ROL_SECRETARIA, "Docente", "Alumno"]
@@ -54,7 +53,16 @@ def main() -> None:
     with engine.begin() as conn:
         for rol in ROLES:
             conn.execute(text("INSERT IGNORE INTO roles (nombre_rol) VALUES (:r)"), {"r": rol})
-        id_rol = {r: i for i, r in conn.execute(text("SELECT id_rol, nombre_rol FROM roles")).all()}
+            # MySQL's accent-insensitive unique collation can ignore an accented
+            # spelling when an older unaccented role already exists.
+            conn.execute(text("UPDATE roles SET nombre_rol = :r WHERE nombre_rol = :r"), {"r": rol})
+        id_rol = {
+            rol: conn.execute(
+                text("SELECT id_rol FROM roles WHERE nombre_rol = :r"),
+                {"r": rol},
+            ).scalar_one()
+            for rol in ROLES
+        }
 
         correo = args.correo.strip().lower()
         existente = conn.execute(text("SELECT id_usuario FROM usuarios WHERE correo = :c"), {"c": correo}).scalar()

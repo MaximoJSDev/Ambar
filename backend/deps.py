@@ -5,8 +5,20 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import text
 
 from . import seguridad
-from .db import engine
-from .usuarios import SELECT_USUARIO
+from .config import engine
+from .constantes import ROL_DOCENTE, ROL_SECRETARIA
+
+SELECT_USUARIO = f"""
+    SELECT u.id_usuario, u.correo, u.password, u.estatus, r.nombre_rol AS rol,
+           CASE r.nombre_rol
+               WHEN '{ROL_SECRETARIA}' THEN CONCAT_WS(' ', ps.nombres, ps.apellidos)
+               WHEN '{ROL_DOCENTE}' THEN CONCAT_WS(' ', d.nombres, d.apellidos)
+           END AS nombre
+    FROM usuarios u
+    JOIN roles r ON r.id_rol = u.id_rol
+    LEFT JOIN personal_secretaria ps ON ps.id_usuario = u.id_usuario
+    LEFT JOIN empleados_docentes d ON d.id_usuario = u.id_usuario
+"""
 
 _bearer = HTTPBearer(auto_error=False)
 

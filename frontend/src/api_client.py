@@ -134,6 +134,40 @@ class ApiClient:
         """Expediente por número de control o CURP. 404 si no existe."""
         return self._request("GET", "/alumnos/expediente", params={"q": q})
 
+    def descargar_expediente(self, q: str) -> bytes:
+        """Devuelve el PDF del expediente por número de control o CURP."""
+        ruta = "/alumnos/expediente/pdf"
+        headers = {"Authorization": f"Bearer {self.token}"} if self.token else {}
+        started = time.perf_counter()
+        try:
+            response = self._http.get(ruta, params={"q": q}, headers=headers)
+        except httpx.ConnectError as ex:
+            log.warning(
+                "API connection error method=GET path=%s error_type=%s elapsed_ms=%.1f",
+                ruta, type(ex).__name__, (time.perf_counter() - started) * 1000,
+            )
+            raise ApiError(0, f"No se pudo conectar con el servidor ({self.base_url}).")
+        except httpx.TimeoutException as ex:
+            log.warning(
+                "API timeout method=GET path=%s timeout_type=%s elapsed_ms=%.1f",
+                ruta, type(ex).__name__, (time.perf_counter() - started) * 1000,
+            )
+            raise ApiError(0, "El servidor tardó demasiado en responder.")
+        except httpx.HTTPError as ex:
+            log.warning(
+                "API HTTP error method=GET path=%s error_type=%s elapsed_ms=%.1f",
+                ruta, type(ex).__name__, (time.perf_counter() - started) * 1000,
+            )
+            raise ApiError(0, f"Error de red: {ex}")
+
+        elapsed_ms = (time.perf_counter() - started) * 1000
+        log_method = log.warning if response.status_code >= 500 else log.info
+        log_method("API response method=GET path=%s status=%s elapsed_ms=%.1f",
+                   ruta, response.status_code, elapsed_ms)
+        if not response.is_success:
+            raise self._error(response, ruta)
+        return response.content
+
     def descargar_documento(self, id_documento: int, destino: Path) -> Path:
         """Descarga un PDF del servidor a `destino` por bloques (pueden pesar cientos de MB)."""
         ruta = f"/alumnos/documentos/{id_documento}"

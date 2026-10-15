@@ -212,13 +212,42 @@ def indice_letra(apellido: str) -> int:
     raise ValueError("El apellido no contiene letras")
 
 
-def prefijo_control(anio: int, plantel: int, apellido: str) -> str:
-    return f"{anio}{plantel:02d}{indice_letra(apellido):02d}"
+def prefijo_control(anio: int, numero_tecnologico: int) -> str:
+    """Prefijo de cuatro dígitos: año de dos dígitos y tecnológico de dos."""
+    if not 0 <= numero_tecnologico <= 99:
+        raise ValueError("El número de tecnológico debe tener dos dígitos")
+    return f"{anio % 100:02d}{numero_tecnologico:02d}"
 
 
-def generar_numero_control(anio: int, plantel: int, apellido: str, consecutivo: int) -> str:
-    """AAAA + plantel(2) + letra del apellido(2) + consecutivo en esa letra(3)."""
-    return f"{prefijo_control(anio, plantel, apellido)}{consecutivo:03d}"
+def siguiente_carrera_secuencia(
+    ultimo_sufijo: int | None,
+    numero_carrera_inicial: int,
+) -> tuple[int, int]:
+    """Avanza carrera(2)+secuencia(2), empezando en la carrera indicada y 00."""
+    if not 0 <= numero_carrera_inicial <= 99:
+        raise ValueError("El número de carrera debe tener dos dígitos")
+    inicial = numero_carrera_inicial * 100
+    siguiente = max(inicial, (ultimo_sufijo + 1) if ultimo_sufijo is not None else inicial)
+    if siguiente > 9999:
+        raise OverflowError("Se agotaron los números de control disponibles")
+    return divmod(siguiente, 100)
+
+
+def generar_numero_control(
+    anio: int,
+    numero_tecnologico: int,
+    numero_carrera: int,
+    consecutivo: int,
+) -> str:
+    """Genera YY + tecnológico(2) + carrera(2) + consecutivo(2)."""
+    if not 0 <= numero_carrera <= 99:
+        raise ValueError("El número de carrera debe tener dos dígitos")
+    if not 0 <= consecutivo <= 99:
+        raise ValueError("El consecutivo debe tener dos dígitos")
+    return (
+        f"{prefijo_control(anio, numero_tecnologico)}"
+        f"{numero_carrera:02d}{consecutivo:02d}"
+    )
 
 
 def correo_institucional(numero_control: str, dominio: str = "acapulco.tecnm.mx") -> str:

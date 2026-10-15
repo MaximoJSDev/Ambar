@@ -10,6 +10,10 @@ env/
 # Environments / secrets
 .env
 
+# Uploaded student documents
+/expedientes/*
+!/expedientes/.gitkeep
+
 # Tool caches
 .mypy_cache/
 .ruff_cache/

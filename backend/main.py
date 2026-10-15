@@ -7,8 +7,7 @@ from sqlalchemy import text
 
 from ambar_common.logging_config import configure_file_logging
 
-from .config import settings
-from .db import engine
+from .config import engine, settings
 from .routers import alumnos, auth, panel
 
 logging.basicConfig(level=logging.INFO)
