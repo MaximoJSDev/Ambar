@@ -61,8 +61,8 @@ NAV = [
 ]
 ADMIN_NAV = [
     ("/consultas", "Historial de alumnos", ft.Icons.HISTORY),
-    ("/administracion/secretarias/alta", "Alta de secretaría", ft.Icons.PERSON_ADD_ALT_1),
-    ("/administracion/secretarias", "Consulta de secretarías", ft.Icons.LIST_ALT),
+    ("/administracion/secretarias/alta", "Alta de secretaria", ft.Icons.PERSON_ADD_ALT_1),
+    ("/administracion/secretarias", "Consulta de secretarias", ft.Icons.LIST_ALT),
     ("/bitacora", "Bitácora", ft.Icons.FORMAT_LIST_BULLETED),
 ]
 RUTAS_ADMIN = {
@@ -628,7 +628,7 @@ def build_alta_secretaria(page: ft.Page, navegar) -> ft.Control:
     password = tf("Contraseña (mínimo 10 caracteres)", password=True, can_reveal_password=True)
     confirmar = tf("Confirma la contraseña", password=True, can_reveal_password=True)
     aviso = ft.Text("", size=13, color=WARN_FG, visible=False)
-    boton = ft.FilledButton("Crear cuenta de Secretaría", style=estilo_primario())
+    boton = ft.FilledButton("Crear cuenta de secretaria", style=estilo_primario())
 
     def crear(_):
         for campo in (nombres, apellidos, correo, password, confirmar):
@@ -679,7 +679,7 @@ def build_alta_secretaria(page: ft.Page, navegar) -> ft.Control:
     boton.on_click = crear
     return ft.Column(expand=True, scroll=ft.ScrollMode.AUTO, spacing=24, controls=[
         titulo_pagina(
-            "Alta de secretaría",
+            "Alta de secretaria",
             "Crea una cuenta de acceso para personal de Secretaría.",
         ),
         tarjeta(ft.Column(spacing=18, controls=[
@@ -790,7 +790,7 @@ def build_consulta_secretarias(page: ft.Page, navegar) -> ft.Control:
             filas.controls = []
         else:
             if not registros:
-                filas.controls = [ft.Text("Aún no hay cuentas de Secretaría.", size=14, color=MUTED)]
+                filas.controls = [ft.Text("Aún no hay cuentas de secretarias.", size=14, color=MUTED)]
             else:
                 filas.controls = [_tarjeta_secretaria(registro) for registro in registros]
         page.update()
@@ -847,7 +847,7 @@ def build_consulta_secretarias(page: ft.Page, navegar) -> ft.Control:
     cargar()
     return ft.Column(expand=True, scroll=ft.ScrollMode.AUTO, spacing=24, controls=[
         titulo_pagina(
-            "Consulta de secretarías",
+            "Consulta de secretarias",
             "Revisa los datos de acceso y da de baja cuentas cuando sea necesario.",
         ),
         ft.Row(alignment=ft.MainAxisAlignment.END, controls=[

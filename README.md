@@ -95,8 +95,8 @@ de los datos junto con quién y cuándo hizo cada cambio. Al iniciar, el backend
 elimina la antigua marca de ocultación si existe y crea las estructuras de
 historial necesarias; las bases nuevas ya las incluyen desde `ambar-db.sql`.
 
-Administración también puede crear cuentas de Secretaría desde **Alta de
-secretaría** y revisar o dar de baja cuentas desde **Consulta de secretarías**.
+Administración también puede crear cuentas de secretarias desde **Alta de
+secretaria** y revisar o dar de baja cuentas desde **Consulta de secretarias**.
 Las bajas desactivan el acceso sin eliminar los datos de la cuenta.
 La **Bitácora** de accesos queda disponible en el menú de Administración; las
 opciones de Cambio de campus y Bitácora no aparecen en el menú de Secretaría.
