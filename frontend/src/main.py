@@ -51,15 +51,55 @@ REQUIERE_TODOS_LOS_DOCUMENTOS = True         # False: permite dejar documentos p
 NAV = [
     ("/secretaria", "Inicio", ft.Icons.HOME_OUTLINED),
     ("/altas", "Altas", ft.Icons.ADD),
+    ("/altas-maestros", "Alta de maestros", ft.Icons.PERSON_ADD_ALT_1),
+    ("/consulta-maestros", "Consulta de maestros", ft.Icons.GROUP_OUTLINED),
     ("/consultas", "Consultas", ft.Icons.LIST_ALT),
     ("/modificacion", "Modificación", ft.Icons.EDIT_OUTLINED),
     ("/bajas", "Bajas", ft.Icons.REMOVE),
     ("/reinscripcion", "Reinscripción", ft.Icons.REPLAY),
-    ("/cambio_campus", "Cambio de campus", ft.Icons.SWAP_VERT),
     ("/estadisticas", "Estadísticas", ft.Icons.BAR_CHART),
+]
+ADMIN_NAV = [
+    ("/consultas", "Historial de alumnos", ft.Icons.HISTORY),
+    ("/administracion/secretarias/alta", "Alta de secretaría", ft.Icons.PERSON_ADD_ALT_1),
+    ("/administracion/secretarias", "Consulta de secretarías", ft.Icons.LIST_ALT),
     ("/bitacora", "Bitácora", ft.Icons.FORMAT_LIST_BULLETED),
 ]
-IMPLEMENTADAS = {"/secretaria", "/altas", "/consultas"}
+RUTAS_ADMIN = {
+    "/consultas",
+    "/administracion/secretarias/alta",
+    "/administracion/secretarias",
+    "/bitacora",
+}
+IMPLEMENTADAS = {
+    "/secretaria", "/altas", "/altas-maestros", "/consulta-maestros", *RUTAS_ADMIN,
+}
+
+_CAMPOS_HISTORIAL = {
+    "numero_ficha": ("Identificación", "Número de ficha"),
+    "nombres": ("Identificación", "Nombre(s)"),
+    "apellido_paterno": ("Identificación", "Apellido paterno"),
+    "apellido_materno": ("Identificación", "Apellido materno"),
+    "fecha_nacimiento": ("Datos personales", "Fecha de nacimiento"),
+    "genero": ("Datos personales", "Género"),
+    "curp": ("Datos personales", "CURP"),
+    "rfc": ("Datos personales", "RFC"),
+    "ine": ("Datos personales", "Clave de elector (INE)"),
+    "nss": ("Datos personales", "Número de seguro social"),
+    "domicilio": ("Contacto", "Domicilio"),
+    "celular": ("Contacto", "Celular"),
+    "celular_emergencia": ("Contacto", "Celular de emergencia"),
+    "correo_personal": ("Contacto", "Correo personal"),
+    "correo_emergencia": ("Contacto", "Correo de emergencia"),
+    "correo_institucional": ("Contacto", "Correo institucional"),
+    "alergias": ("Contacto y salud", "Alergias"),
+    "preparatoria_procedencia": ("Trayectoria académica", "Preparatoria de procedencia"),
+    "promedio_preparatoria": ("Trayectoria académica", "Promedio de preparatoria"),
+    "turno": ("Trayectoria académica", "Turno"),
+    "semestre_actual": ("Trayectoria académica", "Semestre actual"),
+    "estatus": ("Trayectoria académica", "Situación escolar"),
+    "motivo_baja": ("Trayectoria académica", "Motivo de baja"),
+}
 
 
 # =====================================================================
@@ -317,10 +357,12 @@ class Shell:
         self._items: dict[str, tuple[ft.Container, ft.Icon, ft.Text]] = {}
 
         items = []
-        nav = (
-            [("/consultas", "Historial de alumnos", ft.Icons.HISTORY)]
-            if usuario["rol"] == "Administrador" else NAV
-        )
+        if usuario["rol"] == "Administrador":
+            nav = ADMIN_NAV
+        elif usuario["rol"] == "Secretaría":
+            nav = NAV
+        else:
+            nav = [("/secretaria", "Inicio", ft.Icons.HOME_OUTLINED)]
         for destino, nombre, icono in nav:
             ico = ft.Icon(icono, size=18, color="#C9D3E3")
             txt = ft.Text(nombre, size=14, color="#E1E8F3")
@@ -559,6 +601,405 @@ def build_panel(page: ft.Page, navegar) -> ft.Control:
             acceso("Reinscribir alumno", "Asigna grupo y horario.", "/reinscripcion", "Reinscripción"),
         ]),
         ft.ResponsiveRow(spacing=20, run_spacing=20, controls=[actividad, pendientes]),
+    ])
+
+
+def build_inicio_docente(usuario: dict) -> ft.Control:
+    return ft.Column(spacing=24, controls=[
+        titulo_pagina(
+            f"Bienvenido, {usuario['nombre']}",
+            "Tu cuenta de maestro está activa.",
+        ),
+        tarjeta(ft.Row(spacing=16, controls=[
+            ft.Icon(ft.Icons.INFO_OUTLINE, color=NAVY, size=24),
+            ft.Text(
+                "Las funciones para docentes todavía no están disponibles.",
+                size=14,
+                color=TEXT,
+            ),
+        ])),
+    ])
+
+
+def build_alta_secretaria(page: ft.Page, navegar) -> ft.Control:
+    nombres = tf("Nombre(s)")
+    apellidos = tf("Apellidos")
+    correo = tf("correo@institucion.edu.mx", keyboard_type=ft.KeyboardType.EMAIL)
+    password = tf("Contraseña (mínimo 10 caracteres)", password=True, can_reveal_password=True)
+    confirmar = tf("Confirma la contraseña", password=True, can_reveal_password=True)
+    aviso = ft.Text("", size=13, color=WARN_FG, visible=False)
+    boton = ft.FilledButton("Crear cuenta de Secretaría", style=estilo_primario())
+
+    def crear(_):
+        for campo in (nombres, apellidos, correo, password, confirmar):
+            campo.error = None
+        aviso.visible = False
+        errores = []
+        if not (nombres.value or "").strip():
+            nombres.error = "Escribe el nombre"
+            errores.append(True)
+        if not (apellidos.value or "").strip():
+            apellidos.error = "Escribe los apellidos"
+            errores.append(True)
+        if not (correo.value or "").strip():
+            correo.error = "Escribe el correo"
+            errores.append(True)
+        if len(password.value or "") < 10:
+            password.error = "Usa al menos 10 caracteres"
+            errores.append(True)
+        if password.value != confirmar.value:
+            confirmar.error = "Las contraseñas no coinciden"
+            errores.append(True)
+        if errores:
+            page.update()
+            return
+
+        boton.disabled = True
+        page.update()
+        try:
+            creada = api.crear_secretaria({
+                "nombres": nombres.value,
+                "apellidos": apellidos.value,
+                "correo": correo.value,
+                "password": password.value,
+            })
+            for campo in (nombres, apellidos, correo, password, confirmar):
+                campo.value = ""
+            snackbar(page, f"Cuenta creada para {creada['nombres']} {creada['apellidos']}.")
+        except ApiError as ex:
+            if ex.status == 401:
+                navegar("/consultas")
+                return
+            aviso.value = ex.mensaje
+            aviso.visible = True
+        finally:
+            boton.disabled = False
+            page.update()
+
+    boton.on_click = crear
+    return ft.Column(expand=True, scroll=ft.ScrollMode.AUTO, spacing=24, controls=[
+        titulo_pagina(
+            "Alta de secretaría",
+            "Crea una cuenta de acceso para personal de Secretaría.",
+        ),
+        tarjeta(ft.Column(spacing=18, controls=[
+            ft.ResponsiveRow(spacing=16, run_spacing=14, controls=[
+                ft.Container(col={"xs": 12, "md": 6}, content=etiqueta("Nombre(s)", nombres)),
+                ft.Container(col={"xs": 12, "md": 6}, content=etiqueta("Apellidos", apellidos)),
+                ft.Container(col={"xs": 12}, content=etiqueta("Correo de acceso", correo)),
+                ft.Container(col={"xs": 12, "md": 6}, content=etiqueta("Contraseña", password)),
+                ft.Container(col={"xs": 12, "md": 6}, content=etiqueta("Confirmar contraseña", confirmar)),
+            ]),
+            ft.Text("La contraseña debe tener al menos 10 caracteres.", size=12, color=MUTED),
+            aviso,
+            ft.Row(alignment=ft.MainAxisAlignment.END, controls=[boton]),
+        ])),
+    ])
+
+
+def build_alta_maestro(page: ft.Page, navegar) -> ft.Control:
+    nombres = tf("Nombre(s)")
+    apellidos = tf("Apellidos")
+    correo = tf("correo@institucion.edu.mx", keyboard_type=ft.KeyboardType.EMAIL)
+    password = tf("Contraseña (mínimo 10 caracteres)", password=True, can_reveal_password=True)
+    confirmar = tf("Confirma la contraseña", password=True, can_reveal_password=True)
+    aviso = ft.Text("", size=13, color=WARN_FG, visible=False)
+    boton = ft.FilledButton("Crear cuenta de maestro", style=estilo_primario())
+
+    def crear(_):
+        for campo in (nombres, apellidos, correo, password, confirmar):
+            campo.error = None
+        aviso.visible = False
+        errores = []
+        if not (nombres.value or "").strip():
+            nombres.error = "Escribe el nombre"
+            errores.append(True)
+        if not (apellidos.value or "").strip():
+            apellidos.error = "Escribe los apellidos"
+            errores.append(True)
+        if not (correo.value or "").strip():
+            correo.error = "Escribe el correo"
+            errores.append(True)
+        if len(password.value or "") < 10:
+            password.error = "Usa al menos 10 caracteres"
+            errores.append(True)
+        if password.value != confirmar.value:
+            confirmar.error = "Las contraseñas no coinciden"
+            errores.append(True)
+        if errores:
+            page.update()
+            return
+
+        boton.disabled = True
+        page.update()
+        try:
+            creado = api.crear_docente({
+                "nombres": nombres.value,
+                "apellidos": apellidos.value,
+                "correo": correo.value,
+                "password": password.value,
+            })
+            for campo in (nombres, apellidos, correo, password, confirmar):
+                campo.value = ""
+            snackbar(page, f"Cuenta docente creada para {creado['nombres']} {creado['apellidos']}.")
+        except ApiError as ex:
+            if ex.status == 401:
+                navegar("/secretaria")
+                return
+            aviso.value = ex.mensaje
+            aviso.visible = True
+        finally:
+            boton.disabled = False
+            page.update()
+
+    boton.on_click = crear
+    return ft.Column(expand=True, scroll=ft.ScrollMode.AUTO, spacing=24, controls=[
+        titulo_pagina(
+            "Alta de maestros",
+            "Crea una cuenta de acceso para un maestro.",
+        ),
+        tarjeta(ft.Column(spacing=18, controls=[
+            ft.ResponsiveRow(spacing=16, run_spacing=14, controls=[
+                ft.Container(col={"xs": 12, "md": 6}, content=etiqueta("Nombre(s)", nombres)),
+                ft.Container(col={"xs": 12, "md": 6}, content=etiqueta("Apellidos", apellidos)),
+                ft.Container(col={"xs": 12}, content=etiqueta("Correo de acceso", correo)),
+                ft.Container(col={"xs": 12, "md": 6}, content=etiqueta("Contraseña", password)),
+                ft.Container(col={"xs": 12, "md": 6}, content=etiqueta("Confirmar contraseña", confirmar)),
+            ]),
+            ft.Text("La contraseña debe tener al menos 10 caracteres.", size=12, color=MUTED),
+            aviso,
+            ft.Row(alignment=ft.MainAxisAlignment.END, controls=[boton]),
+        ])),
+    ])
+
+
+def build_consulta_secretarias(page: ft.Page, navegar) -> ft.Control:
+    filas = ft.Column(spacing=12)
+    aviso = ft.Text("", size=13, color=WARN_FG, visible=False)
+
+    def cargar(_=None):
+        aviso.visible = False
+        try:
+            registros = api.secretarias()
+        except ApiError as ex:
+            if ex.status == 401:
+                navegar("/consultas")
+                return
+            aviso.value = ex.mensaje
+            aviso.visible = True
+            filas.controls = []
+        else:
+            if not registros:
+                filas.controls = [ft.Text("Aún no hay cuentas de Secretaría.", size=14, color=MUTED)]
+            else:
+                filas.controls = [_tarjeta_secretaria(registro) for registro in registros]
+        page.update()
+
+    def dar_baja(registro: dict):
+        def confirmar(_):
+            page.pop_dialog()
+            try:
+                api.dar_baja_secretaria(registro["id_usuario"])
+            except ApiError as ex:
+                if ex.status == 401:
+                    navegar("/consultas")
+                    return
+                snackbar(page, ex.mensaje)
+            else:
+                snackbar(page, f"Se dio de baja la cuenta de {registro['nombres']} {registro['apellidos']}.")
+                cargar()
+
+        page.show_dialog(ft.AlertDialog(
+            title=ft.Text("¿Dar de baja esta cuenta?"),
+            content=ft.Text(
+                f"{registro['nombres']} {registro['apellidos']} ya no podrá iniciar sesión. "
+                "Sus datos se conservarán."
+            ),
+            actions=[
+                ft.TextButton("Dar de baja", on_click=confirmar),
+                ft.TextButton("Cancelar", on_click=lambda _: page.pop_dialog()),
+            ],
+            actions_alignment=ft.MainAxisAlignment.END,
+        ))
+
+    def _tarjeta_secretaria(registro: dict) -> ft.Control:
+        activa = registro["estatus"] == "Activo"
+        nombre = f"{registro['nombres']} {registro['apellidos']}"
+        controles = [
+            ft.Column(expand=True, spacing=5, controls=[
+                ft.Text(nombre, size=16, weight=ft.FontWeight.BOLD, color=NAVY),
+                ft.Text(registro["correo"], size=13, color=MUTED),
+            ]),
+            chip("Activa" if activa else "Inactiva", activa),
+        ]
+        if activa:
+            controles.append(ft.OutlinedButton(
+                "Dar de baja",
+                style=estilo_secundario(),
+                on_click=lambda _, r=registro: dar_baja(r),
+            ))
+        return tarjeta(ft.Row(
+            spacing=16,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            controls=controles,
+        ), padding=ft.Padding.symmetric(horizontal=20, vertical=16))
+
+    cargar()
+    return ft.Column(expand=True, scroll=ft.ScrollMode.AUTO, spacing=24, controls=[
+        titulo_pagina(
+            "Consulta de secretarías",
+            "Revisa los datos de acceso y da de baja cuentas cuando sea necesario.",
+        ),
+        ft.Row(alignment=ft.MainAxisAlignment.END, controls=[
+            ft.OutlinedButton("Actualizar lista", icon=ft.Icons.REFRESH, on_click=cargar),
+        ]),
+        aviso,
+        filas,
+    ])
+
+
+def build_consulta_maestros(page: ft.Page, navegar) -> ft.Control:
+    filas = ft.Column(spacing=12)
+    aviso = ft.Text("", size=13, color=WARN_FG, visible=False)
+
+    def cargar(_=None):
+        aviso.visible = False
+        try:
+            registros = api.docentes()
+        except ApiError as ex:
+            if ex.status == 401:
+                navegar("/secretaria")
+                return
+            aviso.value = ex.mensaje
+            aviso.visible = True
+            filas.controls = []
+        else:
+            if not registros:
+                filas.controls = [ft.Text("Aún no hay cuentas de maestros.", size=14, color=MUTED)]
+            else:
+                filas.controls = [_tarjeta_docente(registro) for registro in registros]
+        page.update()
+
+    def dar_baja(registro: dict):
+        def confirmar(_):
+            page.pop_dialog()
+            try:
+                api.dar_baja_docente(registro["id_usuario"])
+            except ApiError as ex:
+                if ex.status == 401:
+                    navegar("/secretaria")
+                    return
+                snackbar(page, ex.mensaje)
+            else:
+                snackbar(page, f"Se dio de baja la cuenta de {registro['nombres']} {registro['apellidos']}.")
+                cargar()
+
+        page.show_dialog(ft.AlertDialog(
+            title=ft.Text("¿Dar de baja esta cuenta?"),
+            content=ft.Text(
+                f"{registro['nombres']} {registro['apellidos']} ya no podrá iniciar sesión. "
+                "Sus datos se conservarán."
+            ),
+            actions=[
+                ft.TextButton("Dar de baja", on_click=confirmar),
+                ft.TextButton("Cancelar", on_click=lambda _: page.pop_dialog()),
+            ],
+            actions_alignment=ft.MainAxisAlignment.END,
+        ))
+
+    def _tarjeta_docente(registro: dict) -> ft.Control:
+        activa = registro["estatus"] == "Activo"
+        nombre = f"{registro['nombres']} {registro['apellidos']}"
+        controles = [
+            ft.Column(expand=True, spacing=5, controls=[
+                ft.Text(nombre, size=16, weight=ft.FontWeight.BOLD, color=NAVY),
+                ft.Text(registro["correo"], size=13, color=MUTED),
+            ]),
+            chip("Activo" if activa else "Inactivo", activa),
+        ]
+        if activa:
+            controles.append(ft.OutlinedButton(
+                "Dar de baja",
+                style=estilo_secundario(),
+                on_click=lambda _, r=registro: dar_baja(r),
+            ))
+        return tarjeta(ft.Row(
+            spacing=16,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            controls=controles,
+        ), padding=ft.Padding.symmetric(horizontal=20, vertical=16))
+
+    cargar()
+    return ft.Column(expand=True, scroll=ft.ScrollMode.AUTO, spacing=24, controls=[
+        titulo_pagina(
+            "Consulta de maestros",
+            "Revisa los datos de acceso y da de baja cuentas cuando sea necesario.",
+        ),
+        ft.Row(alignment=ft.MainAxisAlignment.END, controls=[
+            ft.OutlinedButton("Actualizar lista", icon=ft.Icons.REFRESH, on_click=cargar),
+        ]),
+        aviso,
+        filas,
+    ])
+
+
+def build_bitacora_admin(page: ft.Page, navegar) -> ft.Control:
+    filas = ft.Column(spacing=0)
+    aviso = ft.Text("", size=13, color=WARN_FG, visible=False)
+
+    def cargar(_=None):
+        aviso.visible = False
+        try:
+            registros = api.bitacora()
+        except ApiError as ex:
+            if ex.status == 401:
+                navegar("/consultas")
+                return
+            aviso.value = ex.mensaje
+            aviso.visible = True
+            filas.controls = []
+        else:
+            if not registros:
+                filas.controls = [ft.Text("Aún no hay accesos registrados.", size=14, color=MUTED)]
+            else:
+                filas.controls = [
+                    tarjeta(ft.ResponsiveRow(spacing=12, run_spacing=8, controls=[
+                        ft.Container(col={"xs": 12, "md": 3}, content=ft.Column(spacing=3, controls=[
+                            ft.Text(registro["nombre"], size=14, weight=ft.FontWeight.BOLD, color=NAVY),
+                            ft.Text(registro["correo"], size=12, color=MUTED),
+                        ])),
+                        ft.Container(col={"xs": 6, "md": 2}, content=ft.Column(spacing=3, controls=[
+                            ft.Text("Perfil", size=11, color=MUTED),
+                            ft.Text(registro["rol"], size=13, color=TEXT),
+                        ])),
+                        ft.Container(col={"xs": 6, "md": 2}, content=ft.Column(spacing=3, controls=[
+                            ft.Text("Fecha", size=11, color=MUTED),
+                            ft.Text(registro["fecha"], size=13, color=TEXT),
+                        ])),
+                        ft.Container(col={"xs": 6, "md": 2}, content=ft.Column(spacing=3, controls=[
+                            ft.Text("Entrada", size=11, color=MUTED),
+                            ft.Text(registro["hora_entrada"], size=13, color=TEXT),
+                        ])),
+                        ft.Container(col={"xs": 6, "md": 3}, content=ft.Column(spacing=3, controls=[
+                            ft.Text("Salida", size=11, color=MUTED),
+                            ft.Text(registro["hora_salida"] or "Sesión en curso", size=13, color=TEXT),
+                        ])),
+                    ]), padding=ft.Padding.symmetric(horizontal=18, vertical=14))
+                    for registro in registros
+                ]
+        page.update()
+
+    cargar()
+    return ft.Column(expand=True, scroll=ft.ScrollMode.AUTO, spacing=20, controls=[
+        titulo_pagina(
+            "Bitácora de accesos",
+            "Consulta los inicios y cierres de sesión registrados en el sistema.",
+        ),
+        ft.Row(alignment=ft.MainAxisAlignment.END, controls=[
+            ft.OutlinedButton("Actualizar", icon=ft.Icons.REFRESH, on_click=cargar),
+        ]),
+        aviso,
+        filas,
     ])
 
 
@@ -1219,6 +1660,48 @@ def chip(texto: str, ok: bool) -> ft.Container:
     )
 
 
+def _valor_historial(campo: str, valor) -> str:
+    if valor is None or str(valor).strip() == "":
+        return "Sin dato"
+    if campo == "genero":
+        return v.GENEROS.get(str(valor), str(valor).capitalize())
+    if campo == "promedio_preparatoria":
+        try:
+            return f"{float(valor):.2f}"
+        except (TypeError, ValueError):
+            return str(valor)
+    if campo == "fecha_nacimiento":
+        try:
+            return datetime.date.fromisoformat(str(valor)[:10]).strftime("%d/%m/%Y")
+        except ValueError:
+            return str(valor)
+    return str(valor)
+
+
+def _cambios_historial(evento: dict) -> dict[str, list[dict[str, str]]]:
+    if evento.get("accion") == "BAJA":
+        return {"Situación del expediente": [{
+            "campo": "Estado",
+            "antes": "Activo",
+            "despues": "Dado de baja",
+        }]}
+
+    anterior = evento.get("datos_anteriores") or {}
+    nuevo = evento.get("datos_nuevos") or {}
+    secciones: dict[str, list[dict[str, str]]] = {}
+    for campo, (seccion, etiqueta_campo) in _CAMPOS_HISTORIAL.items():
+        antes = anterior.get(campo)
+        despues = nuevo.get(campo)
+        if antes == despues:
+            continue
+        secciones.setdefault(seccion, []).append({
+            "campo": etiqueta_campo,
+            "antes": _valor_historial(campo, antes),
+            "despues": _valor_historial(campo, despues),
+        })
+    return secciones
+
+
 class ConsultaExpediente:
     SECCIONES = [("personales", "Datos personales"), ("contacto", "Contacto"),
                  ("academicos", "Datos académicos"), ("documentos", "Documentos")]
@@ -1591,25 +2074,58 @@ class ConsultaExpediente:
         ]), padding=20)
 
     def _ver_detalle_historial(self, evento: dict):
-        contenido = {
-            "acción": evento["accion"],
-            "fecha": evento["fecha"],
-            "usuario": evento["usuario"],
-            "datos anteriores": evento["datos_anteriores"],
-            "datos nuevos": evento["datos_nuevos"],
-        }
+        cambios = _cambios_historial(evento)
+        secciones = []
+        for titulo, campos in cambios.items():
+            filas = []
+            for cambio in campos:
+                filas.append(ft.Container(
+                    padding=ft.Padding.symmetric(vertical=9),
+                    border=ft.Border.only(bottom=ft.BorderSide(1, BORDER)),
+                    content=ft.Column(spacing=8, controls=[
+                        ft.Text(cambio["campo"], size=13, weight=ft.FontWeight.BOLD, color=TEXT),
+                        ft.ResponsiveRow(spacing=12, run_spacing=8, controls=[
+                            ft.Container(col={"xs": 12, "md": 6}, content=ft.Column(spacing=3, controls=[
+                                ft.Text("ANTES", size=10, weight=ft.FontWeight.BOLD, color=MUTED),
+                                ft.Text(cambio["antes"], size=13, color=TEXT, selectable=True),
+                            ])),
+                            ft.Container(col={"xs": 12, "md": 6}, content=ft.Column(spacing=3, controls=[
+                                ft.Text("AHORA", size=10, weight=ft.FontWeight.BOLD, color=OK_FG),
+                                ft.Text(cambio["despues"], size=13, color=TEXT, selectable=True),
+                            ])),
+                        ]),
+                    ]),
+                ))
+            secciones.append(ft.Column(spacing=2, controls=[
+                ft.Text(titulo, size=15, weight=ft.FontWeight.BOLD, color=NAVY),
+                *filas,
+            ]))
+
+        if not secciones:
+            secciones = [ft.Text("No se detectaron diferencias en los datos guardados.", color=MUTED)]
+        accion = "Baja de expediente" if evento["accion"] == "BAJA" else "Cambios en el expediente"
         self.page.show_dialog(ft.AlertDialog(
             modal=True,
-            title=ft.Text("Detalle del historial"),
+            title=ft.Text(accion),
             content=ft.Container(
-                width=720,
-                height=520,
-                content=ft.Column(scroll=ft.ScrollMode.AUTO, controls=[
-                    ft.Text(
-                        json.dumps(contenido, ensure_ascii=False, indent=2),
-                        selectable=True,
-                        font_family="Consolas",
+                width=760,
+                height=560,
+                content=ft.Column(spacing=16, scroll=ft.ScrollMode.AUTO, controls=[
+                    ft.Container(
+                        padding=ft.Padding.only(bottom=10),
+                        border=ft.Border.only(bottom=ft.BorderSide(1, BORDER)),
+                        content=ft.ResponsiveRow(spacing=12, run_spacing=8, controls=[
+                            ft.Container(col={"xs": 12, "md": 6}, content=ft.Column(spacing=3, controls=[
+                                ft.Text("FECHA Y HORA", size=10, weight=ft.FontWeight.BOLD, color=MUTED),
+                                ft.Text(evento["fecha"], size=13, color=TEXT),
+                            ])),
+                            ft.Container(col={"xs": 12, "md": 6}, content=ft.Column(spacing=3, controls=[
+                                ft.Text("REALIZADO POR", size=10, weight=ft.FontWeight.BOLD, color=MUTED),
+                                ft.Text(evento["usuario"], size=13, color=TEXT),
+                            ])),
+                        ]),
                     ),
+                    *secciones,
                 ]),
             ),
             actions=[ft.TextButton("Cerrar", on_click=lambda _: self.page.pop_dialog())],
@@ -1729,10 +2245,22 @@ def main(page: ft.Page):
         navegar("/")
 
     def contenido_para(ruta: str, usuario: dict) -> ft.Control:
+        if ruta == "/secretaria" and usuario["rol"] == "Docente":
+            return build_inicio_docente(usuario)
         if ruta == "/altas":
             return build_altas(page, selector_archivos, usuario, navegar)
+        if ruta == "/altas-maestros":
+            return build_alta_maestro(page, navegar)
+        if ruta == "/consulta-maestros":
+            return build_consulta_maestros(page, navegar)
         if ruta == "/consultas":
             return build_consultas(page, selector_archivos, usuario, navegar)
+        if ruta == "/administracion/secretarias/alta":
+            return build_alta_secretaria(page, navegar)
+        if ruta == "/administracion/secretarias":
+            return build_consulta_secretarias(page, navegar)
+        if ruta == "/bitacora":
+            return build_bitacora_admin(page, navegar)
         return build_panel(page, navegar)
 
     def route_change(e=None):
@@ -1751,8 +2279,14 @@ def main(page: ft.Page):
         # Rutas protegidas: sin sesión siempre se vuelve al login
         if usuario is None:
             ruta = "/"
-        elif usuario["rol"] == "Administrador" and ruta != "/consultas":
+        elif usuario["rol"] not in {"Administrador", "Secretaría"}:
+            ruta = "/secretaria"
+        elif usuario["rol"] == "Administrador" and ruta not in RUTAS_ADMIN:
             ruta = "/consultas"
+        elif usuario["rol"] != "Administrador" and ruta in RUTAS_ADMIN - {"/consultas"}:
+            ruta = "/secretaria"
+        elif ruta in {"/altas-maestros", "/consulta-maestros"} and usuario["rol"] != "Secretaría":
+            ruta = "/secretaria"
         elif ruta not in IMPLEMENTADAS:
             ruta = "/secretaria"
         page.route = ruta

@@ -14,7 +14,7 @@ import json
 import re
 import shutil
 import unicodedata
-from datetime import date
+from datetime import date, time, timedelta
 from pathlib import Path
 
 from sqlalchemy import text
@@ -23,8 +23,9 @@ from sqlalchemy.exc import DBAPIError, IntegrityError
 from ambar_common import validators as v
 
 from .config import engine, settings
-from .constantes import DOCUMENTOS, SEMESTRE_INGRESO, TURNOS
-from .esquemas import AltaIn
+from .constantes import DOCUMENTOS, ROL_DOCENTE, ROL_SECRETARIA, SEMESTRE_INGRESO, TURNOS
+from .esquemas import AltaIn, DocenteCreate, SecretariaCreate
+from .seguridad import hashear
 
 log = logging.getLogger("sige")
 NOMBRE_CANDADO = "sige_altas"
@@ -423,6 +424,197 @@ def historial_alumno(numero_control: str) -> list[dict]:
             "datos_nuevos": json.loads(fila["datos_nuevos"]) if fila["datos_nuevos"] else None,
             "fecha": fila["fecha"].isoformat(sep=" ", timespec="seconds"),
             "usuario": fila["usuario"],
+        }
+        for fila in filas
+    ]
+
+
+def listar_secretarias() -> list[dict]:
+    with engine.connect() as conn:
+        filas = conn.execute(
+            text("""SELECT u.id_usuario, u.correo, u.estatus, ps.nombres, ps.apellidos
+                    FROM usuarios u
+                    JOIN roles r ON r.id_rol = u.id_rol
+                    JOIN personal_secretaria ps ON ps.id_usuario = u.id_usuario
+                    WHERE r.nombre_rol = :rol
+                    ORDER BY ps.apellidos, ps.nombres, u.correo"""),
+            {"rol": ROL_SECRETARIA},
+        ).mappings().all()
+    return [dict(fila) for fila in filas]
+
+
+def crear_secretaria(datos: SecretariaCreate) -> dict:
+    try:
+        with engine.begin() as conn:
+            id_rol = conn.execute(
+                text("SELECT id_rol FROM roles WHERE nombre_rol = :rol"),
+                {"rol": ROL_SECRETARIA},
+            ).scalar_one_or_none()
+            if id_rol is None:
+                raise Conflicto("No está configurado el rol Secretaría en la base de datos.")
+            id_usuario = conn.execute(
+                text("""INSERT INTO usuarios (correo, password, id_rol, estatus)
+                        VALUES (:correo, :password, :rol, 'Activo')"""),
+                {
+                    "correo": datos.correo,
+                    "password": hashear(datos.password),
+                    "rol": id_rol,
+                },
+            ).lastrowid
+            conn.execute(
+                text("""INSERT INTO personal_secretaria (id_usuario, nombres, apellidos)
+                        VALUES (:usuario, :nombres, :apellidos)"""),
+                {
+                    "usuario": id_usuario,
+                    "nombres": datos.nombres,
+                    "apellidos": datos.apellidos,
+                },
+            )
+    except IntegrityError as exc:
+        raise Conflicto("Ya existe una cuenta con ese correo.") from exc
+    return {
+        "id_usuario": id_usuario,
+        "correo": datos.correo,
+        "estatus": "Activo",
+        "nombres": datos.nombres,
+        "apellidos": datos.apellidos,
+    }
+
+
+def crear_docente(datos: DocenteCreate) -> dict:
+    try:
+        with engine.begin() as conn:
+            id_rol = conn.execute(
+                text("SELECT id_rol FROM roles WHERE nombre_rol = :rol"),
+                {"rol": ROL_DOCENTE},
+            ).scalar_one_or_none()
+            if id_rol is None:
+                raise Conflicto("No está configurado el rol Docente en la base de datos.")
+            id_usuario = conn.execute(
+                text("""INSERT INTO usuarios (correo, password, id_rol, estatus)
+                        VALUES (:correo, :password, :rol, 'Activo')"""),
+                {
+                    "correo": datos.correo,
+                    "password": hashear(datos.password),
+                    "rol": id_rol,
+                },
+            ).lastrowid
+            conn.execute(
+                text("""INSERT INTO empleados_docentes (id_usuario, nombres, apellidos)
+                        VALUES (:usuario, :nombres, :apellidos)"""),
+                {
+                    "usuario": id_usuario,
+                    "nombres": datos.nombres,
+                    "apellidos": datos.apellidos,
+                },
+            )
+    except IntegrityError as exc:
+        raise Conflicto("Ya existe una cuenta con ese correo.") from exc
+    return {
+        "id_usuario": id_usuario,
+        "correo": datos.correo,
+        "estatus": "Activo",
+        "nombres": datos.nombres,
+        "apellidos": datos.apellidos,
+    }
+
+
+def listar_docentes() -> list[dict]:
+    with engine.connect() as conn:
+        filas = conn.execute(
+            text("""SELECT u.id_usuario, u.correo, u.estatus, d.nombres, d.apellidos
+                    FROM usuarios u
+                    JOIN roles r ON r.id_rol = u.id_rol
+                    JOIN empleados_docentes d ON d.id_usuario = u.id_usuario
+                    WHERE r.nombre_rol = :rol
+                    ORDER BY d.apellidos, d.nombres, u.correo"""),
+            {"rol": ROL_DOCENTE},
+        ).mappings().all()
+    return [dict(fila) for fila in filas]
+
+
+def dar_baja_docente(id_usuario: int) -> dict:
+    with engine.begin() as conn:
+        fila = conn.execute(
+            text("""SELECT u.id_usuario, u.correo, u.estatus, d.nombres, d.apellidos
+                    FROM usuarios u
+                    JOIN roles r ON r.id_rol = u.id_rol
+                    JOIN empleados_docentes d ON d.id_usuario = u.id_usuario
+                    WHERE u.id_usuario = :usuario AND r.nombre_rol = :rol
+                    FOR UPDATE"""),
+            {"usuario": id_usuario, "rol": ROL_DOCENTE},
+        ).mappings().first()
+        if fila is None:
+            raise NoEncontrado()
+        if fila["estatus"] == "Activo":
+            conn.execute(
+                text("UPDATE usuarios SET estatus = 'Inactivo' WHERE id_usuario = :usuario"),
+                {"usuario": id_usuario},
+            )
+    return dict(fila) | {"estatus": "Inactivo"}
+
+
+def dar_baja_secretaria(id_usuario: int) -> dict:
+    with engine.begin() as conn:
+        fila = conn.execute(
+            text("""SELECT u.id_usuario, u.correo, u.estatus, ps.nombres, ps.apellidos
+                    FROM usuarios u
+                    JOIN roles r ON r.id_rol = u.id_rol
+                    JOIN personal_secretaria ps ON ps.id_usuario = u.id_usuario
+                    WHERE u.id_usuario = :usuario AND r.nombre_rol = :rol
+                    FOR UPDATE"""),
+            {"usuario": id_usuario, "rol": ROL_SECRETARIA},
+        ).mappings().first()
+        if fila is None:
+            raise NoEncontrado()
+        if fila["estatus"] == "Activo":
+            conn.execute(
+                text("UPDATE usuarios SET estatus = 'Inactivo' WHERE id_usuario = :usuario"),
+                {"usuario": id_usuario},
+            )
+    return dict(fila) | {"estatus": "Inactivo"}
+
+
+def _formatear_hora(valor: time | timedelta | None) -> str | None:
+    if valor is None:
+        return None
+    if isinstance(valor, timedelta):
+        segundos_totales = int(valor.total_seconds())
+        signo = "-" if segundos_totales < 0 else ""
+        horas, resto = divmod(abs(segundos_totales), 3600)
+        minutos, segundos = divmod(resto, 60)
+        return f"{signo}{horas:02d}:{minutos:02d}:{segundos:02d}"
+    return valor.strftime("%H:%M:%S")
+
+
+def listar_bitacora_accesos(limite: int = 200) -> list[dict]:
+    with engine.connect() as conn:
+        filas = conn.execute(
+            text("""SELECT b.id_bitacora, b.fecha, b.hora_entrada, b.hora_salida,
+                           u.correo, r.nombre_rol AS rol,
+                           COALESCE(
+                               NULLIF(TRIM(CONCAT_WS(' ', ps.nombres, ps.apellidos)), ''),
+                               NULLIF(TRIM(CONCAT_WS(' ', d.nombres, d.apellidos)), ''),
+                               u.correo
+                           ) AS nombre
+                    FROM bitacora_accesos b
+                    JOIN usuarios u ON u.id_usuario = b.id_usuario
+                    JOIN roles r ON r.id_rol = u.id_rol
+                    LEFT JOIN personal_secretaria ps ON ps.id_usuario = u.id_usuario
+                    LEFT JOIN empleados_docentes d ON d.id_usuario = u.id_usuario
+                    ORDER BY b.fecha DESC, b.hora_entrada DESC, b.id_bitacora DESC
+                    LIMIT :limite"""),
+            {"limite": limite},
+        ).mappings().all()
+    return [
+        {
+            "id_bitacora": fila["id_bitacora"],
+            "fecha": fila["fecha"].strftime("%d/%m/%Y"),
+            "hora_entrada": _formatear_hora(fila["hora_entrada"]),
+            "hora_salida": _formatear_hora(fila["hora_salida"]),
+            "correo": fila["correo"],
+            "rol": fila["rol"],
+            "nombre": fila["nombre"],
         }
         for fila in filas
     ]

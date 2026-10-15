@@ -1,5 +1,6 @@
 """Modelos de entrada/salida de la API."""
 import datetime
+import re
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -14,6 +15,40 @@ class UsuarioOut(BaseModel):
     correo: str
     nombre: str
     rol: str
+
+
+class SecretariaCreate(BaseModel):
+    nombres: str = Field(min_length=1, max_length=50)
+    apellidos: str = Field(min_length=1, max_length=100)
+    correo: str = Field(min_length=3, max_length=150)
+    password: str = Field(min_length=10, max_length=200)
+
+    @field_validator("nombres", "apellidos")
+    @classmethod
+    def _nombre_no_vacio(cls, valor: str) -> str:
+        valor = valor.strip()
+        if not valor:
+            raise ValueError("Este campo es obligatorio")
+        return valor
+
+    @field_validator("correo")
+    @classmethod
+    def _correo_valido(cls, valor: str) -> str:
+        valor = valor.strip().lower()
+        if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", valor):
+            raise ValueError("Escribe un correo válido")
+        return valor
+
+    @field_validator("password")
+    @classmethod
+    def _password_no_vacio(cls, valor: str) -> str:
+        if not valor.strip():
+            raise ValueError("La contraseña no puede estar vacía")
+        return valor
+
+
+class DocenteCreate(SecretariaCreate):
+    pass
 
 
 class LoginOut(BaseModel):
