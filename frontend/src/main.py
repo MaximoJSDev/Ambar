@@ -61,18 +61,21 @@ NAV = [
 ]
 ADMIN_NAV = [
     ("/consultas", "Historial de alumnos", ft.Icons.HISTORY),
+    ("/modificacion", "Modificación", ft.Icons.EDIT_OUTLINED),
     ("/administracion/secretarias/alta", "Alta de secretaria", ft.Icons.PERSON_ADD_ALT_1),
     ("/administracion/secretarias", "Consulta de secretarias", ft.Icons.LIST_ALT),
     ("/bitacora", "Bitácora", ft.Icons.FORMAT_LIST_BULLETED),
 ]
 RUTAS_ADMIN = {
     "/consultas",
+    "/modificacion",
     "/administracion/secretarias/alta",
     "/administracion/secretarias",
     "/bitacora",
 }
 IMPLEMENTADAS = {
-    "/secretaria", "/altas", "/altas-maestros", "/consulta-maestros", *RUTAS_ADMIN,
+    "/secretaria", "/altas", "/altas-maestros", "/consulta-maestros", "/modificacion",
+    *RUTAS_ADMIN,
 }
 
 _CAMPOS_HISTORIAL = {
@@ -1727,11 +1730,19 @@ class ConsultaExpediente:
         ],
     }
 
-    def __init__(self, page: ft.Page, picker: ft.FilePicker, usuario: dict, navegar):
+    def __init__(
+        self,
+        page: ft.Page,
+        picker: ft.FilePicker,
+        usuario: dict,
+        navegar,
+        modo_modificacion: bool = False,
+    ):
         self.page = page
         self.picker = picker
         self.usuario = usuario
         self.es_admin = usuario["rol"] == "Administrador"
+        self.modo_modificacion = modo_modificacion
         self.navegar = navegar
         self.datos: dict | None = None
         self.incluir_bajas = False
@@ -1766,12 +1777,18 @@ class ConsultaExpediente:
             self.aviso,
         ]), padding=ft.Padding.symmetric(horizontal=20, vertical=16))
 
+        if self.modo_modificacion:
+            titulo = "Modificación de alumnos"
+            subtitulo = "Busca un alumno para modificar sus datos o dar de baja su expediente."
+        elif self.es_admin:
+            titulo = "Historial administrativo"
+            subtitulo = "Consulta expedientes, bajas y versiones anteriores."
+        else:
+            titulo = "Expediente del alumno"
+            subtitulo = "Consulta la información académica y los documentos del estudiante."
+
         self.vista = ft.Column(expand=True, scroll=ft.ScrollMode.AUTO, spacing=24, controls=[
-            titulo_pagina(
-                "Historial administrativo" if self.es_admin else "Expediente del alumno",
-                "Consulta expedientes, bajas y versiones anteriores."
-                if self.es_admin else "Consulta la información académica y los documentos del estudiante.",
-            ),
+            titulo_pagina(titulo, subtitulo),
             buscador,
             self.resultado,
         ])
@@ -1909,7 +1926,7 @@ class ConsultaExpediente:
                     *([chip("Dado de baja", False)] if d["eliminado"] else []),
                 ]),
                 self.boton_descargar,
-                *([] if d["eliminado"] else [
+                *([] if d["eliminado"] or not self.modo_modificacion else [
                     ft.Row(spacing=8, controls=[
                         ft.OutlinedButton(
                             "Modificar datos", style=estilo_secundario(),
@@ -2210,6 +2227,12 @@ def build_consultas(page: ft.Page, picker: ft.FilePicker, usuario: dict, navegar
     return ConsultaExpediente(page, picker, usuario, navegar).vista
 
 
+def build_modificacion(page: ft.Page, picker: ft.FilePicker, usuario: dict, navegar) -> ft.Control:
+    return ConsultaExpediente(
+        page, picker, usuario, navegar, modo_modificacion=True,
+    ).vista
+
+
 # =====================================================================
 # 5. APLICACIÓN Y RUTAS
 # =====================================================================
@@ -2255,6 +2278,8 @@ def main(page: ft.Page):
             return build_consulta_maestros(page, navegar)
         if ruta == "/consultas":
             return build_consultas(page, selector_archivos, usuario, navegar)
+        if ruta == "/modificacion":
+            return build_modificacion(page, selector_archivos, usuario, navegar)
         if ruta == "/administracion/secretarias/alta":
             return build_alta_secretaria(page, navegar)
         if ruta == "/administracion/secretarias":
@@ -2283,7 +2308,7 @@ def main(page: ft.Page):
             ruta = "/secretaria"
         elif usuario["rol"] == "Administrador" and ruta not in RUTAS_ADMIN:
             ruta = "/consultas"
-        elif usuario["rol"] != "Administrador" and ruta in RUTAS_ADMIN - {"/consultas"}:
+        elif usuario["rol"] != "Administrador" and ruta in RUTAS_ADMIN - {"/consultas", "/modificacion"}:
             ruta = "/secretaria"
         elif ruta in {"/altas-maestros", "/consulta-maestros"} and usuario["rol"] != "Secretaría":
             ruta = "/secretaria"

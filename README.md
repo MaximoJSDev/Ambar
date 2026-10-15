@@ -87,13 +87,16 @@ control y correos institucionales mediante el flujo normal de altas; al no crear
 PDF, sus documentos aparecerán pendientes. Los registros demo usan fichas
 `9999-NNNNN` y se omiten si ya existen al volver a ejecutar la seed.
 
-En **Consultas**, Secretaría y Administración pueden modificar datos y dar de
-baja expedientes activos. Las bajas desaparecen de las consultas de Secretaría,
-pero conservan sus datos y documentos. Administración tiene un inicio de sesión
-y una vista propios para consultar las bajas y revisar las versiones anteriores
-de los datos junto con quién y cuándo hizo cada cambio. Al iniciar, el backend
-elimina la antigua marca de ocultación si existe y crea las estructuras de
-historial necesarias; las bases nuevas ya las incluyen desde `ambar-db.sql`.
+En **Consultas**, Secretaría puede buscar y revisar la información y los
+documentos de los alumnos. La edición de datos y la baja de expedientes activos
+se realizan desde **Modificación**. Las bajas desaparecen de las consultas de
+Secretaría, pero conservan sus datos y documentos. Administración también tiene
+acceso a **Modificación**, además de un inicio de sesión y una vista propios en
+**Historial de alumnos** para consultar las bajas y revisar las versiones
+anteriores de los datos junto con quién y cuándo hizo cada cambio. Al iniciar,
+el backend elimina la antigua marca de ocultación si existe y crea las
+estructuras de historial necesarias; las bases nuevas ya las incluyen desde
+`ambar-db.sql`.
 
 Administración también puede crear cuentas de secretarias desde **Alta de
 secretaria** y revisar o dar de baja cuentas desde **Consulta de secretarias**.
