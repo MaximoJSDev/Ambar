@@ -1072,6 +1072,10 @@ class FormAltas:
                             input_filter=ft.NumbersOnlyInputFilter())
         self.correo_emerg = crear_campo_texto("Correo del contacto de emergencia", keyboard_type=ft.KeyboardType.EMAIL)
         self.alergias = crear_campo_texto("Escribe las alergias o deja vacío si no tiene")
+        self._primer_campo_por_paso = {
+            0: self.ficha,
+            1: self.prepa,
+        }
 
         # ---- Contenedores dinámicos
         self.stepper = ft.Row(spacing=0)
@@ -1325,6 +1329,11 @@ class FormAltas:
             # Al cambiar de paso, el control puede no estar montado todavía; el scroll no afecta la captura.
             pass
 
+    async def _enfocar_primer_campo(self):
+        primer_campo = self._primer_campo_por_paso.get(self.paso)
+        if primer_campo is not None:
+            await primer_campo.focus()
+
     def siguiente(self, e=None):
         if self.paso == 0 and self._sin_cupo():
             return
@@ -1336,12 +1345,14 @@ class FormAltas:
             return
         self.paso += 1
         self._pintar()
+        self.page.run_task(self._enfocar_primer_campo)
         self.page.run_task(self._scroll_arriba)
 
     def atras(self, e=None):
         if self.paso > 0:
             self.paso -= 1
             self._pintar()
+            self.page.run_task(self._enfocar_primer_campo)
             self.page.run_task(self._scroll_arriba)
 
     def hay_datos(self) -> bool:
