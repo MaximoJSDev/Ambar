@@ -12,7 +12,7 @@ from ambar_common import validators as v
 
 from .. import reportes, servicios
 from ..config import settings
-from ..constantes import DOCUMENTOS, ROL_ADMINISTRADOR, ROL_SECRETARIA
+from ..constantes import DOCUMENTOS, DOCUMENTOS_MODIFICABLES, ROL_ADMINISTRADOR, ROL_SECRETARIA
 from ..deps import requiere_roles, usuario_actual
 from ..esquemas import AltaIn, AltaOut
 
@@ -111,6 +111,47 @@ def actualizar_alumno(
         raise HTTPException(409, {"mensaje": ex.mensaje, "errores": ex.errores})
 
 
+@router.put("/{numero_control}/documentos")
+def actualizar_documentos(
+    numero_control: str,
+    doc_acta_nacimiento: UploadFile | None = File(None),
+    doc_curp: UploadFile | None = File(None),
+    doc_comprobante_domicilio: UploadFile | None = File(None),
+    doc_ine: UploadFile | None = File(None),
+    doc_certificado_preparatoria: UploadFile | None = File(None),
+    doc_certificado_medico: UploadFile | None = File(None),
+    doc_constancia_situacion_fiscal: UploadFile | None = File(None),
+    usuario: dict = Depends(secretaria_o_administrador),
+):
+    """Agrega o reemplaza uno o más PDF del expediente."""
+    subidos = {
+        "doc_acta_nacimiento": doc_acta_nacimiento,
+        "doc_curp": doc_curp,
+        "doc_comprobante_domicilio": doc_comprobante_domicilio,
+        "doc_ine": doc_ine,
+        "doc_certificado_preparatoria": doc_certificado_preparatoria,
+        "doc_certificado_medico": doc_certificado_medico,
+        "doc_constancia_situacion_fiscal": doc_constancia_situacion_fiscal,
+    }
+    with tempfile.TemporaryDirectory(prefix="sige_") as tmp:
+        pdfs, errores_pdf = _preparar_pdfs(Path(tmp), subidos)
+        if errores_pdf:
+            raise HTTPException(
+                422,
+                {"mensaje": "Revisa los documentos", "errores": {"documentos": "; ".join(errores_pdf)}},
+            )
+        if not pdfs:
+            raise HTTPException(422, {"mensaje": "Selecciona al menos un documento PDF"})
+        try:
+            servicios.actualizar_documentos(numero_control, pdfs)
+            return {"mensaje": "Documentos del expediente actualizados"}
+        except servicios.NoEncontrado:
+            raise HTTPException(404, {"mensaje": "No se encontró el alumno"})
+        except OSError:
+            log.exception("Error al actualizar los PDF del expediente %s", numero_control)
+            raise HTTPException(500, {"mensaje": "No se pudieron guardar los archivos PDF en el servidor"})
+
+
 @router.delete("/{numero_control}")
 def eliminar_alumno(
     numero_control: str,
@@ -153,7 +194,7 @@ def _preparar_pdfs(tmp: Path, subidos: dict[str, UploadFile | None]) -> tuple[di
     for campo, archivo in subidos.items():
         if archivo is None or not archivo.filename:
             continue
-        visible = DOCUMENTOS[campo][0]
+        visible = DOCUMENTOS_MODIFICABLES[campo][0]
         ruta = tmp / f"{campo}.pdf"
         tamano = _copiar_por_bloques(archivo, ruta)
         if tamano > v.MAX_PDF_BYTES:

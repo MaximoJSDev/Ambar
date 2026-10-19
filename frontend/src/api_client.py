@@ -18,7 +18,7 @@ from ambar_common.logging_config import configure_file_logging
 URL_API = os.getenv("SIGE_API_URL", "http://127.0.0.1:8000")
 log = configure_file_logging("sige.frontend", "frontend.log")
 
-# nombre visible del documento (el de main.DOCUMENTOS) -> campo multipart del backend
+# nombre visible del documento -> campo multipart del backend
 CAMPO_DOCUMENTO = {
     "Acta de nacimiento": "doc_acta_nacimiento",
     "CURP": "doc_curp",
@@ -26,6 +26,7 @@ CAMPO_DOCUMENTO = {
     "INE": "doc_ine",
     "Certificado de preparatoria": "doc_certificado_preparatoria",
     "Certificado médico": "doc_certificado_medico",
+    "Constancia de situación fiscal": "doc_constancia_situacion_fiscal",
 }
 
 
@@ -199,6 +200,19 @@ class ApiClient:
 
     def actualizar_alumno(self, numero_control: str, datos: dict) -> None:
         self._request("PUT", f"/alumnos/{numero_control}", json=datos)
+
+    def actualizar_documentos(self, numero_control: str, documentos: dict[str, str]) -> None:
+        """Agrega o reemplaza documentos PDF del expediente usando multipart."""
+        ruta = f"/alumnos/{numero_control}/documentos"
+        with contextlib.ExitStack() as pila:
+            archivos = {}
+            for documento, path in documentos.items():
+                try:
+                    archivo = pila.enter_context(open(path, "rb"))
+                except OSError as ex:
+                    raise ApiError(0, f"No se pudo leer «{documento}»: {ex.strerror or ex}")
+                archivos[CAMPO_DOCUMENTO[documento]] = (Path(path).name, archivo, "application/pdf")
+            self._request("PUT", ruta, files=archivos)
 
     def eliminar_alumno(self, numero_control: str) -> dict:
         return self._request("DELETE", f"/alumnos/{numero_control}")

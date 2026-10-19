@@ -71,9 +71,9 @@ class TestCampos(unittest.TestCase):
             self.assertIsNotNone(v.validar_correo(mal), mal)
 
     def test_promedio(self):
-        for ok in ("1", "8.7", "8,7", "100", " 95 "):
+        for ok in ("7", "7.0", "8.7", "8,7", "10", " 9.5 "):
             self.assertIsNone(v.validar_promedio(ok), ok)
-        for mal in ("", "0", "101", "-5", "abc", "8.7.1"):
+        for mal in ("", "6.99", "0", "10.01", "-5", "abc", "8.7.1"):
             self.assertIsNotNone(v.validar_promedio(mal), mal)
 
     def test_ine(self):

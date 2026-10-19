@@ -1,13 +1,16 @@
 import datetime
+from io import BytesIO
 import unittest
 from unittest.mock import patch
 
 from fastapi import HTTPException
+from starlette.datastructures import UploadFile
 
 from backend.esquemas import AltaIn
 from backend.main import app
 from backend.routers.alumnos import (
     actualizar_alumno,
+    actualizar_documentos,
     eliminar_alumno,
     expediente,
     historial_alumno,
@@ -79,6 +82,49 @@ class GestionConsultasTests(unittest.TestCase):
         self.assertEqual(resultado, {"mensaje": "Datos del alumno actualizados"})
         actualizar.assert_called_once_with("26320700", datos, 31)
 
+    def test_documentos_puede_agregar_un_pdf_a_un_expediente(self):
+        archivo = UploadFile(
+            filename="curp.pdf",
+            file=BytesIO(b"%PDF-1.4 contenido de prueba"),
+        )
+        usuario = {"id_usuario": 17, "rol": "Secretaría"}
+        with patch("backend.routers.alumnos.servicios.actualizar_documentos") as actualizar:
+            resultado = actualizar_documentos(
+                "26320700",
+                doc_acta_nacimiento=None,
+                doc_curp=archivo,
+                doc_comprobante_domicilio=None,
+                doc_ine=None,
+                doc_certificado_preparatoria=None,
+                doc_certificado_medico=None,
+                doc_constancia_situacion_fiscal=None,
+                usuario=usuario,
+            )
+
+        self.assertEqual(resultado, {"mensaje": "Documentos del expediente actualizados"})
+        actualizado = actualizar.call_args.args
+        self.assertEqual(actualizado[0], "26320700")
+        self.assertEqual(set(actualizado[1]), {"CURP"})
+
+    def test_documentos_rechaza_archivos_que_no_son_pdf(self):
+        archivo = UploadFile(filename="curp.txt", file=BytesIO(b"contenido"))
+        with patch("backend.routers.alumnos.servicios.actualizar_documentos") as actualizar:
+            with self.assertRaises(HTTPException) as error:
+                actualizar_documentos(
+                    "26320700",
+                    doc_acta_nacimiento=None,
+                    doc_curp=archivo,
+                    doc_comprobante_domicilio=None,
+                    doc_ine=None,
+                    doc_certificado_preparatoria=None,
+                    doc_certificado_medico=None,
+                    doc_constancia_situacion_fiscal=None,
+                    usuario={"rol": "Secretaría"},
+                )
+
+        self.assertEqual(error.exception.status_code, 422)
+        actualizar.assert_not_called()
+
     def test_baja_es_logica_y_registra_el_actor(self):
         usuario = {"id_usuario": 23}
         with patch("backend.routers.alumnos.servicios.eliminar_alumno") as eliminar:
@@ -130,6 +176,7 @@ class GestionConsultasTests(unittest.TestCase):
     def test_endpoints_de_administracion_estan_publicados(self):
         paths = app.openapi()["paths"]
         self.assertIn("put", paths["/alumnos/{numero_control}"])
+        self.assertIn("put", paths["/alumnos/{numero_control}/documentos"])
         self.assertIn("delete", paths["/alumnos/{numero_control}"])
         self.assertIn("get", paths["/alumnos/{numero_control}/historial"])
 

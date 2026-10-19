@@ -2,6 +2,7 @@ import asyncio
 import atexit
 import datetime
 import json
+import logging
 import os
 import shutil
 import subprocess
@@ -32,6 +33,7 @@ WARN_BG, WARN_FG = "#FFEFD2", "#9A5B00"
 # El servidor es la fuente de verdad para autenticación, cupos y almacenamiento de PDF.
 # SIGE_API_URL permite apuntar el cliente a la instancia del backend correspondiente.
 api = ApiClient()
+log = logging.getLogger("sige.frontend")
 
 
 # --- Reglas de Altas (documento de contexto, Algoritmo 3) -------------------
@@ -44,6 +46,8 @@ DOCUMENTOS = [                               # La API usa estos nombres para aso
     "Certificado de preparatoria",
     "Certificado médico",
 ]
+# La constancia fiscal se puede agregar al expediente, aunque no se solicita en Altas.
+DOCUMENTOS_MODIFICABLES = (*DOCUMENTOS, "Constancia de situación fiscal")
 # Este indicador controla la validación inmediata de la interfaz; el servidor aplica su propia política.
 REQUIERE_TODOS_LOS_DOCUMENTOS = True
 
@@ -1549,7 +1553,7 @@ class FormAltas:
             self.titulo_card.value = "Datos académicos"
             self.cuerpo.controls = [
                 crear_fila(crear_campo_etiquetado("Nombre de la preparatoria", self.prepa),
-                  crear_campo_etiquetado("Promedio general (1 a 10)", self.promedio)),
+                  crear_campo_etiquetado("Promedio general", self.promedio)),
                 ft.Text("Contacto de emergencia y salud", size=16, weight=ft.FontWeight.BOLD, color=NAVY),
                 crear_fila(crear_campo_etiquetado("Celular de emergencia", self.cel_emerg),
                   crear_campo_etiquetado("Correo electrónico de emergencia", self.correo_emerg)),
@@ -1895,6 +1899,56 @@ class ConsultaExpediente:
         except OSError as ex:
             snackbar(self.page, f"No se pudo abrir el PDF: {ex}")
 
+    async def _elegir_documento(self, documento: str):
+        try:
+            seleccionados = await self.picker.pick_files(
+                dialog_title=f"Selecciona: {documento}",
+                file_type=ft.FilePickerFileType.CUSTOM,
+                allowed_extensions=["pdf"],
+                allow_multiple=False,
+            )
+        except Exception as ex:
+            snackbar(self.page, f"No se pudo abrir el selector de archivos: {ex}")
+            return
+        if not seleccionados:
+            return
+
+        archivo = seleccionados[0]
+        error_pdf = v.validar_pdf(archivo.name or "", archivo.size, archivo.path)
+        if error_pdf:
+            snackbar(self.page, f"{documento}: {error_pdf}")
+            return
+
+        numero_control = self.datos["numero_control"]
+        try:
+            await asyncio.to_thread(
+                api.actualizar_documentos,
+                numero_control,
+                {documento: archivo.path},
+            )
+        except ApiError as ex:
+            if ex.status == 401:
+                self.navegar("/consultas")
+                return
+            snackbar(self.page, ex.mensaje)
+            return
+
+        try:
+            self.datos = await asyncio.to_thread(
+                api.expediente, numero_control, self.es_admin and self.incluir_bajas,
+            )
+        except ApiError as ex:
+            if ex.status == 401:
+                self.navegar("/consultas")
+                return
+            snackbar(self.page, f"El documento se guardó, pero no se pudo actualizar la vista: {ex.mensaje}")
+            return
+
+        self.seccion = "documentos"
+        self._pintar()
+        self.page.update()
+        snackbar(self.page, f"«{documento}» se guardó correctamente.")
+
     async def descargar_pdf(self):
         if self.datos is None:
             return
@@ -2022,6 +2076,7 @@ class ConsultaExpediente:
         )
         self.page.show_dialog(ft.AlertDialog(
             modal=True,
+            bgcolor=WHITE,
             title=ft.Text("Modificar datos del alumno"),
             content=ft.Container(
                 width=680,
@@ -2163,6 +2218,7 @@ class ConsultaExpediente:
         accion = "Baja de expediente" if evento["accion"] == "BAJA" else "Cambios en el expediente"
         self.page.show_dialog(ft.AlertDialog(
             modal=True,
+            bgcolor=WHITE,
             title=ft.Text(accion),
             content=ft.Container(
                 width=760,
@@ -2245,9 +2301,27 @@ class ConsultaExpediente:
         )]
         for doc in self.datos["documentos"]:
             recibido = doc["estado"] == "Recibido"
-            accion = (ft.TextButton("Ver PDF", style=ft.ButtonStyle(color=NAVY),
-                                    on_click=lambda e, d=doc: self.ver_pdf(d))
-                      if recibido else ft.Text("—", size=16, weight=ft.FontWeight.BOLD, color=TEXT))
+            acciones = []
+            if recibido:
+                acciones.append(ft.TextButton(
+                    "Ver PDF", style=ft.ButtonStyle(color=NAVY),
+                    on_click=lambda e, d=doc: self.ver_pdf(d),
+                ))
+            if (
+                self.modo_modificacion
+                and not self.datos["eliminado"]
+                and doc["documento"] in DOCUMENTOS_MODIFICABLES
+            ):
+                acciones.append(ft.TextButton(
+                    "Cambiar PDF" if recibido else "Agregar PDF",
+                    style=ft.ButtonStyle(color=NAVY),
+                    on_click=lambda e, d=doc: self.page.run_task(
+                        self._elegir_documento, d["documento"],
+                    ),
+                ))
+            accion = ft.Row(spacing=0, controls=acciones) if acciones else ft.Text(
+                "—", size=16, weight=ft.FontWeight.BOLD, color=TEXT,
+            )
             filas.append(ft.Container(
                 padding=ft.Padding.symmetric(horizontal=16, vertical=6),
                 border=ft.Border.only(bottom=ft.BorderSide(1, BORDER)),
@@ -2301,11 +2375,17 @@ def main(page: ft.Page):
     def cerrar_sesion():
         try:
             api.logout()            # El cierre también se registra en la bitácora del servidor.
-        except ApiError:
-            pass
+        except ApiError as ex:
+            log.warning("No se pudo registrar el cierre de sesión: %s", ex.mensaje)
         sesion["usuario"] = None
         sesion["shell"] = None
         navegar("/")
+
+    def cerrar_sesion_al_cerrar_app(e=None):
+        try:
+            api.logout()
+        except ApiError as ex:
+            log.warning("No se pudo registrar la salida de sesión al cerrar la aplicación: %s", ex.mensaje)
 
     def contenido_para(ruta: str, usuario: dict) -> ft.Control:
         if ruta == "/secretaria" and usuario["rol"] == "Docente":
@@ -2381,6 +2461,7 @@ def main(page: ft.Page):
         page.update()
 
     page.on_route_change = route_change
+    page.on_close = cerrar_sesion_al_cerrar_app
     navegar("/")
 
 
