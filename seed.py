@@ -8,7 +8,6 @@ los reales; los grupos se crean para el periodo actual (o PERIODO_ESCOLAR).
 """
 import argparse
 import getpass
-import secrets
 import sys
 
 from sqlalchemy import text
@@ -75,20 +74,6 @@ def main() -> None:
             conn.execute(text("INSERT INTO personal_secretaria (id_usuario, nombres, apellidos) VALUES (:u, :n, :a)"),
                          {"u": id_secretaria_usuario, "n": args.nombres, "a": args.apellidos})
 
-        # Docente marcador (grupos.id_docente es obligatorio); cuenta inactiva, sin acceso
-        correo_doc = "docente.por.asignar@invalid.local"
-        conn.execute(
-            text("""INSERT IGNORE INTO usuarios (correo, password, id_rol, estatus)
-                    VALUES (:c, :p, :r, 'Inactivo')"""),
-            {"c": correo_doc, "p": hashear(secrets.token_urlsafe(32)), "r": id_rol["Docente"]})
-        id_usuario_doc = conn.execute(text("SELECT id_usuario FROM usuarios WHERE correo = :c"), {"c": correo_doc}).scalar_one()
-        id_docente = conn.execute(text("SELECT id_docente FROM empleados_docentes WHERE id_usuario = :u"),
-                                  {"u": id_usuario_doc}).scalar()
-        if id_docente is None:
-            id_docente = conn.execute(
-                text("INSERT INTO empleados_docentes (id_usuario, nombres, apellidos) VALUES (:u, 'Por', 'Asignar')"),
-                {"u": id_usuario_doc}).lastrowid
-
         id_materias = []
         for nombre in MATERIAS_PRIMER_SEMESTRE:
             id_m = conn.execute(text("SELECT id_materia FROM materias WHERE nombre_materia = :n AND semestre = :s"),
@@ -114,7 +99,7 @@ def main() -> None:
                         text("""INSERT INTO grupos (id_paquete, id_materia, id_docente, periodo_escolar, turno,
                                                     cupo_maximo, cupo_disponible)
                                 VALUES (:p, :m, :d, :per, :t, :c, :c)"""),
-                        {"p": id_p, "m": id_m, "d": id_docente, "per": settings.periodo, "t": turno, "c": CUPO})
+                        {"p": id_p, "m": id_m, "d": None, "per": settings.periodo, "t": turno, "c": CUPO})
                     creados += 1
         print(f"Periodo {settings.periodo}: {creados} grupos nuevos de primer semestre.")
 

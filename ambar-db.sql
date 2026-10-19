@@ -68,7 +68,7 @@ CREATE TABLE alumnos (
     motivo_baja VARCHAR(255),
     eliminado BOOLEAN NOT NULL DEFAULT FALSE,
     FOREIGN KEY (id_usuario) REFERENCES usuarios(id_usuario),
-    CONSTRAINT chk_promedio_prepa CHECK (promedio_preparatoria BETWEEN 0 AND 10),
+    CONSTRAINT chk_promedio_prepa CHECK (promedio_preparatoria BETWEEN 7 AND 10),
     CONSTRAINT chk_semestre_actual CHECK (semestre_actual >= 1),
     INDEX idx_alumnos_estatus (estatus)
 );
@@ -119,7 +119,7 @@ CREATE TABLE grupos (
     id_grupo INT AUTO_INCREMENT PRIMARY KEY,
     id_paquete INT NOT NULL,
     id_materia INT NOT NULL,
-    id_docente INT NOT NULL,
+    id_docente INT NULL, -- NULL indica que el grupo aún no tiene docente asignado
     periodo_escolar VARCHAR(20) NOT NULL,
     turno ENUM('Matutino', 'Vespertino') NOT NULL,
     cupo_maximo INT NOT NULL DEFAULT 25,

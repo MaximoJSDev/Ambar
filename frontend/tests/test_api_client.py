@@ -1,4 +1,6 @@
 import json
+from pathlib import Path
+import tempfile
 import unittest
 
 import httpx
@@ -49,6 +51,38 @@ class ApiClientTests(unittest.TestCase):
             ("DELETE", "/alumnos/26320700"),
             ("GET", "/alumnos/26320700/historial"),
         ])
+
+    def test_actualizar_documentos_envia_pdf_en_multipart(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            archivo = Path(tmp) / "curp.pdf"
+            archivo.write_bytes(b"%PDF-1.4 contenido")
+            constancia = Path(tmp) / "constancia.pdf"
+            constancia.write_bytes(b"%PDF-1.4 constancia")
+
+            def responder(request: httpx.Request) -> httpx.Response:
+                self.assertEqual(request.method, "PUT")
+                self.assertEqual(request.url.path, "/alumnos/26320700/documentos")
+                self.assertIn("multipart/form-data", request.headers["content-type"])
+                contenido = request.read()
+                self.assertIn(b'name="doc_curp"', contenido)
+                self.assertIn(b"%PDF-1.4 contenido", contenido)
+                self.assertIn(b'name="doc_constancia_situacion_fiscal"', contenido)
+                self.assertIn(b"%PDF-1.4 constancia", contenido)
+                return httpx.Response(200, json={"mensaje": "ok"})
+
+            cliente = ApiClient()
+            cliente._http.close()
+            cliente._http = httpx.Client(
+                base_url="http://test",
+                transport=httpx.MockTransport(responder),
+            )
+            try:
+                cliente.actualizar_documentos("26320700", {
+                    "CURP": str(archivo),
+                    "Constancia de situación fiscal": str(constancia),
+                })
+            finally:
+                cliente._http.close()
 
     def test_descargar_expediente_devuelve_el_contenido_pdf(self):
         pdf = b"%PDF-test"

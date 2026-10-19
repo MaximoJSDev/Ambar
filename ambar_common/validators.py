@@ -23,6 +23,7 @@ PATRON_INE = re.compile(r"[A-Z]{6}\d{8}[HM]\d{3}")
 EDAD_MINIMA = 16
 EDAD_MAXIMA = 70
 NOMBRE_MIN, NOMBRE_MAX = 3, 20      # longitud de nombre y apellidos (diagrama de Altas)
+PROMEDIO_MIN, PROMEDIO_MAX = 7, 10
 MAX_PDF_MB = 500                    # límite por archivo (Algoritmo 3, paso 3)
 MAX_PDF_BYTES = MAX_PDF_MB * 1024 * 1024
 TURNO_MATUTINO_MIN = 9              # promedio >= 9 -> Matutino, si no Vespertino
@@ -145,8 +146,8 @@ def validar_promedio(valor: str) -> str | None:
         promedio = float(valor.strip().replace(",", "."))
     except ValueError:
         return "Promedio inválido"
-    if not 1 <= promedio <= 10:
-        return "Ingresa un promedio del 1 al 10"
+    if not PROMEDIO_MIN <= promedio <= PROMEDIO_MAX:
+        return f"Ingresa un promedio del {PROMEDIO_MIN} al {PROMEDIO_MAX}"
     return None
 
 

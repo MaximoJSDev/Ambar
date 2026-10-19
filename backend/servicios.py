@@ -14,6 +14,7 @@ import json
 import re
 import shutil
 import unicodedata
+import uuid
 from datetime import date, time, timedelta
 from pathlib import Path
 
@@ -23,7 +24,14 @@ from sqlalchemy.exc import DBAPIError, IntegrityError
 from ambar_common import validators as v
 
 from .config import engine, settings
-from .constantes import DOCUMENTOS, ROL_DOCENTE, ROL_SECRETARIA, SEMESTRE_INGRESO, TURNOS
+from .constantes import (
+    DOCUMENTOS,
+    DOCUMENTOS_MODIFICABLES,
+    ROL_DOCENTE,
+    ROL_SECRETARIA,
+    SEMESTRE_INGRESO,
+    TURNOS,
+)
 from .esquemas import AltaIn, DocenteCreate, SecretariaCreate
 from .seguridad import hashear
 
@@ -385,6 +393,72 @@ def actualizar_alumno(numero_control: str, datos: AltaIn, id_usuario: int) -> No
         raise Conflicto("La ficha, CURP o correo ya está registrado.") from exc
 
 
+def actualizar_documentos(numero_control: str, pdfs: dict[str, str]) -> None:
+    """Agrega o reemplaza documentos sin modificar los demás archivos del expediente."""
+    tipos = {visible: tipo_bd for visible, tipo_bd in DOCUMENTOS_MODIFICABLES.values()}
+    if any(documento not in tipos for documento in pdfs):
+        raise ValueError("Tipo de documento no válido")
+
+    base = settings.storage_dir
+    carpeta = base / numero_control
+    rutas_nuevas: list[Path] = []
+    rutas_anteriores: list[Path] = []
+    try:
+        with engine.begin() as conn:
+            alumno = conn.execute(
+                text("""SELECT numero_control FROM alumnos
+                        WHERE numero_control = :numero AND eliminado = FALSE
+                        FOR UPDATE"""),
+                {"numero": numero_control},
+            ).first()
+            if alumno is None:
+                raise NoEncontrado()
+
+            carpeta.mkdir(parents=True, exist_ok=True)
+            for documento, origen in pdfs.items():
+                ruta = carpeta / f"{_slug(documento)}_{uuid.uuid4().hex}.pdf"
+                shutil.copyfile(origen, ruta)
+                rutas_nuevas.append(ruta)
+                ruta_relativa = ruta.relative_to(base).as_posix()
+                anterior = conn.execute(
+                    text("""SELECT id_documento, ruta_archivo
+                            FROM expedientes_digitales
+                            WHERE numero_control = :numero AND tipo_documento = :tipo
+                            FOR UPDATE"""),
+                    {"numero": numero_control, "tipo": tipos[documento]},
+                ).mappings().first()
+                if anterior:
+                    conn.execute(
+                        text("""UPDATE expedientes_digitales SET ruta_archivo = :ruta
+                                WHERE id_documento = :id"""),
+                        {"ruta": ruta_relativa, "id": anterior["id_documento"]},
+                    )
+                    rutas_anteriores.append(base / anterior["ruta_archivo"])
+                else:
+                    conn.execute(
+                        text("""INSERT INTO expedientes_digitales
+                                    (numero_control, tipo_documento, ruta_archivo)
+                                VALUES (:numero, :tipo, :ruta)"""),
+                        {
+                            "numero": numero_control,
+                            "tipo": tipos[documento],
+                            "ruta": ruta_relativa,
+                        },
+                    )
+    except Exception:
+        for ruta in rutas_nuevas:
+            ruta.unlink(missing_ok=True)
+        raise
+
+    for ruta in rutas_anteriores:
+        try:
+            ruta_resuelta = ruta.resolve()
+            if ruta_resuelta.is_relative_to(base.resolve()) and ruta_resuelta.is_file():
+                ruta_resuelta.unlink()
+        except OSError:
+            log.warning("No se pudo eliminar el documento reemplazado: %s", ruta)
+
+
 def eliminar_alumno(numero_control: str, id_usuario: int) -> None:
     with engine.begin() as conn:
         anterior = conn.execute(
@@ -531,6 +605,59 @@ def listar_docentes() -> list[dict]:
             {"rol": ROL_DOCENTE},
         ).mappings().all()
     return [dict(fila) for fila in filas]
+
+
+def migrar_docente_sin_asignar(conn) -> None:
+    """Makes group assignments optional and removes the legacy fake teacher."""
+    columna_docente = conn.execute(
+        text("SHOW COLUMNS FROM grupos LIKE 'id_docente'")
+    ).mappings().first()
+    if columna_docente and columna_docente["Null"] == "NO":
+        conn.execute(text("ALTER TABLE grupos MODIFY id_docente INT NULL"))
+
+    marcador = conn.execute(
+        text("""SELECT u.id_usuario, d.id_docente
+                FROM usuarios u
+                LEFT JOIN empleados_docentes d ON d.id_usuario = u.id_usuario
+                WHERE u.correo = :correo"""),
+        {"correo": "docente.por.asignar@invalid.local"},
+    ).mappings().first()
+    if marcador is None:
+        return
+
+    if marcador["id_docente"] is not None:
+        conn.execute(
+            text("UPDATE grupos SET id_docente = NULL WHERE id_docente = :docente"),
+            {"docente": marcador["id_docente"]},
+        )
+        conn.execute(
+            text("DELETE FROM empleados_docentes WHERE id_docente = :docente"),
+            {"docente": marcador["id_docente"]},
+        )
+
+    referencias = conn.execute(
+        text("""SELECT
+                    (SELECT COUNT(*) FROM bitacora_accesos WHERE id_usuario = :usuario)
+                        + (SELECT COUNT(*) FROM alumnos WHERE id_usuario = :usuario)
+                        + (SELECT COUNT(*) FROM historial_alumnos WHERE id_usuario = :usuario)
+                        + (SELECT COUNT(*) FROM personal_secretaria WHERE id_usuario = :usuario)
+                    AS total"""),
+        {"usuario": marcador["id_usuario"]},
+    ).scalar_one()
+    if referencias:
+        conn.execute(
+            text("UPDATE usuarios SET estatus = 'Inactivo' WHERE id_usuario = :usuario"),
+            {"usuario": marcador["id_usuario"]},
+        )
+        log.warning(
+            "Se conservó desactivada la cuenta histórica del docente marcador (id_usuario=%s)",
+            marcador["id_usuario"],
+        )
+    else:
+        conn.execute(
+            text("DELETE FROM usuarios WHERE id_usuario = :usuario"),
+            {"usuario": marcador["id_usuario"]},
+        )
 
 
 def dar_baja_docente(id_usuario: int) -> dict:

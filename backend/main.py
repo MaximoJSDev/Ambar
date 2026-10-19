@@ -7,9 +7,11 @@ from sqlalchemy import text
 
 from ambar_common.logging_config import configure_file_logging
 
+from . import servicios
 from .config import engine, settings
 from .routers import admin, alumnos, auth, panel, personal
 
+log = logging.getLogger("sige")
 logging.basicConfig(level=logging.INFO)
 configure_file_logging("sige", "backend.log")
 
@@ -37,6 +39,7 @@ async def lifespan(_: FastAPI):
             FOREIGN KEY (id_usuario) REFERENCES usuarios(id_usuario),
             INDEX idx_historial_alumno_fecha (numero_control, fecha)
         )"""))
+        servicios.migrar_docente_sin_asignar(conn)
         conn.execute(text("SELECT 1"))
     yield
 

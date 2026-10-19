@@ -16,4 +16,11 @@ DOCUMENTOS = {
     "doc_certificado_preparatoria": ("Certificado de preparatoria", "Certificado Preparatoria"),
     "doc_certificado_medico": ("Certificado médico", "Certificado Medico"),
 }
+# Documento opcional del expediente; no forma parte de los requisitos de Alta.
+DOCUMENTOS_MODIFICABLES = DOCUMENTOS | {
+    "doc_constancia_situacion_fiscal": (
+        "Constancia de situación fiscal",
+        "Constancia Situacion Fiscal",
+    ),
+}
 TIPOS_REQUERIDOS = [tipo_bd for _, tipo_bd in DOCUMENTOS.values()]
