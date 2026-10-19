@@ -29,14 +29,14 @@ SOFT_BLUE = "#E8F0FB"
 OK_BG, OK_FG = "#DFF1E8", "#13734A"
 WARN_BG, WARN_FG = "#FFEFD2", "#9A5B00"
 
-# Cliente del backend FastAPI (URL en la variable de entorno SIGE_API_URL).
-# El bloqueo por intentos fallidos, los cupos y los PDF ahora viven en el servidor.
+# El servidor es la fuente de verdad para autenticación, cupos y almacenamiento de PDF.
+# SIGE_API_URL permite apuntar el cliente a la instancia del backend correspondiente.
 api = ApiClient()
 
 
 # --- Reglas de Altas (documento de contexto, Algoritmo 3) -------------------
-TURNOS = ("Matutino", "Vespertino")          # un grupo por turno
-DOCUMENTOS = [                               # deben coincidir con api_client.CAMPO_DOCUMENTO
+TURNOS = ("Matutino", "Vespertino")          # La asignación de nuevo ingreso se limita a un grupo por turno.
+DOCUMENTOS = [                               # La API usa estos nombres para asociar cada PDF con su tipo documental.
     "Acta de nacimiento",
     "CURP",
     "Comprobante de domicilio",
@@ -44,8 +44,8 @@ DOCUMENTOS = [                               # deben coincidir con api_client.CA
     "Certificado de preparatoria",
     "Certificado médico",
 ]
-REQUIERE_TODOS_LOS_DOCUMENTOS = True         # False: permite dejar documentos pendientes
-                                             # (el servidor tiene su propia opción: REQUIERE_TODOS_LOS_DOCUMENTOS)
+# Este indicador controla la validación inmediata de la interfaz; el servidor aplica su propia política.
+REQUIERE_TODOS_LOS_DOCUMENTOS = True
 
 
 NAV = [
@@ -115,10 +115,10 @@ def _limpiar_error(e):
         e.control.update()
 
 
-def tf(hint: str = "", **kw) -> ft.TextField:
-    """TextField con el estilo del diseño (etiqueta aparte, borde suave)."""
+def crear_campo_texto(texto_ayuda: str = "", **opciones) -> ft.TextField:
+    """Crea un campo de texto con estilo común y borde suave."""
     return ft.TextField(
-        hint_text=hint,
+        hint_text=texto_ayuda,
         text_size=13,
         filled=True,
         fill_color=WHITE,
@@ -135,31 +135,31 @@ def tf(hint: str = "", **kw) -> ft.TextField:
         hint_style=ft.TextStyle(color="#7A8799", size=13),
         content_padding=ft.Padding.symmetric(horizontal=12, vertical=12),
         on_change=_limpiar_error,
-        **kw,
+        **opciones,
     )
 
 
-def etiqueta(texto: str, control: ft.Control) -> ft.Column:
+def crear_campo_etiquetado(texto: str, control: ft.Control) -> ft.Column:
     return ft.Column(
         spacing=6,
         expand=1,
-        horizontal_alignment=ft.CrossAxisAlignment.STRETCH,   # el campo ocupa todo el ancho
+        horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
         controls=[ft.Text(texto, size=13, weight=ft.FontWeight.BOLD, color=TEXT), control],
     )
 
 
-def tarjeta(content: ft.Control, padding=24, **kw) -> ft.Container:
+def crear_tarjeta(contenido: ft.Control, padding=24, **opciones) -> ft.Container:
     return ft.Container(
-        content=content,
+        content=contenido,
         bgcolor=WHITE,
         border=ft.Border.all(1, BORDER),
         border_radius=10,
         padding=padding,
-        **kw,
+        **opciones,
     )
 
 
-def estilo_primario() -> ft.ButtonStyle:
+def estilo_boton_primario() -> ft.ButtonStyle:
     return ft.ButtonStyle(
         bgcolor=NAVY,
         color=WHITE,
@@ -168,7 +168,7 @@ def estilo_primario() -> ft.ButtonStyle:
     )
 
 
-def estilo_secundario() -> ft.ButtonStyle:
+def estilo_boton_secundario() -> ft.ButtonStyle:
     return ft.ButtonStyle(
         color=NAVY,
         side=ft.BorderSide(1, NAVY),
@@ -185,12 +185,12 @@ def snackbar(page: ft.Page, texto: str):
 # 1. LOGIN
 # =====================================================================
 def build_login(page: ft.Page, al_entrar) -> ft.View:
-    correo = tf("usuario@acapulco.tecnm.mx", autofocus=True, keyboard_type=ft.KeyboardType.EMAIL)
-    password = tf("Contraseña", password=True, can_reveal_password=True)
+    correo = crear_campo_texto("usuario@acapulco.tecnm.mx", autofocus=True, keyboard_type=ft.KeyboardType.EMAIL)
+    password = crear_campo_texto("Contraseña", password=True, can_reveal_password=True)
     aviso = ft.Text("", color=ft.Colors.RED_700, size=13, weight=ft.FontWeight.W_600, visible=False)
     boton = ft.FilledButton(
         "Iniciar sesión",
-        style=estilo_primario(),
+        style=estilo_boton_primario(),
         height=46,
     )
 
@@ -202,11 +202,11 @@ def build_login(page: ft.Page, al_entrar) -> ft.View:
         fin = time.monotonic() + segundos
         try:
             while True:
-                s = int(fin - time.monotonic() + 0.999)
-                if s <= 0:
+                segundos_restantes = int(fin - time.monotonic() + 0.999)
+                if segundos_restantes <= 0:
                     break
                 aviso.value = (f"Cuenta bloqueada por demasiados intentos. "
-                               f"Intenta de nuevo en {s // 60}:{s % 60:02d}.")
+                               f"Intenta de nuevo en {segundos_restantes // 60}:{segundos_restantes % 60:02d}.")
                 aviso.visible = True
                 page.update()
                 await asyncio.sleep(1)
@@ -215,38 +215,39 @@ def build_login(page: ft.Page, al_entrar) -> ft.View:
             password.value = ""
             page.update()
         except Exception:
-            # La vista pudo cerrarse mientras corría el contador
+            # Al cambiar de vista, Flet puede invalidar los controles que actualiza esta tarea.
             pass
 
     def autenticar(e=None):
-        clave = (correo.value or "").strip().lower()
-        pwd = password.value or ""
+        correo_normalizado = (correo.value or "").strip().lower()
+        contrasena = password.value or ""
         correo.error = None
         password.error = None
         aviso.visible = False
 
-        err = v.validar_correo_login(clave)
-        if err:
-            correo.error = err
+        error_correo = v.validar_correo_login(correo_normalizado)
+        if error_correo:
+            correo.error = error_correo
             page.update()
             return
-        if not pwd:
+        if not contrasena:
             password.error = "Contraseña obligatoria"
             page.update()
             return
 
-        boton.disabled = True           # evita doble clic mientras responde el servidor
+        # La llamada al API es síncrona; deshabilitar el botón evita solicitudes duplicadas.
+        boton.disabled = True
         page.update()
         try:
-            usuario = api.login(clave, pwd)
+            usuario = api.login(correo_normalizado, contrasena)
         except ApiError as ex:
             boton.disabled = False
-            if ex.status == 423:        # bloqueada: el servidor indica cuántos segundos faltan
+            if ex.status == 423:        # El servidor centraliza el bloqueo y comunica el tiempo restante.
                 bloquear_ui(True)
                 page.update()
                 page.run_task(cuenta_regresiva, int(ex.extra.get("segundos", 300)))
                 return
-            if ex.status == 401:        # mensaje genérico: no revela si el correo existe
+            if ex.status == 401:        # El mensaje no distingue entre correo inexistente y contraseña incorrecta.
                 restantes = ex.extra.get("intentos_restantes", 0)
                 password.error = (f"Credenciales incorrectas. Te quedan {restantes} "
                                   f"intento{'s' if restantes != 1 else ''}.")
@@ -442,8 +443,7 @@ class Shell:
             ),
         )
 
-        # Zona de contenido: cada página decide si hace scroll (el panel) o si solo
-        # una parte interna lo hace (el formulario de Altas).
+        # Mantener el marco fuera del scroll conserva fija la navegación; cada pantalla controla su propio desplazamiento.
         self.host = ft.Container(expand=True, bgcolor=BG, padding=32)
 
         self.view = ft.View(
@@ -497,7 +497,7 @@ def build_panel(page: ft.Page, navegar) -> ft.Control:
     def estadistica(numero, texto):
         return ft.Container(
             col={"xs": 12, "sm": 6, "lg": 3},
-            content=tarjeta(ft.Column(spacing=8, controls=[
+            content=crear_tarjeta(ft.Column(spacing=8, controls=[
                 ft.Text(str(numero), size=34, weight=ft.FontWeight.BOLD, color=NAVY),
                 ft.Text(texto, size=13, color=MUTED),
             ]), padding=20),
@@ -514,7 +514,7 @@ def build_panel(page: ft.Page, navegar) -> ft.Control:
             ink=True,
             border_radius=10,
             on_click=click,
-            content=tarjeta(ft.Row(spacing=16, controls=[
+            content=crear_tarjeta(ft.Row(spacing=16, controls=[
                 ft.Container(width=6, height=54, bgcolor=GOLD, border_radius=3),
                 ft.Column(spacing=6, tight=True, controls=[
                     ft.Text(titulo, size=17, weight=ft.FontWeight.BOLD, color=NAVY),
@@ -523,7 +523,7 @@ def build_panel(page: ft.Page, navegar) -> ft.Control:
             ]), padding=ft.Padding.symmetric(horizontal=18, vertical=18)),
         )
 
-    # Datos reales desde la API; si falla, el panel se muestra en ceros con un aviso
+    # Si falla la API, el panel sigue siendo navegable y muestra un aviso en vez de ocultar el problema.
     error_panel = None
     try:
         resumen = api.resumen_panel()
@@ -571,19 +571,19 @@ def build_panel(page: ft.Page, navegar) -> ft.Control:
             ]),
         ))
 
-    actividad = tarjeta(ft.Column(spacing=12, controls=[
+    actividad = crear_tarjeta(ft.Column(spacing=12, controls=[
         ft.Text("Actividad reciente", size=19, weight=ft.FontWeight.BOLD, color=NAVY),
         ft.Column(spacing=0, controls=filas),
     ]), col={"xs": 12, "lg": 8})
 
-    pendientes = tarjeta(ft.Column(spacing=14, controls=[
+    pendientes = crear_tarjeta(ft.Column(spacing=14, controls=[
         ft.Text("Pendientes", size=19, weight=ft.FontWeight.BOLD, color=NAVY),
         ft.Container(height=4),
         *lineas_pendientes,
         ft.Container(height=20),
         ft.OutlinedButton(
             "Revisar expedientes",
-            style=estilo_secundario(),
+            style=estilo_boton_secundario(),
             on_click=lambda e: navegar("/consultas"),
         ),
     ]), col={"xs": 12, "lg": 4})
@@ -613,7 +613,7 @@ def build_inicio_docente(usuario: dict) -> ft.Control:
             f"Bienvenido, {usuario['nombre']}",
             "Tu cuenta de maestro está activa.",
         ),
-        tarjeta(ft.Row(spacing=16, controls=[
+        crear_tarjeta(ft.Row(spacing=16, controls=[
             ft.Icon(ft.Icons.INFO_OUTLINE, color=NAVY, size=24),
             ft.Text(
                 "Las funciones para docentes todavía no están disponibles.",
@@ -625,13 +625,13 @@ def build_inicio_docente(usuario: dict) -> ft.Control:
 
 
 def build_alta_secretaria(page: ft.Page, navegar) -> ft.Control:
-    nombres = tf("Nombre(s)")
-    apellidos = tf("Apellidos")
-    correo = tf("correo@institucion.edu.mx", keyboard_type=ft.KeyboardType.EMAIL)
-    password = tf("Contraseña (mínimo 10 caracteres)", password=True, can_reveal_password=True)
-    confirmar = tf("Confirma la contraseña", password=True, can_reveal_password=True)
+    nombres = crear_campo_texto("Nombre(s)")
+    apellidos = crear_campo_texto("Apellidos")
+    correo = crear_campo_texto("correo@institucion.edu.mx", keyboard_type=ft.KeyboardType.EMAIL)
+    password = crear_campo_texto("Contraseña (mínimo 10 caracteres)", password=True, can_reveal_password=True)
+    confirmar = crear_campo_texto("Confirma la contraseña", password=True, can_reveal_password=True)
     aviso = ft.Text("", size=13, color=WARN_FG, visible=False)
-    boton = ft.FilledButton("Crear cuenta de secretaria", style=estilo_primario())
+    boton = ft.FilledButton("Crear cuenta de secretaria", style=estilo_boton_primario())
 
     def crear(_):
         for campo in (nombres, apellidos, correo, password, confirmar):
@@ -685,13 +685,13 @@ def build_alta_secretaria(page: ft.Page, navegar) -> ft.Control:
             "Alta de secretaria",
             "Crea una cuenta de acceso para personal de Secretaría.",
         ),
-        tarjeta(ft.Column(spacing=18, controls=[
+        crear_tarjeta(ft.Column(spacing=18, controls=[
             ft.ResponsiveRow(spacing=16, run_spacing=14, controls=[
-                ft.Container(col={"xs": 12, "md": 6}, content=etiqueta("Nombre(s)", nombres)),
-                ft.Container(col={"xs": 12, "md": 6}, content=etiqueta("Apellidos", apellidos)),
-                ft.Container(col={"xs": 12}, content=etiqueta("Correo de acceso", correo)),
-                ft.Container(col={"xs": 12, "md": 6}, content=etiqueta("Contraseña", password)),
-                ft.Container(col={"xs": 12, "md": 6}, content=etiqueta("Confirmar contraseña", confirmar)),
+                ft.Container(col={"xs": 12, "md": 6}, content=crear_campo_etiquetado("Nombre(s)", nombres)),
+                ft.Container(col={"xs": 12, "md": 6}, content=crear_campo_etiquetado("Apellidos", apellidos)),
+                ft.Container(col={"xs": 12}, content=crear_campo_etiquetado("Correo de acceso", correo)),
+                ft.Container(col={"xs": 12, "md": 6}, content=crear_campo_etiquetado("Contraseña", password)),
+                ft.Container(col={"xs": 12, "md": 6}, content=crear_campo_etiquetado("Confirmar contraseña", confirmar)),
             ]),
             ft.Text("La contraseña debe tener al menos 10 caracteres.", size=12, color=MUTED),
             aviso,
@@ -701,13 +701,13 @@ def build_alta_secretaria(page: ft.Page, navegar) -> ft.Control:
 
 
 def build_alta_maestro(page: ft.Page, navegar) -> ft.Control:
-    nombres = tf("Nombre(s)")
-    apellidos = tf("Apellidos")
-    correo = tf("correo@institucion.edu.mx", keyboard_type=ft.KeyboardType.EMAIL)
-    password = tf("Contraseña (mínimo 10 caracteres)", password=True, can_reveal_password=True)
-    confirmar = tf("Confirma la contraseña", password=True, can_reveal_password=True)
+    nombres = crear_campo_texto("Nombre(s)")
+    apellidos = crear_campo_texto("Apellidos")
+    correo = crear_campo_texto("correo@institucion.edu.mx", keyboard_type=ft.KeyboardType.EMAIL)
+    password = crear_campo_texto("Contraseña (mínimo 10 caracteres)", password=True, can_reveal_password=True)
+    confirmar = crear_campo_texto("Confirma la contraseña", password=True, can_reveal_password=True)
     aviso = ft.Text("", size=13, color=WARN_FG, visible=False)
-    boton = ft.FilledButton("Crear cuenta de maestro", style=estilo_primario())
+    boton = ft.FilledButton("Crear cuenta de maestro", style=estilo_boton_primario())
 
     def crear(_):
         for campo in (nombres, apellidos, correo, password, confirmar):
@@ -761,13 +761,13 @@ def build_alta_maestro(page: ft.Page, navegar) -> ft.Control:
             "Alta de maestros",
             "Crea una cuenta de acceso para un maestro.",
         ),
-        tarjeta(ft.Column(spacing=18, controls=[
+        crear_tarjeta(ft.Column(spacing=18, controls=[
             ft.ResponsiveRow(spacing=16, run_spacing=14, controls=[
-                ft.Container(col={"xs": 12, "md": 6}, content=etiqueta("Nombre(s)", nombres)),
-                ft.Container(col={"xs": 12, "md": 6}, content=etiqueta("Apellidos", apellidos)),
-                ft.Container(col={"xs": 12}, content=etiqueta("Correo de acceso", correo)),
-                ft.Container(col={"xs": 12, "md": 6}, content=etiqueta("Contraseña", password)),
-                ft.Container(col={"xs": 12, "md": 6}, content=etiqueta("Confirmar contraseña", confirmar)),
+                ft.Container(col={"xs": 12, "md": 6}, content=crear_campo_etiquetado("Nombre(s)", nombres)),
+                ft.Container(col={"xs": 12, "md": 6}, content=crear_campo_etiquetado("Apellidos", apellidos)),
+                ft.Container(col={"xs": 12}, content=crear_campo_etiquetado("Correo de acceso", correo)),
+                ft.Container(col={"xs": 12, "md": 6}, content=crear_campo_etiquetado("Contraseña", password)),
+                ft.Container(col={"xs": 12, "md": 6}, content=crear_campo_etiquetado("Confirmar contraseña", confirmar)),
             ]),
             ft.Text("La contraseña debe tener al menos 10 caracteres.", size=12, color=MUTED),
             aviso,
@@ -838,10 +838,10 @@ def build_consulta_secretarias(page: ft.Page, navegar) -> ft.Control:
         if activa:
             controles.append(ft.OutlinedButton(
                 "Dar de baja",
-                style=estilo_secundario(),
+                style=estilo_boton_secundario(),
                 on_click=lambda _, r=registro: dar_baja(r),
             ))
-        return tarjeta(ft.Row(
+        return crear_tarjeta(ft.Row(
             spacing=16,
             vertical_alignment=ft.CrossAxisAlignment.CENTER,
             controls=controles,
@@ -923,10 +923,10 @@ def build_consulta_maestros(page: ft.Page, navegar) -> ft.Control:
         if activa:
             controles.append(ft.OutlinedButton(
                 "Dar de baja",
-                style=estilo_secundario(),
+                style=estilo_boton_secundario(),
                 on_click=lambda _, r=registro: dar_baja(r),
             ))
-        return tarjeta(ft.Row(
+        return crear_tarjeta(ft.Row(
             spacing=16,
             vertical_alignment=ft.CrossAxisAlignment.CENTER,
             controls=controles,
@@ -966,7 +966,7 @@ def build_bitacora_admin(page: ft.Page, navegar) -> ft.Control:
                 filas.controls = [ft.Text("Aún no hay accesos registrados.", size=14, color=MUTED)]
             else:
                 filas.controls = [
-                    tarjeta(ft.ResponsiveRow(spacing=12, run_spacing=8, controls=[
+                    crear_tarjeta(ft.ResponsiveRow(spacing=12, run_spacing=8, controls=[
                         ft.Container(col={"xs": 12, "md": 3}, content=ft.Column(spacing=3, controls=[
                             ft.Text(registro["nombre"], size=14, weight=ft.FontWeight.BOLD, color=NAVY),
                             ft.Text(registro["correo"], size=12, color=MUTED),
@@ -1019,7 +1019,7 @@ class FormAltas:
         self.al_guardar = al_guardar
         self.paso = 0
         self.fecha: datetime.date | None = None
-        # documento -> {"nombre", "path", "size"}
+        # nombre y tamaño se muestran en el formulario; path se envía junto con el alta.
         self.archivos: dict[str, dict] = {}
         self.errores_docs: dict[str, str] = {}
 
@@ -1030,11 +1030,11 @@ class FormAltas:
         palabras = ft.TextCapitalization.WORDS
 
         # ---- Paso 1
-        self.ficha = tf("Ej. 2026-00123", autofocus=True,
+        self.ficha = crear_campo_texto("Ej. 2026-00123", autofocus=True,
                         input_filter=ft.InputFilter(regex_string=r"^[0-9\-]*$", allow=True, replacement_string=""))
-        self.nombre = tf("Ingresa el nombre o nombres", input_filter=letras, capitalization=palabras)
-        self.ap_paterno = tf("Ingresa el apellido paterno", input_filter=letras, capitalization=palabras)
-        self.ap_materno = tf("Ingresa el apellido materno", input_filter=letras, capitalization=palabras)
+        self.nombre = crear_campo_texto("Ingresa el nombre o nombres", input_filter=letras, capitalization=palabras)
+        self.ap_paterno = crear_campo_texto("Ingresa el apellido paterno", input_filter=letras, capitalization=palabras)
+        self.ap_materno = crear_campo_texto("Ingresa el apellido materno", input_filter=letras, capitalization=palabras)
         self.date_picker = ft.DatePicker(
             first_date=datetime.datetime.combine(v.hace_anios(v.EDAD_MAXIMA), datetime.time()),
             last_date=datetime.datetime.combine(v.hace_anios(v.EDAD_MINIMA), datetime.time()),
@@ -1042,41 +1042,41 @@ class FormAltas:
             help_text="Fecha de nacimiento",
             on_change=self._fecha_elegida,
         )
-        self.txt_fecha = tf("DD / MM / AAAA", read_only=True, suffix_icon=ft.Icons.CALENDAR_TODAY_OUTLINED)
+        self.txt_fecha = crear_campo_texto("DD / MM / AAAA", read_only=True, suffix_icon=ft.Icons.CALENDAR_TODAY_OUTLINED)
         self.txt_fecha.on_click = lambda e: self.page.show_dialog(self.date_picker)
-        self.curp = tf("Ingresa la CURP", input_filter=alfanum, capitalization=mayus)
-        self.rfc = tf("Ingresa el RFC", input_filter=alfanum, capitalization=mayus)
-        self.nss = tf("Ingresa el número de seguro social", keyboard_type=ft.KeyboardType.NUMBER,
+        self.curp = crear_campo_texto("Ingresa la CURP", input_filter=alfanum, capitalization=mayus)
+        self.rfc = crear_campo_texto("Ingresa el RFC", input_filter=alfanum, capitalization=mayus)
+        self.nss = crear_campo_texto("Ingresa el número de seguro social", keyboard_type=ft.KeyboardType.NUMBER,
                       input_filter=ft.NumbersOnlyInputFilter())
-        self.ine = tf("Clave de elector (18 caracteres)", input_filter=alfanum, capitalization=mayus)
+        self.ine = crear_campo_texto("Clave de elector (18 caracteres)", input_filter=alfanum, capitalization=mayus)
         self.genero = ft.Dropdown(
             hint_text="Selecciona",
             text_size=13,
             border_radius=6,
             border_color=BORDER,
-            expand=True,    # junto con ft.Row([...]) hace que ocupe todo el ancho de su columna
+            expand=True,
             options=[ft.DropdownOption(key=k, text=t) for k, t in v.GENEROS.items()],
             on_select=self._genero_elegido,
         )
-        self.celular = tf("Número de 10 dígitos", keyboard_type=ft.KeyboardType.PHONE,
+        self.celular = crear_campo_texto("Número de 10 dígitos", keyboard_type=ft.KeyboardType.PHONE,
                           input_filter=ft.NumbersOnlyInputFilter())
-        self.correo = tf("Correo electrónico del alumno", keyboard_type=ft.KeyboardType.EMAIL)
-        self.domicilio = tf("Calle, número, colonia, ciudad y estado")
+        self.correo = crear_campo_texto("Correo electrónico del alumno", keyboard_type=ft.KeyboardType.EMAIL)
+        self.domicilio = crear_campo_texto("Calle, número, colonia, ciudad y estado")
 
         # ---- Paso 2
-        self.prepa = tf("Nombre de la preparatoria")
-        self.promedio = tf("Ej. 9.5", keyboard_type=ft.KeyboardType.NUMBER,
+        self.prepa = crear_campo_texto("Nombre de la preparatoria")
+        self.promedio = crear_campo_texto("Ej. 9.5", keyboard_type=ft.KeyboardType.NUMBER,
                            input_filter=ft.InputFilter(regex_string=r"^[0-9.,]*$", allow=True, replacement_string=""))
         self.promedio.on_change = self._promedio_cambiado
-        self.cel_emerg = tf("Número de 10 dígitos", keyboard_type=ft.KeyboardType.PHONE,
+        self.cel_emerg = crear_campo_texto("Número de 10 dígitos", keyboard_type=ft.KeyboardType.PHONE,
                             input_filter=ft.NumbersOnlyInputFilter())
-        self.correo_emerg = tf("Correo del contacto de emergencia", keyboard_type=ft.KeyboardType.EMAIL)
-        self.alergias = tf("Escribe las alergias o deja vacío si no tiene")
+        self.correo_emerg = crear_campo_texto("Correo del contacto de emergencia", keyboard_type=ft.KeyboardType.EMAIL)
+        self.alergias = crear_campo_texto("Escribe las alergias o deja vacío si no tiene")
 
         # ---- Contenedores dinámicos
         self.stepper = ft.Row(spacing=0)
         self.titulo_card = ft.Text("", size=21, weight=ft.FontWeight.BOLD, color=NAVY)
-        # Solo esta columna hace scroll; título, stepper, botones y resumen quedan fijos
+        # Los controles de navegación y el resumen permanecen visibles mientras se recorren los campos.
         self.cuerpo = ft.Column(expand=True, scroll=ft.ScrollMode.AUTO, spacing=0,
                                 horizontal_alignment=ft.CrossAxisAlignment.STRETCH)
         self.botones = ft.Row(alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
@@ -1120,7 +1120,7 @@ class FormAltas:
                 ft.Text(titulo, size=13, color=MUTED),
                 valor if isinstance(valor, ft.Control) else ft.Text(valor, size=14, color=TEXT),
             ])
-        return tarjeta(ft.Column(spacing=18, controls=[
+        return crear_tarjeta(ft.Column(spacing=18, controls=[
             ft.Text("Resumen del registro", size=19, weight=ft.FontWeight.BOLD, color=NAVY),
             ft.Column(spacing=3, controls=[ft.Text("Estatus", size=13, color=MUTED), self.res_estatus]),
             dato("Número de control", "Se genera al finalizar"),
@@ -1155,8 +1155,8 @@ class FormAltas:
         return cupo
 
     def _refrescar_docs(self):
-        n = len(self.archivos)
-        self.res_expediente.value = f"{n} de {len(DOCUMENTOS)} documentos"
+        documentos_cargados = len(self.archivos)
+        self.res_expediente.value = f"{documentos_cargados} de {len(DOCUMENTOS)} documentos"
 
     # ------------------------------------------------------------------
     # Eventos
@@ -1176,7 +1176,7 @@ class FormAltas:
 
     def _promedio_cambiado(self, e):
         self.promedio.error = None
-        valor = self._txt(self.promedio)
+        valor = self._texto_campo(self.promedio)
         if valor and v.validar_promedio(valor) is None:
             turno = v.turno_por_promedio(float(valor.replace(",", ".")))
             self.res_turno.value = f"{turno} (promedio {'≥' if turno == 'Matutino' else '<'} {v.TURNO_MATUTINO_MIN})"
@@ -1187,26 +1187,34 @@ class FormAltas:
     async def _elegir_pdf(self, doc: str):
         """Abre el selector de archivos para un documento (solo PDF)."""
         try:
-            res = await self.picker.pick_files(
+            archivos_seleccionados = await self.picker.pick_files(
                 dialog_title=f"Selecciona: {doc}",
                 file_type=ft.FilePickerFileType.CUSTOM,
                 allowed_extensions=["pdf"],
                 allow_multiple=False,
             )
-        except Exception as ex:  # selector no disponible en la plataforma
+        except Exception as ex:  # Algunas plataformas no implementan el selector; el error se muestra en el formulario.
             self.errores_docs[doc] = f"No se pudo abrir el selector de archivos ({ex})"
             self._pintar()
             return
-        if not res:
+        if not archivos_seleccionados:
             return
-        f = res[0]
-        err = v.validar_pdf(f.name or "", f.size, f.path)
-        if err:
+        archivo_seleccionado = archivos_seleccionados[0]
+        error_pdf = v.validar_pdf(
+            archivo_seleccionado.name or "",
+            archivo_seleccionado.size,
+            archivo_seleccionado.path,
+        )
+        if error_pdf:
             self.archivos.pop(doc, None)
-            self.errores_docs[doc] = err
+            self.errores_docs[doc] = error_pdf
         else:
             self.errores_docs.pop(doc, None)
-            self.archivos[doc] = {"nombre": f.name, "path": f.path, "size": f.size}
+            self.archivos[doc] = {
+                "nombre": archivo_seleccionado.name,
+                "path": archivo_seleccionado.path,
+                "size": archivo_seleccionado.size,
+            }
         self._pintar()
 
     def _quitar_pdf(self, doc: str):
@@ -1218,87 +1226,89 @@ class FormAltas:
     # Validación
     # ------------------------------------------------------------------
     @staticmethod
-    def _txt(c) -> str:
-        return (c.value or "").strip()
+    def _texto_campo(campo) -> str:
+        return (campo.value or "").strip()
 
     def _requerido(self, campo: ft.TextField, validador=None, **kw) -> bool:
-        valor = self._txt(campo)
+        valor = self._texto_campo(campo)
         campo.error = None
         if not valor:
             campo.error = "Campo obligatorio"
             return False
-        err = validador(valor, **kw) if validador else None
-        if err:
-            campo.error = err
+        error_validacion = validador(valor, **kw) if validador else None
+        if error_validacion:
+            campo.error = error_validacion
             return False
         return True
 
     def _no_duplicado(self) -> bool:
         """Pregunta al servidor si la ficha o la CURP ya están registradas."""
         try:
-            dup = api.verificar(self._txt(self.ficha), self._txt(self.curp).upper())
+            duplicados = api.verificar(self._texto_campo(self.ficha), self._texto_campo(self.curp).upper())
         except ApiError:
-            return True     # sin respuesta no se bloquea: el servidor vuelve a validar al guardar
-        ok = True
-        if dup.get("ficha"):
+            # La consulta es preventiva; el servidor valida de nuevo al guardar el alta.
+            return True
+        sin_duplicados = True
+        if duplicados.get("ficha"):
             self.ficha.error = "Esta ficha ya está registrada"
-            ok = False
-        if dup.get("curp"):
+            sin_duplicados = False
+        if duplicados.get("curp"):
             self.curp.error = "Esta CURP ya está registrada"
-            ok = False
-        return ok
+            sin_duplicados = False
+        return sin_duplicados
 
     def validar_paso(self, paso: int) -> bool:
-        ok = True
+        paso_valido = True
         if paso == 0:
-            ok &= self._requerido(self.ficha, v.validar_ficha)
-            ok &= self._requerido(self.nombre, v.validar_nombre)
-            ok &= self._requerido(self.ap_paterno, v.validar_apellido)
-            ok &= self._requerido(self.ap_materno, v.validar_apellido)
+            paso_valido &= self._requerido(self.ficha, v.validar_ficha)
+            paso_valido &= self._requerido(self.nombre, v.validar_nombre)
+            paso_valido &= self._requerido(self.ap_paterno, v.validar_apellido)
+            paso_valido &= self._requerido(self.ap_materno, v.validar_apellido)
 
             self.txt_fecha.error = v.validar_fecha_nacimiento(self.fecha)
-            fecha_ok = self.txt_fecha.error is None
-            ok &= fecha_ok
-            ref = self.fecha if fecha_ok else None
+            fecha_valida = self.txt_fecha.error is None
+            paso_valido &= fecha_valida
+            fecha_referencia = self.fecha if fecha_valida else None
 
-            ok &= self._requerido(self.curp, v.validar_curp, fecha=ref)
-            self.rfc.error = v.validar_rfc(self._txt(self.rfc), fecha=ref)
-            ok &= self.rfc.error is None
-            ok &= self._requerido(self.nss, v.validar_nss)
-            self.ine.error = v.validar_ine(self._txt(self.ine), fecha=ref)
-            ok &= self.ine.error is None
+            paso_valido &= self._requerido(self.curp, v.validar_curp, fecha=fecha_referencia)
+            self.rfc.error = v.validar_rfc(self._texto_campo(self.rfc), fecha=fecha_referencia)
+            paso_valido &= self.rfc.error is None
+            paso_valido &= self._requerido(self.nss, v.validar_nss)
+            self.ine.error = v.validar_ine(self._texto_campo(self.ine), fecha=fecha_referencia)
+            paso_valido &= self.ine.error is None
             self.genero.error_text = v.validar_genero(self.genero.value)
-            ok &= self.genero.error_text is None
-            ok &= self._requerido(self.celular, v.validar_celular)
-            ok &= self._requerido(self.correo, v.validar_correo)
-            ok &= self._requerido(self.domicilio, v.validar_domicilio)
+            paso_valido &= self.genero.error_text is None
+            paso_valido &= self._requerido(self.celular, v.validar_celular)
+            paso_valido &= self._requerido(self.correo, v.validar_correo)
+            paso_valido &= self._requerido(self.domicilio, v.validar_domicilio)
             if self.ficha.error is None and self.curp.error is None:
-                ok &= self._no_duplicado()
+                paso_valido &= self._no_duplicado()
         elif paso == 1:
-            ok &= self._requerido(self.prepa, v.validar_preparatoria)
-            ok &= self._requerido(self.promedio, v.validar_promedio)
-            ok &= self._requerido(self.cel_emerg, v.validar_celular_emergencia,
-                                  celular_alumno=self._txt(self.celular))
-            ok &= self._requerido(self.correo_emerg, v.validar_correo_emergencia,
-                                  correo_alumno=self._txt(self.correo))
-            self.alergias.error = v.validar_alergias(self._txt(self.alergias))
-            ok &= self.alergias.error is None
+            paso_valido &= self._requerido(self.prepa, v.validar_preparatoria)
+            paso_valido &= self._requerido(self.promedio, v.validar_promedio)
+            paso_valido &= self._requerido(self.cel_emerg, v.validar_celular_emergencia,
+                                  celular_alumno=self._texto_campo(self.celular))
+            paso_valido &= self._requerido(self.correo_emerg, v.validar_correo_emergencia,
+                                  correo_alumno=self._texto_campo(self.correo))
+            self.alergias.error = v.validar_alergias(self._texto_campo(self.alergias))
+            paso_valido &= self.alergias.error is None
         elif paso == 2:
             faltan = [d for d in DOCUMENTOS if d not in self.archivos]
             if REQUIERE_TODOS_LOS_DOCUMENTOS and faltan:
                 self.aviso_docs.value = "Falta cargar: " + ", ".join(faltan)
                 self.aviso_docs.visible = True
-                ok = False
+                paso_valido = False
             else:
                 self.aviso_docs.visible = False
-        return bool(ok)
+        return bool(paso_valido)
 
     # ------------------------------------------------------------------
     # Navegación entre pasos
     # ------------------------------------------------------------------
     def _sin_cupo(self) -> bool:
-        cupo = self._refrescar_cupo()
-        if cupo is None or cupo["total"] > 0:   # sin respuesta no se bloquea: el servidor valida al guardar
+        disponibilidad_cupo = self._refrescar_cupo()
+        # Si falla la consulta, el servidor aplica el límite al registrar el alta.
+        if disponibilidad_cupo is None or disponibilidad_cupo["total"] > 0:
             return False
         self.page.show_dialog(ft.AlertDialog(
             title=ft.Text("Cupo completo"),
@@ -1312,7 +1322,8 @@ class FormAltas:
         try:
             await self.cuerpo.scroll_to(offset=0, duration=0)
         except Exception:
-            pass  # aún no montado o sin scroll: no es crítico
+            # Al cambiar de paso, el control puede no estar montado todavía; el scroll no afecta la captura.
+            pass
 
     def siguiente(self, e=None):
         if self.paso == 0 and self._sin_cupo():
@@ -1337,7 +1348,7 @@ class FormAltas:
         campos = [self.ficha, self.nombre, self.ap_paterno, self.ap_materno, self.curp, self.rfc,
                   self.nss, self.ine, self.celular, self.correo, self.domicilio, self.prepa,
                   self.promedio, self.cel_emerg, self.correo_emerg, self.alergias]
-        return (any(self._txt(c) for c in campos) or self.fecha is not None
+        return (any(self._texto_campo(campo) for campo in campos) or self.fecha is not None
                 or self.genero.value is not None or bool(self.archivos))
 
     def cancelar(self, e=None):
@@ -1358,10 +1369,10 @@ class FormAltas:
         ))
 
     def finalizar(self):
-        # Revalida todo por si se modificó algo
-        for p in (0, 1, 2):
-            if not self.validar_paso(p):
-                self.paso = p
+        # Valida otra vez por si los datos cambiaron después de avanzar de paso.
+        for paso_a_validar in (0, 1, 2):
+            if not self.validar_paso(paso_a_validar):
+                self.paso = paso_a_validar
                 self._pintar()
                 return
         if self._sin_cupo():
@@ -1395,21 +1406,21 @@ class FormAltas:
             "celular_emergencia": (self.cel_emerg, 1),
             "correo_emergencia": (self.correo_emerg, 1), "alergias": (self.alergias, 1),
         }
-        pasos = []
-        for campo, msg in ex.errores.items():
+        pasos_con_error = []
+        for campo, mensaje_error in ex.errores.items():
             if campo in campos:
                 control, paso = campos[campo]
-                control.error = msg
-                pasos.append(paso)
+                control.error = mensaje_error
+                pasos_con_error.append(paso)
             elif campo == "genero":
-                self.genero.error_text = msg
-                pasos.append(0)
+                self.genero.error_text = mensaje_error
+                pasos_con_error.append(0)
             elif campo == "documentos":
-                self.aviso_docs.value = msg
+                self.aviso_docs.value = mensaje_error
                 self.aviso_docs.visible = True
-                pasos.append(2)
-        if pasos:
-            self.paso = min(pasos)
+                pasos_con_error.append(2)
+        if pasos_con_error:
+            self.paso = min(pasos_con_error)
         self._error_guardado(ex.mensaje)
 
     def _error_guardado(self, mensaje: str):
@@ -1422,28 +1433,31 @@ class FormAltas:
         self._pintar()
 
     def registro(self) -> dict:
-        t = self._txt
+        texto_campo = self._texto_campo
         return {
-            "ficha": t(self.ficha),
-            "nombre": t(self.nombre),
-            "ap_paterno": t(self.ap_paterno),
-            "ap_materno": t(self.ap_materno),
-            "nombre_completo": f"{t(self.nombre)} {t(self.ap_paterno)} {t(self.ap_materno)}",
+            "ficha": texto_campo(self.ficha),
+            "nombre": texto_campo(self.nombre),
+            "ap_paterno": texto_campo(self.ap_paterno),
+            "ap_materno": texto_campo(self.ap_materno),
+            "nombre_completo": f"{texto_campo(self.nombre)} {texto_campo(self.ap_paterno)} {texto_campo(self.ap_materno)}",
             "fecha_nacimiento": self.fecha,
-            "curp": t(self.curp).upper(),
-            "rfc": t(self.rfc).upper() or None,
-            "nss": t(self.nss),
-            "ine": t(self.ine).upper() or None,
+            "curp": texto_campo(self.curp).upper(),
+            "rfc": texto_campo(self.rfc).upper() or None,
+            "nss": texto_campo(self.nss),
+            "ine": texto_campo(self.ine).upper() or None,
             "genero": self.genero.value,
-            "celular": t(self.celular),
-            "correo": t(self.correo),
-            "domicilio": t(self.domicilio),
-            "preparatoria": t(self.prepa),
-            "promedio": float(t(self.promedio).replace(",", ".")),
-            "celular_emergencia": t(self.cel_emerg),
-            "correo_emergencia": t(self.correo_emerg),
-            "alergias": t(self.alergias) or "Ninguna",
-            "documentos": {d: a["path"] for d, a in self.archivos.items()},
+            "celular": texto_campo(self.celular),
+            "correo": texto_campo(self.correo),
+            "domicilio": texto_campo(self.domicilio),
+            "preparatoria": texto_campo(self.prepa),
+            "promedio": float(texto_campo(self.promedio).replace(",", ".")),
+            "celular_emergencia": texto_campo(self.cel_emerg),
+            "correo_emergencia": texto_campo(self.correo_emerg),
+            "alergias": texto_campo(self.alergias) or "Ninguna",
+            "documentos": {
+                documento: archivo["path"]
+                for documento, archivo in self.archivos.items()
+            },
         }
 
     # ------------------------------------------------------------------
@@ -1469,22 +1483,33 @@ class FormAltas:
         self.stepper.controls = items
 
     @staticmethod
-    def _fila(*cols) -> ft.Row:
-        return ft.Row(spacing=24, vertical_alignment=ft.CrossAxisAlignment.START, controls=list(cols))
+    def _crear_fila(*controles) -> ft.Row:
+        return ft.Row(spacing=24, vertical_alignment=ft.CrossAxisAlignment.START, controls=list(controles))
 
     def _fila_documento(self, doc: str) -> ft.Control:
-        a = self.archivos.get(doc)
-        err = self.errores_docs.get(doc)
-        if a:
-            estado = ft.Text(f"{a['nombre']} · {(a['size'] or 0) / 1024:,.0f} KB", size=12, color=OK_FG)
+        archivo = self.archivos.get(doc)
+        error_documento = self.errores_docs.get(doc)
+        if archivo:
+            estado = ft.Text(
+                f"{archivo['nombre']} · {(archivo['size'] or 0) / 1024:,.0f} KB",
+                size=12,
+                color=OK_FG,
+            )
             boton = ft.TextButton("Quitar", on_click=lambda e, d=doc: self._quitar_pdf(d))
             icono = ft.Icon(ft.Icons.CHECK_CIRCLE_OUTLINE, color=OK_FG, size=20)
         else:
-            estado = ft.Text(err or "Pendiente", size=12, color=ft.Colors.RED_700 if err else MUTED)
-            boton = ft.OutlinedButton("Seleccionar PDF", style=estilo_secundario(),
+            estado = ft.Text(
+                error_documento or "Pendiente",
+                size=12,
+                color=ft.Colors.RED_700 if error_documento else MUTED,
+            )
+            boton = ft.OutlinedButton("Seleccionar PDF", style=estilo_boton_secundario(),
                                       on_click=lambda e, d=doc: self.page.run_task(self._elegir_pdf, d))
-            icono = ft.Icon(ft.Icons.ERROR_OUTLINE if err else ft.Icons.RADIO_BUTTON_UNCHECKED,
-                            color=ft.Colors.RED_700 if err else MUTED, size=20)
+            icono = ft.Icon(
+                ft.Icons.ERROR_OUTLINE if error_documento else ft.Icons.RADIO_BUTTON_UNCHECKED,
+                color=ft.Colors.RED_700 if error_documento else MUTED,
+                size=20,
+            )
         return ft.Container(
             padding=ft.Padding.symmetric(vertical=10),
             border=ft.Border.only(bottom=ft.BorderSide(1, BORDER)),
@@ -1497,27 +1522,27 @@ class FormAltas:
         )
 
     def _cuerpo_paso(self):
-        f = self._fila
+        crear_fila = self._crear_fila
         if self.paso == 0:
             self.titulo_card.value = "Datos personales"
             self.cuerpo.controls = [
-                f(etiqueta("Número de ficha", self.ficha), etiqueta("Nombre(s)", self.nombre)),
-                f(etiqueta("Apellido paterno", self.ap_paterno), etiqueta("Apellido materno", self.ap_materno)),
-                f(etiqueta("Fecha de nacimiento", self.txt_fecha), etiqueta("CURP", self.curp)),
-                f(etiqueta("RFC (opcional)", self.rfc), etiqueta("Número de seguro social", self.nss)),
-                f(etiqueta("INE (opcional)", self.ine), etiqueta("Género", ft.Row([self.genero]))),
-                f(etiqueta("Teléfono celular", self.celular), etiqueta("Correo personal", self.correo)),
-                f(etiqueta("Domicilio", self.domicilio)),
+                crear_fila(crear_campo_etiquetado("Número de ficha", self.ficha), crear_campo_etiquetado("Nombre(s)", self.nombre)),
+                crear_fila(crear_campo_etiquetado("Apellido paterno", self.ap_paterno), crear_campo_etiquetado("Apellido materno", self.ap_materno)),
+                crear_fila(crear_campo_etiquetado("Fecha de nacimiento", self.txt_fecha), crear_campo_etiquetado("CURP", self.curp)),
+                crear_fila(crear_campo_etiquetado("RFC (opcional)", self.rfc), crear_campo_etiquetado("Número de seguro social", self.nss)),
+                crear_fila(crear_campo_etiquetado("INE (opcional)", self.ine), crear_campo_etiquetado("Género", ft.Row([self.genero]))),
+                crear_fila(crear_campo_etiquetado("Teléfono celular", self.celular), crear_campo_etiquetado("Correo personal", self.correo)),
+                crear_fila(crear_campo_etiquetado("Domicilio", self.domicilio)),
             ]
         elif self.paso == 1:
             self.titulo_card.value = "Datos académicos"
             self.cuerpo.controls = [
-                f(etiqueta("Nombre de la preparatoria", self.prepa),
-                  etiqueta("Promedio general (1 a 10)", self.promedio)),
+                crear_fila(crear_campo_etiquetado("Nombre de la preparatoria", self.prepa),
+                  crear_campo_etiquetado("Promedio general (1 a 10)", self.promedio)),
                 ft.Text("Contacto de emergencia y salud", size=16, weight=ft.FontWeight.BOLD, color=NAVY),
-                f(etiqueta("Celular de emergencia", self.cel_emerg),
-                  etiqueta("Correo electrónico de emergencia", self.correo_emerg)),
-                f(etiqueta("Alergias (opcional)", self.alergias)),
+                crear_fila(crear_campo_etiquetado("Celular de emergencia", self.cel_emerg),
+                  crear_campo_etiquetado("Correo electrónico de emergencia", self.correo_emerg)),
+                crear_fila(crear_campo_etiquetado("Alergias (opcional)", self.alergias)),
             ]
         elif self.paso == 2:
             self.titulo_card.value = "Documentos"
@@ -1535,21 +1560,25 @@ class FormAltas:
             ]
 
     def _resumen_final(self) -> ft.Control:
-        t = self._txt
+        texto_campo = self._texto_campo
         genero = v.GENEROS.get(self.genero.value, "—")
-        prom = t(self.promedio)
-        turno = v.turno_por_promedio(float(prom.replace(",", "."))) if prom else "—"
+        promedio_texto = texto_campo(self.promedio)
+        turno = (
+            v.turno_por_promedio(float(promedio_texto.replace(",", ".")))
+            if promedio_texto else "—"
+        )
         pares = [
-            ("Ficha", t(self.ficha)),
-            ("Nombre", f"{t(self.nombre)} {t(self.ap_paterno)} {t(self.ap_materno)}"),
+            ("Ficha", texto_campo(self.ficha)),
+            ("Nombre", f"{texto_campo(self.nombre)} {texto_campo(self.ap_paterno)} {texto_campo(self.ap_materno)}"),
             ("Fecha de nacimiento", self.txt_fecha.value or "—"),
-            ("CURP", t(self.curp).upper()), ("RFC", t(self.rfc).upper()),
-            ("Seguro social", t(self.nss)), ("INE", t(self.ine).upper()), ("Género", genero),
-            ("Celular", t(self.celular)), ("Correo personal", t(self.correo)),
-            ("Domicilio", t(self.domicilio)),
-            ("Preparatoria", t(self.prepa)), ("Promedio", prom), ("Turno", turno),
-            ("Contacto de emergencia", f"{t(self.cel_emerg)} · {t(self.correo_emerg)}"),
-            ("Alergias", t(self.alergias) or "Ninguna"),
+            ("CURP", texto_campo(self.curp).upper()), ("RFC", texto_campo(self.rfc).upper()),
+            ("Seguro social", texto_campo(self.nss)), ("INE", texto_campo(self.ine).upper()),
+            ("Género", genero),
+            ("Celular", texto_campo(self.celular)), ("Correo personal", texto_campo(self.correo)),
+            ("Domicilio", texto_campo(self.domicilio)),
+            ("Preparatoria", texto_campo(self.prepa)), ("Promedio", promedio_texto), ("Turno", turno),
+            ("Contacto de emergencia", f"{texto_campo(self.cel_emerg)} · {texto_campo(self.correo_emerg)}"),
+            ("Alergias", texto_campo(self.alergias) or "Ninguna"),
             ("Documentos PDF", f"{len(self.archivos)} de {len(DOCUMENTOS)} cargados"),
         ]
         return ft.Column(spacing=0, controls=[
@@ -1567,11 +1596,11 @@ class FormAltas:
         ultimo = self.paso == 3
         derecha = []
         if self.paso > 0:
-            derecha.append(ft.OutlinedButton("Atrás", style=estilo_secundario(), on_click=self.atras))
+            derecha.append(ft.OutlinedButton("Atrás", style=estilo_boton_secundario(), on_click=self.atras))
         derecha.append(ft.FilledButton("Inscribir alumno" if ultimo else "Siguiente",
-                                       style=estilo_primario(), on_click=self.siguiente))
+                                       style=estilo_boton_primario(), on_click=self.siguiente))
         self.botones.controls = [
-            ft.OutlinedButton("Cancelar", style=estilo_secundario(), on_click=self.cancelar),
+            ft.OutlinedButton("Cancelar", style=estilo_boton_secundario(), on_click=self.cancelar),
             ft.Row(spacing=12, controls=derecha),
         ]
 
@@ -1594,7 +1623,7 @@ def build_altas(page: ft.Page, picker, usuario: dict, navegar) -> ft.Control:
         navegar("/secretaria")
 
     def guardar(registro: dict):
-        # La subida de los PDF puede tardar: diálogo modal con progreso mientras responde la API
+        # El progreso visible evita que una carga larga parezca una interfaz congelada.
         page.show_dialog(ft.AlertDialog(
             modal=True,
             title=ft.Text("Registrando alumno"),
@@ -1604,7 +1633,7 @@ def build_altas(page: ft.Page, picker, usuario: dict, navegar) -> ft.Control:
             ]),
         ))
         try:
-            registro = api.registrar_alta(registro)     # puede lanzar ApiError
+            registro = api.registrar_alta(registro)
         finally:
             page.pop_dialog()
         navegar("/secretaria")
@@ -1752,13 +1781,13 @@ class ConsultaExpediente:
         self.boton_descargar = ft.OutlinedButton(
             "Descargar expediente PDF",
             icon=ft.Icons.DOWNLOAD_OUTLINED,
-            style=estilo_secundario(),
+            style=estilo_boton_secundario(),
             on_click=lambda e: self.page.run_task(self.descargar_pdf),
         )
 
-        self.entrada = tf("Número de control o CURP", on_submit=self.buscar,
+        self.entrada = crear_campo_texto("Número de control o CURP", on_submit=self.buscar,
                           capitalization=ft.TextCapitalization.CHARACTERS)
-        self.boton = ft.FilledButton("Buscar", style=estilo_primario(), height=46, on_click=self.buscar)
+        self.boton = ft.FilledButton("Buscar", style=estilo_boton_primario(), height=46, on_click=self.buscar)
         self.filtro_bajas = ft.Checkbox(
             label="Incluir alumnos dados de baja",
             value=False,
@@ -1768,9 +1797,9 @@ class ConsultaExpediente:
         self.resultado = ft.Column(spacing=20)
         self._pintar()
 
-        buscador = tarjeta(ft.Column(spacing=8, controls=[
+        buscador = crear_tarjeta(ft.Column(spacing=8, controls=[
             ft.Row(vertical_alignment=ft.CrossAxisAlignment.END, spacing=16, controls=[
-                etiqueta("Número de control o CURP", self.entrada),
+                crear_campo_etiquetado("Número de control o CURP", self.entrada),
                 self.boton,
             ]),
             *([self.filtro_bajas] if self.es_admin else []),
@@ -1819,7 +1848,7 @@ class ConsultaExpediente:
                     self.error_historial = ex.mensaje
         except ApiError as ex:
             self.datos = None
-            if ex.status == 401:            # sesión vencida: route_change regresa al login
+            if ex.status == 401:            # El manejador de rutas redirige al login cuando la sesión vence.
                 self.navegar("/consultas")
                 return
             self.aviso.value = ex.mensaje
@@ -1896,7 +1925,7 @@ class ConsultaExpediente:
     # --- vista ----------------------------------------------------------
     def _pintar(self):
         if self.datos is None:
-            self.resultado.controls = [tarjeta(
+            self.resultado.controls = [crear_tarjeta(
                 ft.Text("Busca un alumno por número de control o CURP para ver su expediente.",
                         size=14, color=MUTED))]
             return
@@ -1911,7 +1940,7 @@ class ConsultaExpediente:
         p = d["personales"]
         iniciales = (p["nombres"][:1] + p["apellido_paterno"][:1]).upper()
         activo = d["estatus"] == "Activo"
-        return tarjeta(ft.Row(spacing=20, vertical_alignment=ft.CrossAxisAlignment.CENTER, controls=[
+        return crear_tarjeta(ft.Row(spacing=20, vertical_alignment=ft.CrossAxisAlignment.CENTER, controls=[
             ft.Container(width=62, height=62, border_radius=31, bgcolor="#D6E3F7",
                          alignment=ft.Alignment.CENTER,
                          content=ft.Text(iniciales, size=20, weight=ft.FontWeight.BOLD, color=NAVY)),
@@ -1929,11 +1958,11 @@ class ConsultaExpediente:
                 *([] if d["eliminado"] or not self.modo_modificacion else [
                     ft.Row(spacing=8, controls=[
                         ft.OutlinedButton(
-                            "Modificar datos", style=estilo_secundario(),
+                            "Modificar datos", style=estilo_boton_secundario(),
                             on_click=self._editar_alumno,
                         ),
                         ft.OutlinedButton(
-                            "Dar de baja", style=estilo_secundario(),
+                            "Dar de baja", style=estilo_boton_secundario(),
                             on_click=self._confirmar_baja,
                         ),
                     ]),
@@ -1946,31 +1975,31 @@ class ConsultaExpediente:
         p, c, a = d["personales"], d["contacto"], d["academicos"]
         genero = next((key for key, valor in v.GENEROS.items() if valor == p["genero"]), "no_especifica")
         campos = {
-            "ficha": tf(value=a["numero_ficha"], label="Número de ficha"),
-            "nombre": tf(value=p["nombres"], label="Nombre(s)"),
-            "ap_paterno": tf(value=p["apellido_paterno"], label="Apellido paterno"),
-            "ap_materno": tf(value=p["apellido_materno"], label="Apellido materno"),
-            "fecha_nacimiento": tf(
+            "ficha": crear_campo_texto(value=a["numero_ficha"], label="Número de ficha"),
+            "nombre": crear_campo_texto(value=p["nombres"], label="Nombre(s)"),
+            "ap_paterno": crear_campo_texto(value=p["apellido_paterno"], label="Apellido paterno"),
+            "ap_materno": crear_campo_texto(value=p["apellido_materno"], label="Apellido materno"),
+            "fecha_nacimiento": crear_campo_texto(
                 value=datetime.datetime.strptime(p["fecha_nacimiento"], "%d/%m/%Y").date().isoformat(),
                 label="Fecha de nacimiento (AAAA-MM-DD)",
             ),
-            "curp": tf(value=p["curp"], label="CURP"),
-            "rfc": tf(value="" if p["rfc"] == "—" else p["rfc"], label="RFC (opcional)"),
-            "nss": tf(value=p["nss"], label="Número de seguro social"),
-            "ine": tf(value="" if p["ine"] == "—" else p["ine"], label="INE (opcional)"),
+            "curp": crear_campo_texto(value=p["curp"], label="CURP"),
+            "rfc": crear_campo_texto(value="" if p["rfc"] == "—" else p["rfc"], label="RFC (opcional)"),
+            "nss": crear_campo_texto(value=p["nss"], label="Número de seguro social"),
+            "ine": crear_campo_texto(value="" if p["ine"] == "—" else p["ine"], label="INE (opcional)"),
             "genero": ft.Dropdown(
                 label="Género",
                 value=genero,
                 options=[ft.DropdownOption(key=k, text=nombre) for k, nombre in v.GENEROS.items()],
             ),
-            "celular": tf(value=c["celular"], label="Celular"),
-            "correo": tf(value=c["correo_personal"], label="Correo personal"),
-            "domicilio": tf(value=c["domicilio"], label="Domicilio"),
-            "preparatoria": tf(value=a["preparatoria"], label="Preparatoria"),
-            "promedio": tf(value=a["promedio"], label="Promedio"),
-            "celular_emergencia": tf(value=c["celular_emergencia"], label="Celular de emergencia"),
-            "correo_emergencia": tf(value=c["correo_emergencia"], label="Correo de emergencia"),
-            "alergias": tf(value=c["alergias"], label="Alergias"),
+            "celular": crear_campo_texto(value=c["celular"], label="Celular"),
+            "correo": crear_campo_texto(value=c["correo_personal"], label="Correo personal"),
+            "domicilio": crear_campo_texto(value=c["domicilio"], label="Domicilio"),
+            "preparatoria": crear_campo_texto(value=a["preparatoria"], label="Preparatoria"),
+            "promedio": crear_campo_texto(value=a["promedio"], label="Promedio"),
+            "celular_emergencia": crear_campo_texto(value=c["celular_emergencia"], label="Celular de emergencia"),
+            "correo_emergencia": crear_campo_texto(value=c["correo_emergencia"], label="Correo de emergencia"),
+            "alergias": crear_campo_texto(value=c["alergias"], label="Alergias"),
         }
         contenido = ft.ResponsiveRow(
             spacing=12,
@@ -1991,7 +2020,7 @@ class ConsultaExpediente:
             actions=[
                 ft.TextButton("Cancelar", on_click=lambda _: self.page.pop_dialog()),
                 ft.FilledButton(
-                    "Guardar cambios", style=estilo_primario(),
+                    "Guardar cambios", style=estilo_boton_primario(),
                     on_click=lambda _: self._guardar_edicion(campos),
                 ),
             ],
@@ -2036,7 +2065,7 @@ class ConsultaExpediente:
             actions=[
                 ft.TextButton("Cancelar", on_click=lambda _: self.page.pop_dialog()),
                 ft.FilledButton(
-                    "Confirmar baja", style=estilo_primario(),
+                    "Confirmar baja", style=estilo_boton_primario(),
                     on_click=self._dar_baja,
                 ),
             ],
@@ -2062,7 +2091,7 @@ class ConsultaExpediente:
 
     def _panel_historial(self) -> ft.Control:
         if self.error_historial:
-            return tarjeta(ft.Text(
+            return crear_tarjeta(ft.Text(
                 f"No se pudo cargar el historial: {self.error_historial}",
                 color=ft.Colors.RED_700,
             ))
@@ -2085,7 +2114,7 @@ class ConsultaExpediente:
                 )
                 for evento in self.historial
             ])
-        return tarjeta(ft.Column(spacing=12, controls=[
+        return crear_tarjeta(ft.Column(spacing=12, controls=[
             ft.Text("Historial de cambios", size=19, weight=ft.FontWeight.BOLD, color=NAVY),
             cuerpo,
         ]), padding=20)
@@ -2241,11 +2270,11 @@ def main(page: ft.Page):
     page.padding = 0
     page.bgcolor = BG
     page.theme_mode = ft.ThemeMode.LIGHT
-    page.theme = ft.Theme(color_scheme_seed=NAVY)
+    page.theme = ft.Theme(color_scheme_seed="#000000")
 
     sesion: dict = {"usuario": None, "shell": None}
 
-    # Montar el servicio en la página y conservarlo al reemplazar las vistas.
+    # FilePicker pertenece a la página y se reutiliza al cambiar de vista.
     selector_archivos = ft.FilePicker()
     if not any(service is selector_archivos for service in page.services):
         page.services.append(selector_archivos)
@@ -2260,7 +2289,7 @@ def main(page: ft.Page):
 
     def cerrar_sesion():
         try:
-            api.logout()            # registra la hora de salida en la bitácora
+            api.logout()            # El cierre también se registra en la bitácora del servidor.
         except ApiError:
             pass
         sesion["usuario"] = None
@@ -2289,19 +2318,19 @@ def main(page: ft.Page):
         return build_panel(page, navegar)
 
     def route_change(e=None):
-        # Si el servidor rechazó el token (venció o la cuenta se desactivó), volver al login
-        expirada = False
+        # Un token rechazado invalida la sesión local para cerrar el acceso a rutas protegidas.
+        sesion_expirada = False
         if api.sesion_vencida:
             api.sesion_vencida = False
             if sesion["usuario"] is not None:
                 sesion["usuario"] = None
                 sesion["shell"] = None
-                expirada = True
+                sesion_expirada = True
 
         ruta = page.route or "/"
         usuario = sesion["usuario"]
 
-        # Rutas protegidas: sin sesión siempre se vuelve al login
+        # La interfaz no permite navegar a contenido privado sin una sesión autenticada.
         if usuario is None:
             ruta = "/"
         elif usuario["rol"] not in {"Administrador", "Secretaría"}:
@@ -2321,20 +2350,20 @@ def main(page: ft.Page):
             page.views.clear()
             page.views.append(build_login(page, entrar))
             page.update()
-            if expirada:
+            if sesion_expirada:
                 snackbar(page, "Tu sesión expiró. Inicia sesión de nuevo.")
             return
 
         shell: Shell | None = sesion["shell"]
         if shell is None:
             shell = sesion["shell"] = Shell(page, usuario, navegar, cerrar_sesion)
-        # La View del marco se agrega una sola vez; navegar solo cambia su contenido
+        # Reutilizar el marco conserva la barra lateral al navegar entre rutas.
         if not page.views or page.views[0] is not shell.view:
             page.views.clear()
             page.views.append(shell.view)
-        if shell.activo != ruta:               # volver a pulsar la sección actual no reinicia nada
+        if shell.activo != ruta:               # No recrear la pantalla activa conserva su estado al repetir la navegación.
             contenido = contenido_para(ruta, usuario)
-            if api.sesion_vencida:             # la API devolvió 401 al cargar la vista
+            if api.sesion_vencida:             # La carga detectó una sesión vencida; se redirige al login.
                 route_change()
                 return
             shell.mostrar(ruta, contenido)
