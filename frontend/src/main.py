@@ -364,6 +364,7 @@ class Shell:
         self.navegar = navegar
         self.activo: str | None = None
         self._items: dict[str, tuple[ft.Container, ft.Icon, ft.Text]] = {}
+        self._controles_navegacion: list[ft.Container] = []
 
         items = []
         if usuario["rol"] == "Administrador":
@@ -384,10 +385,11 @@ class Shell:
                 content=ft.Row(spacing=14, controls=[ico, txt]),
             )
             self._items[destino] = (cont, ico, txt)
+            self._controles_navegacion.append(cont)
             items.append(cont)
 
         def pie(icono, texto, on_click):
-            return ft.Container(
+            control = ft.Container(
                 padding=ft.Padding.symmetric(horizontal=26, vertical=10),
                 ink=True,
                 on_click=on_click,
@@ -396,6 +398,8 @@ class Shell:
                     ft.Text(texto, size=14, color="#E1E8F3"),
                 ]),
             )
+            self._controles_navegacion.append(control)
+            return control
 
         barra_lateral = ft.Container(
             width=230,
@@ -472,6 +476,10 @@ class Shell:
     def mostrar(self, ruta: str, contenido: ft.Control):
         """Cambia el contenido y el elemento activo del menú sin recrear el marco."""
         self.activo = ruta
+        # Evita que los accesos laterales interrumpan la tabulación del formulario de altas.
+        permitir_tab_navegacion = ruta != "/altas"
+        for control in self._controles_navegacion:
+            control.ink = permitir_tab_navegacion
         for r, (cont, ico, txt) in self._items.items():
             act = r == ruta
             cont.bgcolor = GOLD if act else None
