@@ -25,6 +25,12 @@ class TestCampos(unittest.TestCase):
             self.assertIsNotNone(v.validar_nombre(mal), repr(mal))
         self.assertIsNone(v.validar_nombre("  Ana  "))  # se recortan los espacios
 
+    def test_nombre_personal(self):
+        for ok in ("Ana", "María José", "Jean-Luc", "O'Brien", "Núñez"):
+            self.assertIsNone(v.validar_nombre_personal(ok), ok)
+        for mal in ("", "   ", "....", "Ana123", "Ana_", "x" * 51):
+            self.assertIsNotNone(v.validar_nombre_personal(mal, maximo=50), repr(mal))
+
     def test_fecha(self):
         self.assertIsNone(v.validar_fecha_nacimiento(NAC, HOY))
         self.assertIsNotNone(v.validar_fecha_nacimiento(None, HOY))
@@ -67,7 +73,15 @@ class TestCampos(unittest.TestCase):
 
     def test_correo(self):
         self.assertIsNone(v.validar_correo("a.b+c@dom.mx"))
-        for mal in ("", "a@b", "a@@b.com", "sin arroba.com", "a@b.c"):
+        for mal in (
+            "",
+            "a@b",
+            "a@@b.com",
+            "sin arroba.com",
+            "a@b.c",
+            "....@....com",
+            "ana@example..com",
+        ):
             self.assertIsNotNone(v.validar_correo(mal), mal)
 
     def test_promedio(self):

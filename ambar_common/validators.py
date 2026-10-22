@@ -8,7 +8,10 @@ import os
 import re
 import unicodedata
 
-PATRON_EMAIL = re.compile(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$")
+PATRON_EMAIL = re.compile(
+    r"^[A-Za-z0-9_%+-]+(?:\.[A-Za-z0-9_%+-]+)*"
+    r"@(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}$"
+)
 PATRON_CELULAR = re.compile(r"(744|781)\d{7}")
 PATRON_FICHA = re.compile(r"\d{10}|\d{4}-\d{5}")
 PATRON_NOMBRE = re.compile(r"[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]+(?:[ '\-][A-Za-zÁÉÍÓÚÜÑáéíóúüñ]+)*")
@@ -66,6 +69,21 @@ def validar_nombre(valor: str, tipo: str = "Nombre") -> str | None:
         return f"{tipo}: de {NOMBRE_MIN} a {NOMBRE_MAX} caracteres"
     if not PATRON_NOMBRE.fullmatch(v):
         return f"{tipo}: solo letras y espacios"
+    return None
+
+
+def validar_nombre_personal(
+    valor: str,
+    tipo: str = "Nombre",
+    maximo: int = 100,
+) -> str | None:
+    v = valor.strip()
+    if not v:
+        return f"{tipo}: este campo es obligatorio"
+    if len(v) > maximo:
+        return f"{tipo}: máximo {maximo} caracteres"
+    if not PATRON_NOMBRE.fullmatch(v):
+        return f"{tipo}: usa solo letras, espacios, guiones o apóstrofes"
     return None
 
 

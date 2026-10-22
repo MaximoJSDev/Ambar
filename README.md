@@ -81,10 +81,10 @@ Para crear una cuenta independiente de Administración, ejecuta
 contraseña de forma interactiva. Ese comando también prepara los roles y grupos,
 pero no cambia la cuenta de Secretaría.
 
-Para crear además 10 alumnos ficticios dados de alta e inscritos en los grupos del
-periodo actual, agrega `--alumnos-demo 10` al comando. La seed asigna números de
-control y correos institucionales mediante el flujo normal de altas; al no crear
-PDF, sus documentos aparecerán pendientes. Los registros demo usan fichas
+Para crear además 10 alumnos ficticios, agrega `--alumnos-demo 10` al comando. La
+seed asigna números de control y correos institucionales mediante el flujo normal
+de altas; al no crear PDF, sus documentos aparecerán pendientes. Secretaría les
+puede asignar un paquete desde **Consultas**. Los registros demo usan fichas
 `9999-NNNNN` y se omiten si ya existen al volver a ejecutar la seed.
 
 En **Consultas**, Secretaría puede buscar y revisar la información y los
@@ -107,6 +107,21 @@ Secretaría puede crear cuentas de maestros desde **Alta de maestros** y
 consultarlas desde **Consulta de maestros**. Desde la consulta también puede
 desactivar el acceso sin borrar los datos; cada cuenta queda asociada a un
 registro docente y el correo debe ser único.
+
+Al iniciar el backend se carga de forma idempotente el horario publicado de
+primer semestre para **AGO-DIC 2026**, con los paquetes `1ISC1` a `1ISC7`. Al registrar un
+alumno, el horario queda pendiente; Secretaría lo busca en **Consultas** y, si
+aún no tiene grupo, le asigna un paquete completo del mismo semestre. La
+asignación inscribe al alumno en todas las materias de esa sección y respeta los
+cupos. Desde **Consultas** también se descarga el horario individual con
+membrete. Desde **Grupos y horarios** se revisan las listas por sección, se
+descargan con membrete y se vinculan las cuentas de maestros a las materias.
+Los alumnos que ya estaban inscritos en `1A` o `1B` pueden migrarse desde
+**Consultas**: Secretaría elige manualmente su sección oficial. La migración
+conserva calificaciones y asistencias en materias coincidentes; si hay datos
+históricos en una materia sin equivalente, la operación se cancela para no
+perderlos.
+Los horarios de otros semestres se incorporarán con el módulo de reinscripción.
 
 ### Ejecutar el Backend (FastAPI)
 Desde la raíz del repositorio y con el entorno virtual del backend activado:

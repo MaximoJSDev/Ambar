@@ -9,7 +9,7 @@ from ambar_common.logging_config import configure_file_logging
 
 from . import servicios
 from .config import engine, settings
-from .routers import admin, alumnos, auth, panel, personal
+from .routers import admin, alumnos, auth, horarios, panel, personal
 
 log = logging.getLogger("sige")
 logging.basicConfig(level=logging.INFO)
@@ -40,6 +40,8 @@ async def lifespan(_: FastAPI):
             INDEX idx_historial_alumno_fecha (numero_control, fecha)
         )"""))
         servicios.migrar_docente_sin_asignar(conn)
+        servicios.migrar_horarios(conn)
+        servicios.cargar_catalogo_1isc(conn)
         conn.execute(text("SELECT 1"))
     yield
 
@@ -50,6 +52,7 @@ app.include_router(alumnos.router)
 app.include_router(panel.router)
 app.include_router(admin.router)
 app.include_router(personal.router)
+app.include_router(horarios.router)
 
 
 @app.get("/salud", tags=["Sistema"])

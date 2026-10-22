@@ -1,8 +1,8 @@
 """Modelos de entrada/salida de la API."""
 import datetime
-import re
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from ambar_common import validators as v
+from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator
 
 
 class LoginIn(BaseModel):
@@ -25,17 +25,19 @@ class SecretariaCreate(BaseModel):
 
     @field_validator("nombres", "apellidos")
     @classmethod
-    def _nombre_no_vacio(cls, valor: str) -> str:
+    def _nombre_no_vacio(cls, valor: str, info: ValidationInfo) -> str:
         valor = valor.strip()
-        if not valor:
-            raise ValueError("Este campo es obligatorio")
+        maximo = 50 if info.field_name == "nombres" else 100
+        mensaje = v.validar_nombre_personal(valor, info.field_name, maximo)
+        if mensaje:
+            raise ValueError(mensaje)
         return valor
 
     @field_validator("correo")
     @classmethod
     def _correo_valido(cls, valor: str) -> str:
         valor = valor.strip().lower()
-        if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", valor):
+        if v.validar_correo(valor):
             raise ValueError("Escribe un correo válido")
         return valor
 
@@ -96,6 +98,6 @@ class AltaOut(BaseModel):
     correo_institucional: str
     nombre_completo: str
     turno: str
-    grupo: str
+    grupo: str | None = None
     aviso_turno: str | None = None
     documentos: int

@@ -89,6 +89,29 @@ class GestionSecretariasAdminTests(unittest.TestCase):
         self.assertNotIn("password", respuesta.json())
         crear.assert_called_once()
 
+    def test_alta_rechaza_nombres_y_correos_formados_por_puntos(self):
+        base = {
+            "nombres": "Ana",
+            "apellidos": "López",
+            "correo": "ana@example.com",
+            "password": "contraseña-segura",
+        }
+        for cambios in (
+            {"nombres": "...."},
+            {"apellidos": "...."},
+            {"correo": "....@....com"},
+            {"correo": "ana@example..com"},
+        ):
+            with self.subTest(cambios=cambios), patch(
+                "backend.routers.admin.servicios.crear_secretaria"
+            ) as crear:
+                respuesta = self.client.post(
+                    "/administracion/secretarias",
+                    json=base | cambios,
+                )
+                self.assertEqual(respuesta.status_code, 422)
+                crear.assert_not_called()
+
     def test_alta_rechaza_password_corta(self):
         respuesta = self.client.post("/administracion/secretarias", json={
             "nombres": "Ana",
@@ -97,6 +120,19 @@ class GestionSecretariasAdminTests(unittest.TestCase):
             "password": "corta",
         })
         self.assertEqual(respuesta.status_code, 422)
+
+    def test_crear_secretaria_requiere_rol_administrador(self):
+        self.usuario["rol"] = "Secretaría"
+        with patch("backend.routers.admin.servicios.crear_secretaria") as crear:
+            respuesta = self.client.post("/administracion/secretarias", json={
+                "nombres": "Ana",
+                "apellidos": "López",
+                "correo": "ana@example.com",
+                "password": "contraseña-segura",
+            })
+
+        self.assertEqual(respuesta.status_code, 403)
+        crear.assert_not_called()
 
     def test_conflicto_de_correo_se_muestra_como_conflicto(self):
         with patch(
