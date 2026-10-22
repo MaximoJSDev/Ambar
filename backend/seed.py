@@ -1,13 +1,13 @@
-"""Datos iniciales: roles, usuario de Secretaría y grupos de primer semestre.
+"""Datos iniciales: roles, usuario de Secretaría y catálogo de primer semestre.
 
     python -m backend.seed --correo secretaria@acapulco.tecnm.mx --nombres "María" --apellidos "López Pérez"
     python -m backend.seed --admin-correo administrador@acapulco.tecnm.mx
     python -m backend.seed --correo secretaria2@acapulco.tecnm.mx --nombres "Anna" --apellidos "Herrera Escobar"
     python -m backend.seed --correo secretaria3@acapulco.tecnm.mx --nombres "Emmanuel" --apellidos "Garnica Saida"
 
-Es idempotente. Si el usuario ya existe, actualiza su nombre (personal_secretaria) y contraseña (sirve
-para restablecerla). Las materias y los docentes son DE EJEMPLO: reemplázalos por
-los reales; los grupos se crean para el periodo actual (o PERIODO_ESCOLAR).
+Es idempotente. Si el usuario ya existe, actualiza su nombre (personal_secretaria)
+y contraseña (sirve para restablecerla). Carga el horario publicado de 1ISC1 a
+1ISC7 para agosto-diciembre de 2026; los docentes se vinculan a sus cuentas después.
 """
 import argparse
 import datetime
@@ -21,20 +21,12 @@ from .config import engine, settings
 from .constantes import (
     ROL_ADMINISTRADOR,
     ROL_SECRETARIA,
-    SEMESTRE_INGRESO,
-    TURNOS,
 )
 from .esquemas import AltaIn
 from .seguridad import hashear
 from . import servicios
 
 ROLES = [ROL_SECRETARIA, ROL_ADMINISTRADOR, "Docente", "Alumno"]
-MATERIAS_PRIMER_SEMESTRE = [        # EJEMPLO
-    "Cálculo Diferencial", "Fundamentos de Programación", "Química",
-    "Fundamentos de Investigación", "Taller de Ética",
-]
-PAQUETES = [("1A", TURNOS[0]), ("1B", TURNOS[1])]       # (nombre del grupo, turno)
-CUPO = 25
 
 ALUMNOS_DEMO = [
     ("Ana Sofia", "Gonzalez", "Ramirez"),
@@ -93,10 +85,6 @@ def _datos_alumno_demo(indice: int) -> AltaIn:
 
 
 def crear_alumnos_demo(cantidad: int, id_usuario: int) -> None:
-    disponibles = servicios.cupo_ingreso()["total"]
-    if cantidad > disponibles:
-        sys.exit(f"Se solicitaron {cantidad} alumnos demo, pero solo hay {disponibles} lugares disponibles.")
-
     creados = 0
     for indice in range(1, cantidad + 1):
         datos = _datos_alumno_demo(indice)
@@ -134,7 +122,7 @@ def main() -> None:
         type=int,
         default=0,
         metavar="CANTIDAD",
-        help="crear alumnos ficticios dados de alta e inscritos (sin PDFs)",
+        help="crear alumnos ficticios pendientes de asignar a un paquete (sin PDFs)",
     )
     args = ap.parse_args()
     secretaria_datos = (args.correo, args.nombres, args.apellidos)
@@ -215,34 +203,8 @@ def main() -> None:
                 )
                 print(f"Administrador creado: {admin_correo}")
 
-        id_materias = []
-        for nombre in MATERIAS_PRIMER_SEMESTRE:
-            id_m = conn.execute(text("SELECT id_materia FROM materias WHERE nombre_materia = :n AND semestre = :s"),
-                                {"n": nombre, "s": SEMESTRE_INGRESO}).scalar()
-            if id_m is None:
-                id_m = conn.execute(text("INSERT INTO materias (nombre_materia, semestre) VALUES (:n, :s)"),
-                                    {"n": nombre, "s": SEMESTRE_INGRESO}).lastrowid
-            id_materias.append(id_m)
-
-        creados = 0
-        for nombre_paquete, turno in PAQUETES:
-            id_p = conn.execute(text("SELECT id_paquete FROM paquetes_horario WHERE nombre_paquete = :n AND semestre = :s"),
-                                {"n": nombre_paquete, "s": SEMESTRE_INGRESO}).scalar()
-            if id_p is None:
-                id_p = conn.execute(text("INSERT INTO paquetes_horario (nombre_paquete, semestre) VALUES (:n, :s)"),
-                                    {"n": nombre_paquete, "s": SEMESTRE_INGRESO}).lastrowid
-            for id_m in id_materias:
-                ya = conn.execute(
-                    text("SELECT 1 FROM grupos WHERE id_paquete = :p AND id_materia = :m AND periodo_escolar = :per"),
-                    {"p": id_p, "m": id_m, "per": settings.periodo}).scalar()
-                if not ya:
-                    conn.execute(
-                        text("""INSERT INTO grupos (id_paquete, id_materia, id_docente, periodo_escolar, turno,
-                                                    cupo_maximo, cupo_disponible)
-                                VALUES (:p, :m, :d, :per, :t, :c, :c)"""),
-                        {"p": id_p, "m": id_m, "d": None, "per": settings.periodo, "t": turno, "c": CUPO})
-                    creados += 1
-        print(f"Periodo {settings.periodo}: {creados} grupos nuevos de primer semestre.")
+        servicios.migrar_horarios(conn)
+        servicios.cargar_catalogo_1isc(conn)
 
     if args.alumnos_demo:
         crear_alumnos_demo(args.alumnos_demo, id_secretaria_usuario)

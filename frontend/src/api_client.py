@@ -138,14 +138,12 @@ class ApiClient:
             params={"q": q, "incluir_bajas": incluir_bajas},
         )
 
-    def descargar_expediente(self, q: str, incluir_bajas: bool = False) -> bytes:
-        """Devuelve el PDF del expediente por número de control o CURP."""
-        ruta = "/alumnos/expediente/pdf"
+    def _descargar_pdf(self, ruta: str, params: dict | None = None) -> bytes:
         headers = {"Authorization": f"Bearer {self.token}"} if self.token else {}
         started = time.perf_counter()
         try:
             response = self._http.get(
-                ruta, params={"q": q, "incluir_bajas": incluir_bajas}, headers=headers,
+                ruta, params=params, headers=headers,
             )
         except httpx.ConnectError as ex:
             log.warning(
@@ -173,6 +171,13 @@ class ApiClient:
         if not response.is_success:
             raise self._error(response, ruta)
         return response.content
+
+    def descargar_expediente(self, q: str, incluir_bajas: bool = False) -> bytes:
+        """Devuelve el PDF del expediente por número de control o CURP."""
+        return self._descargar_pdf(
+            "/alumnos/expediente/pdf",
+            {"q": q, "incluir_bajas": incluir_bajas},
+        )
 
     def descargar_documento(
         self, id_documento: int, destino: Path, incluir_bajas: bool = False,
@@ -216,6 +221,51 @@ class ApiClient:
 
     def eliminar_alumno(self, numero_control: str) -> dict:
         return self._request("DELETE", f"/alumnos/{numero_control}")
+
+    def estado_horario(self, numero_control: str) -> dict:
+        return self._request("GET", f"/horarios/alumnos/{numero_control}")
+
+    def paquetes_horario(self, semestre: int) -> list[dict]:
+        return self._request("GET", "/horarios/paquetes", params={"semestre": semestre})
+
+    def asignar_paquete(self, numero_control: str, id_paquete: int) -> dict:
+        return self._request(
+            "POST",
+            f"/horarios/alumnos/{numero_control}/paquete",
+            json={"id_paquete": id_paquete},
+        )
+
+    def migrar_paquete(self, numero_control: str, id_paquete: int) -> dict:
+        return self._request(
+            "PUT",
+            f"/horarios/alumnos/{numero_control}/paquete",
+            json={"id_paquete": id_paquete},
+        )
+
+    def descargar_horario_alumno(self, numero_control: str) -> bytes:
+        return self._descargar_pdf(f"/horarios/alumnos/{numero_control}/pdf")
+
+    def grupos_horario(self) -> list[dict]:
+        return self._request("GET", "/horarios/grupos")
+
+    def detalle_grupo_horario(self, id_paquete: int) -> dict:
+        return self._request("GET", f"/horarios/grupos/{id_paquete}")
+
+    def lista_alumnos_grupo(self, id_paquete: int) -> dict:
+        return self._request("GET", f"/horarios/grupos/{id_paquete}/alumnos")
+
+    def descargar_lista_grupo(self, id_paquete: int) -> bytes:
+        return self._descargar_pdf(f"/horarios/grupos/{id_paquete}/alumnos/pdf")
+
+    def docentes_horario(self) -> list[dict]:
+        return self._request("GET", "/horarios/docentes")
+
+    def asignar_docente_grupo(self, id_grupo: int, id_docente: int | None) -> dict:
+        return self._request(
+            "PUT",
+            f"/horarios/grupos/{id_grupo}/docente",
+            json={"id_docente": id_docente},
+        )
 
     def historial_alumno(self, numero_control: str) -> list[dict]:
         return self._request("GET", f"/alumnos/{numero_control}/historial")

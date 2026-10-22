@@ -120,6 +120,9 @@ CREATE TABLE grupos (
     id_paquete INT NOT NULL,
     id_materia INT NOT NULL,
     id_docente INT NULL, -- NULL indica que el grupo aún no tiene docente asignado
+    docente_programado VARCHAR(150),
+    aula VARCHAR(30) NOT NULL DEFAULT '',
+    creditos INT NOT NULL DEFAULT 0,
     periodo_escolar VARCHAR(20) NOT NULL,
     turno ENUM('Matutino', 'Vespertino') NOT NULL,
     cupo_maximo INT NOT NULL DEFAULT 25,
@@ -129,6 +132,18 @@ CREATE TABLE grupos (
     FOREIGN KEY (id_docente) REFERENCES empleados_docentes(id_docente),
     CONSTRAINT chk_cupos CHECK (cupo_disponible >= 0 AND cupo_disponible <= cupo_maximo),
     INDEX idx_grupos_periodo (periodo_escolar)
+);
+
+CREATE TABLE horarios_grupo (
+    id_horario INT AUTO_INCREMENT PRIMARY KEY,
+    id_grupo INT NOT NULL,
+    dia_semana TINYINT NOT NULL,
+    hora_inicio TIME NOT NULL,
+    hora_fin TIME NOT NULL,
+    FOREIGN KEY (id_grupo) REFERENCES grupos(id_grupo) ON DELETE CASCADE,
+    CONSTRAINT chk_horario_dia CHECK (dia_semana BETWEEN 1 AND 5),
+    CONSTRAINT chk_horario_horas CHECK (hora_fin > hora_inicio),
+    UNIQUE (id_grupo, dia_semana)
 );
 
 CREATE TABLE inscripciones_grupos (

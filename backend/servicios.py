@@ -1,12 +1,12 @@
 """Lógica de negocio de Altas (Algoritmo 3 del documento de contexto).
 
 Flujo de `registrar_alta`, bajo un candado global de MySQL para que dos altas
-simultáneas no se repartan el mismo cupo ni el mismo consecutivo:
+simultáneas no generen el mismo número de control:
   1. ficha y CURP no repetidas
-  2. turno por promedio y grupo con lugar (si el turno está lleno, usa el otro)
+  2. turno sugerido a partir del promedio
   3. número de control = año(2) + tecnológico(2) + carrera(2) + secuencia(2)
   4. copia de los PDF al servidor
-  5. INSERT del alumno, rutas del expediente e inscripción a todas las materias del grupo
+  5. INSERT del alumno y rutas del expediente; Secretaría asigna el paquete después
 Si algo falla después del paso 4 se borran los PDF copiados y se hace rollback.
 """
 import logging
@@ -24,6 +24,7 @@ from sqlalchemy.exc import DBAPIError, IntegrityError
 from ambar_common import validators as v
 
 from .config import engine, settings
+from .catalogo_horarios import CATALOGO_1ISC, PERIODO_1ISC
 from .constantes import (
     DOCUMENTOS,
     DOCUMENTOS_MODIFICABLES,
@@ -37,6 +38,7 @@ from .seguridad import hashear
 
 log = logging.getLogger("sige")
 NOMBRE_CANDADO = "sige_altas"
+PAQUETES_LEGACY_MIGRABLES = {"1A", "1B"}
 ERRNO_CHECK_VIOLADO = (3819, 4025)      # MySQL / MariaDB
 # Constancia fiscal existe en el ENUM de la BD, aunque Altas todavía no la solicita.
 TIPOS_EXPEDIENTE = [
@@ -273,7 +275,7 @@ def buscar_expediente(q: str, incluir_bajas: bool = False) -> dict:
             "promedio": f"{a['promedio_preparatoria']:.2f}",
             "turno": a["turno"],
             "semestre": str(a["semestre_actual"]),
-            "grupo": grupo["grupo"] if grupo else "Sin grupo",
+            "grupo": grupo["grupo"] if grupo else "Sin horario asignado",
             "periodo": grupo["periodo"] if grupo else "—",
             "estatus": a["estatus"],
             **({"motivo_baja": a["motivo_baja"]} if a["motivo_baja"] else {}),
@@ -607,6 +609,533 @@ def listar_docentes() -> list[dict]:
     return [dict(fila) for fila in filas]
 
 
+def migrar_horarios(conn) -> None:
+    columnas = {
+        "docente_programado": "VARCHAR(150) NULL",
+        "aula": "VARCHAR(30) NOT NULL DEFAULT ''",
+        "creditos": "INT NOT NULL DEFAULT 0",
+    }
+    for nombre, definicion in columnas.items():
+        existe = conn.execute(
+            text(f"SHOW COLUMNS FROM grupos LIKE '{nombre}'")
+        ).first()
+        if existe is None:
+            conn.execute(text(f"ALTER TABLE grupos ADD COLUMN {nombre} {definicion}"))
+
+    conn.execute(text("""CREATE TABLE IF NOT EXISTS horarios_grupo (
+        id_horario INT AUTO_INCREMENT PRIMARY KEY,
+        id_grupo INT NOT NULL,
+        dia_semana TINYINT NOT NULL,
+        hora_inicio TIME NOT NULL,
+        hora_fin TIME NOT NULL,
+        FOREIGN KEY (id_grupo) REFERENCES grupos(id_grupo) ON DELETE CASCADE,
+        CONSTRAINT chk_horario_dia CHECK (dia_semana BETWEEN 1 AND 5),
+        CONSTRAINT chk_horario_horas CHECK (hora_fin > hora_inicio),
+        UNIQUE (id_grupo, dia_semana)
+    )"""))
+
+
+def cargar_catalogo_1isc(conn) -> None:
+    turnos = {
+        nombre: "Matutino" if int(nombre[-1]) % 2 else "Vespertino"
+        for nombre in CATALOGO_1ISC
+    }
+    for nombre_paquete, materias in CATALOGO_1ISC.items():
+        id_paquete = conn.execute(
+            text("""SELECT id_paquete FROM paquetes_horario
+                    WHERE nombre_paquete = :nombre AND semestre = 1
+                    ORDER BY id_paquete LIMIT 1"""),
+            {"nombre": nombre_paquete},
+        ).scalar_one_or_none()
+        if id_paquete is None:
+            id_paquete = conn.execute(
+                text("""INSERT INTO paquetes_horario (nombre_paquete, semestre)
+                        VALUES (:nombre, 1)"""),
+                {"nombre": nombre_paquete},
+            ).lastrowid
+
+        for nombre_materia, aula, creditos, docente, dias in materias:
+            id_materia = conn.execute(
+                text("""SELECT id_materia FROM materias
+                        WHERE nombre_materia = :nombre AND semestre = 1
+                        ORDER BY id_materia LIMIT 1"""),
+                {"nombre": nombre_materia},
+            ).scalar_one_or_none()
+            if id_materia is None:
+                id_materia = conn.execute(
+                    text("""INSERT INTO materias (nombre_materia, semestre)
+                            VALUES (:nombre, 1)"""),
+                    {"nombre": nombre_materia},
+                ).lastrowid
+
+            id_grupo = conn.execute(
+                text("""SELECT id_grupo FROM grupos
+                        WHERE id_paquete = :paquete AND id_materia = :materia
+                          AND periodo_escolar = :periodo
+                        ORDER BY id_grupo LIMIT 1"""),
+                {
+                    "paquete": id_paquete,
+                    "materia": id_materia,
+                    "periodo": PERIODO_1ISC,
+                },
+            ).scalar_one_or_none()
+            if id_grupo is None:
+                id_grupo = conn.execute(
+                    text("""INSERT INTO grupos (
+                                id_paquete, id_materia, id_docente, docente_programado,
+                                aula, creditos, periodo_escolar, turno,
+                                cupo_maximo, cupo_disponible
+                            ) VALUES (
+                                :paquete, :materia, NULL, :docente, :aula, :creditos,
+                                :periodo, :turno, 25, 25
+                            )"""),
+                    {
+                        "paquete": id_paquete,
+                        "materia": id_materia,
+                        "docente": docente,
+                        "aula": aula,
+                        "creditos": creditos,
+                        "periodo": PERIODO_1ISC,
+                        "turno": turnos[nombre_paquete],
+                    },
+                ).lastrowid
+            else:
+                conn.execute(
+                    text("""UPDATE grupos SET docente_programado = :docente,
+                                aula = :aula, creditos = :creditos, turno = :turno
+                            WHERE id_grupo = :grupo"""),
+                    {
+                        "grupo": id_grupo,
+                        "docente": docente,
+                        "aula": aula,
+                        "creditos": creditos,
+                        "turno": turnos[nombre_paquete],
+                    },
+                )
+
+            conn.execute(
+                text("DELETE FROM horarios_grupo WHERE id_grupo = :grupo"),
+                {"grupo": id_grupo},
+            )
+            for dia_semana, horario in enumerate(dias, 1):
+                if horario is None:
+                    continue
+                inicio, fin = horario.split("-")
+                conn.execute(
+                    text("""INSERT INTO horarios_grupo
+                                (id_grupo, dia_semana, hora_inicio, hora_fin)
+                            VALUES (:grupo, :dia, :inicio, :fin)"""),
+                    {
+                        "grupo": id_grupo,
+                        "dia": dia_semana,
+                        "inicio": inicio,
+                        "fin": fin,
+                    },
+                )
+
+
+def _resumen_paquetes_horario(
+    conn,
+    periodo: str,
+    semestre: int | None = None,
+    solo_catalogo: bool = True,
+) -> list[dict]:
+    filas = conn.execute(
+        text("""SELECT p.id_paquete, p.nombre_paquete AS nombre, p.semestre,
+                       g.periodo_escolar AS periodo,
+                       COUNT(DISTINCT g.id_grupo) AS total_materias,
+                       COUNT(DISTINCT CASE
+                           WHEN a.estatus = 'Activo' AND a.eliminado = FALSE
+                           THEN a.numero_control END) AS alumnos,
+                       MIN(g.turno) AS turno,
+                       MIN(g.cupo_maximo) AS cupo_maximo,
+                       MIN(g.cupo_disponible) AS lugares
+                FROM paquetes_horario p
+                JOIN grupos g ON g.id_paquete = p.id_paquete
+                LEFT JOIN inscripciones_grupos i ON i.id_grupo = g.id_grupo
+                LEFT JOIN alumnos a ON a.numero_control = i.numero_control
+                WHERE g.periodo_escolar = :periodo
+                  AND (:solo_catalogo = 0 OR p.nombre_paquete LIKE '1ISC%')
+                  AND (:semestre IS NULL OR p.semestre = :semestre)
+                GROUP BY p.id_paquete, p.nombre_paquete, p.semestre, g.periodo_escolar
+                ORDER BY p.nombre_paquete"""),
+        {"periodo": periodo, "semestre": semestre, "solo_catalogo": solo_catalogo},
+    ).mappings().all()
+    return [dict(fila) for fila in filas]
+
+
+def listar_paquetes_horario(semestre: int) -> list[dict]:
+    with engine.connect() as conn:
+        return _resumen_paquetes_horario(conn, PERIODO_1ISC, semestre)
+
+
+def _datos_paquete_horario(
+    conn,
+    id_paquete: int,
+    periodo: str,
+    solo_catalogo: bool = True,
+) -> tuple[dict, list[dict]]:
+    resumen = next(
+        (fila for fila in _resumen_paquetes_horario(
+            conn, periodo, solo_catalogo=solo_catalogo,
+        )
+         if fila["id_paquete"] == id_paquete),
+        None,
+    )
+    if resumen is None:
+        raise NoEncontrado()
+
+    filas = conn.execute(
+        text("""SELECT g.id_grupo, m.nombre_materia, g.aula, g.creditos,
+                       g.id_docente, g.docente_programado,
+                       CONCAT_WS(' ', d.nombres, d.apellidos) AS docente_asignado,
+                       h.dia_semana, h.hora_inicio, h.hora_fin
+                FROM grupos g
+                JOIN materias m ON m.id_materia = g.id_materia
+                LEFT JOIN empleados_docentes d ON d.id_docente = g.id_docente
+                LEFT JOIN horarios_grupo h ON h.id_grupo = g.id_grupo
+                WHERE g.id_paquete = :paquete AND g.periodo_escolar = :periodo
+                ORDER BY m.nombre_materia, h.dia_semana"""),
+        {"paquete": id_paquete, "periodo": periodo},
+    ).mappings().all()
+
+    materias: dict[int, dict] = {}
+    dias = ("", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes")
+    for fila in filas:
+        materia = materias.setdefault(fila["id_grupo"], {
+            "id_grupo": fila["id_grupo"],
+            "nombre_materia": fila["nombre_materia"],
+            "aula": fila["aula"],
+            "creditos": fila["creditos"],
+            "id_docente": fila["id_docente"],
+            "docente_asignado": fila["docente_asignado"],
+            "docente_programado": fila["docente_programado"],
+            "docente": fila["docente_asignado"] or fila["docente_programado"] or "Por asignar",
+            "horarios": [],
+        })
+        if fila["dia_semana"] is not None:
+            inicio = fila["hora_inicio"]
+            fin = fila["hora_fin"]
+            materia["horarios"].append({
+                "dia_semana": fila["dia_semana"],
+                "dia": dias[fila["dia_semana"]],
+                "inicio": inicio[:5] if isinstance(inicio, str) else _formatear_hora(inicio)[:5],
+                "fin": fin[:5] if isinstance(fin, str) else _formatear_hora(fin)[:5],
+            })
+    return resumen, list(materias.values())
+
+
+def detalle_paquete_horario(id_paquete: int) -> dict:
+    with engine.connect() as conn:
+        paquete, materias = _datos_paquete_horario(conn, id_paquete, PERIODO_1ISC)
+    return {"paquete": paquete, "materias": materias}
+
+
+def estado_horario_alumno(numero_control: str) -> dict:
+    with engine.connect() as conn:
+        alumno = conn.execute(
+            text("""SELECT numero_control, nombres, apellido_paterno, apellido_materno,
+                           semestre_actual, estatus, eliminado
+                    FROM alumnos WHERE numero_control = :numero"""),
+            {"numero": numero_control},
+        ).mappings().first()
+        if alumno is None or alumno["eliminado"] or alumno["estatus"] != "Activo":
+            raise NoEncontrado()
+
+        paquetes = conn.execute(
+            text("""SELECT DISTINCT p.id_paquete
+                    FROM inscripciones_grupos i
+                    JOIN grupos g ON g.id_grupo = i.id_grupo
+                    JOIN paquetes_horario p ON p.id_paquete = g.id_paquete
+                    WHERE i.numero_control = :numero AND g.periodo_escolar = :periodo"""),
+            {"numero": numero_control, "periodo": PERIODO_1ISC},
+        ).scalars().all()
+        if len(paquetes) > 1:
+            raise Conflicto("El alumno aparece inscrito en más de un paquete del periodo actual.")
+        if not paquetes:
+            return {
+                "numero_control": numero_control,
+                "nombre_completo": " ".join(
+                    parte for parte in (
+                        alumno["nombres"], alumno["apellido_paterno"], alumno["apellido_materno"],
+                    ) if parte
+                ),
+                "semestre": alumno["semestre_actual"],
+                "periodo": PERIODO_1ISC,
+                "asignado": False,
+                "puede_migrar": False,
+                "paquete": None,
+                "materias": [],
+            }
+
+        paquete, materias = _datos_paquete_horario(
+            conn, paquetes[0], PERIODO_1ISC, solo_catalogo=False,
+        )
+        return {
+            "numero_control": numero_control,
+            "nombre_completo": " ".join(
+                parte for parte in (
+                    alumno["nombres"], alumno["apellido_paterno"], alumno["apellido_materno"],
+                ) if parte
+            ),
+            "semestre": alumno["semestre_actual"],
+            "periodo": PERIODO_1ISC,
+            "asignado": True,
+            "puede_migrar": (
+                alumno["semestre_actual"] == 1
+                and paquete["nombre"] in PAQUETES_LEGACY_MIGRABLES
+            ),
+            "paquete": paquete,
+            "materias": materias,
+        }
+
+
+def asignar_paquete_horario(numero_control: str, id_paquete: int) -> dict:
+    with engine.begin() as conn:
+        alumno = conn.execute(
+            text("""SELECT semestre_actual, estatus, eliminado
+                    FROM alumnos WHERE numero_control = :numero FOR UPDATE"""),
+            {"numero": numero_control},
+        ).mappings().first()
+        if alumno is None or alumno["eliminado"] or alumno["estatus"] != "Activo":
+            raise NoEncontrado()
+
+        paquete = conn.execute(
+            text("""SELECT id_paquete, nombre_paquete, semestre
+                    FROM paquetes_horario
+                    WHERE id_paquete = :paquete AND semestre = :semestre"""),
+            {"paquete": id_paquete, "semestre": alumno["semestre_actual"]},
+        ).mappings().first()
+        if paquete is None or paquete["nombre_paquete"] not in CATALOGO_1ISC:
+            raise Conflicto(
+                "El paquete seleccionado no corresponde al semestre o periodo escolar habilitado."
+            )
+
+        existentes = conn.execute(
+            text("""SELECT DISTINCT p.nombre_paquete
+                    FROM inscripciones_grupos i
+                    JOIN grupos g ON g.id_grupo = i.id_grupo
+                    JOIN paquetes_horario p ON p.id_paquete = g.id_paquete
+                    WHERE i.numero_control = :numero AND g.periodo_escolar = :periodo"""),
+            {"numero": numero_control, "periodo": PERIODO_1ISC},
+        ).scalars().all()
+        if existentes:
+            raise Conflicto(
+                f"El alumno ya tiene un grupo asignado en {PERIODO_1ISC}: {', '.join(existentes)}."
+            )
+
+        grupos = conn.execute(
+            text("""SELECT id_grupo, turno, cupo_disponible
+                    FROM grupos
+                    WHERE id_paquete = :paquete AND periodo_escolar = :periodo
+                    ORDER BY id_grupo FOR UPDATE"""),
+            {"paquete": id_paquete, "periodo": PERIODO_1ISC},
+        ).mappings().all()
+        if not grupos:
+            raise NoEncontrado()
+        if len(grupos) != 6:
+            raise Conflicto("El paquete está incompleto y no puede asignarse.")
+        if any(fila["cupo_disponible"] <= 0 for fila in grupos):
+            raise CupoLleno("El paquete seleccionado ya no tiene cupo disponible.")
+
+        conn.execute(
+            text("""INSERT INTO inscripciones_grupos (numero_control, id_grupo)
+                    VALUES (:numero, :grupo)"""),
+            [{"numero": numero_control, "grupo": fila["id_grupo"]} for fila in grupos],
+        )
+        conn.execute(
+            text("UPDATE alumnos SET turno = :turno WHERE numero_control = :numero"),
+            {"turno": grupos[0]["turno"], "numero": numero_control},
+        )
+
+    return estado_horario_alumno(numero_control)
+
+
+def reasignar_paquete_horario(numero_control: str, id_paquete: int) -> dict:
+    with engine.begin() as conn:
+        alumno = conn.execute(
+            text("""SELECT semestre_actual, estatus, eliminado
+                    FROM alumnos WHERE numero_control = :numero FOR UPDATE"""),
+            {"numero": numero_control},
+        ).mappings().first()
+        if alumno is None or alumno["eliminado"] or alumno["estatus"] != "Activo":
+            raise NoEncontrado()
+
+        paquete = conn.execute(
+            text("""SELECT id_paquete, nombre_paquete, semestre
+                    FROM paquetes_horario
+                    WHERE id_paquete = :paquete AND semestre = :semestre"""),
+            {"paquete": id_paquete, "semestre": alumno["semestre_actual"]},
+        ).mappings().first()
+        if paquete is None or paquete["nombre_paquete"] not in CATALOGO_1ISC:
+            raise Conflicto("El paquete seleccionado no corresponde al periodo escolar habilitado.")
+
+        destino = conn.execute(
+            text("""SELECT id_grupo, id_materia, turno, cupo_disponible
+                    FROM grupos
+                    WHERE id_paquete = :paquete AND periodo_escolar = :periodo
+                    ORDER BY id_grupo FOR UPDATE"""),
+            {"paquete": id_paquete, "periodo": PERIODO_1ISC},
+        ).mappings().all()
+        if len(destino) != 6:
+            raise Conflicto("El paquete está incompleto y no puede asignarse.")
+        if any(fila["cupo_disponible"] <= 0 for fila in destino):
+            raise CupoLleno("El paquete seleccionado ya no tiene cupo disponible.")
+
+        actuales = conn.execute(
+            text("""SELECT i.id_inscripcion, i.id_grupo, g.id_materia,
+                           p.nombre_paquete
+                    FROM inscripciones_grupos i
+                    JOIN grupos g ON g.id_grupo = i.id_grupo
+                    JOIN paquetes_horario p ON p.id_paquete = g.id_paquete
+                    WHERE i.numero_control = :numero AND g.periodo_escolar = :periodo
+                    FOR UPDATE"""),
+            {"numero": numero_control, "periodo": PERIODO_1ISC},
+        ).mappings().all()
+        paquetes_actuales = {fila["nombre_paquete"] for fila in actuales}
+        if len(paquetes_actuales) != 1 or not paquetes_actuales.issubset(PAQUETES_LEGACY_MIGRABLES):
+            raise Conflicto("Solo se pueden migrar alumnos que aún estén en los grupos anteriores 1A o 1B.")
+
+        destino_por_materia = {fila["id_materia"]: fila for fila in destino}
+        if len(destino_por_materia) != 6:
+            raise Conflicto("El paquete tiene materias repetidas y no puede asignarse.")
+        materias_actuales = [fila["id_materia"] for fila in actuales]
+        if len(set(materias_actuales)) != len(materias_actuales):
+            raise Conflicto("El grupo anterior tiene materias repetidas; revisa la inscripción antes de migrar.")
+
+        for fila in actuales:
+            grupo_destino = destino_por_materia.get(fila["id_materia"])
+            if grupo_destino is None:
+                dependencias = conn.execute(
+                    text("""SELECT
+                                (SELECT COUNT(*) FROM calificaciones
+                                 WHERE id_inscripcion = :inscripcion)
+                                + (SELECT COUNT(*) FROM registro_asistencia
+                                   WHERE id_inscripcion = :inscripcion)"""),
+                    {"inscripcion": fila["id_inscripcion"]},
+                ).scalar_one()
+                if dependencias:
+                    raise Conflicto(
+                        "No se migró: una materia del grupo anterior tiene calificaciones o "
+                        "asistencias y no existe en el paquete seleccionado."
+                    )
+                conn.execute(
+                    text("DELETE FROM inscripciones_grupos WHERE id_inscripcion = :inscripcion"),
+                    {"inscripcion": fila["id_inscripcion"]},
+                )
+                continue
+
+            reserva = conn.execute(
+                text("""UPDATE grupos SET cupo_disponible = cupo_disponible - 1
+                        WHERE id_grupo = :grupo AND cupo_disponible > 0"""),
+                {"grupo": grupo_destino["id_grupo"]},
+            )
+            if reserva.rowcount != 1:
+                raise CupoLleno("El paquete seleccionado ya no tiene cupo disponible.")
+            conn.execute(
+                text("UPDATE grupos SET cupo_disponible = cupo_disponible + 1 WHERE id_grupo = :grupo"),
+                {"grupo": fila["id_grupo"]},
+            )
+            conn.execute(
+                text("""UPDATE inscripciones_grupos SET id_grupo = :destino
+                        WHERE id_inscripcion = :inscripcion"""),
+                {"destino": grupo_destino["id_grupo"], "inscripcion": fila["id_inscripcion"]},
+            )
+
+        materias_migradas = set(materias_actuales)
+        faltantes = [
+            fila for fila in destino
+            if fila["id_materia"] not in materias_migradas
+        ]
+        if faltantes:
+            conn.execute(
+                text("""INSERT INTO inscripciones_grupos (numero_control, id_grupo)
+                        VALUES (:numero, :grupo)"""),
+                [
+                    {"numero": numero_control, "grupo": fila["id_grupo"]}
+                    for fila in faltantes
+                ],
+            )
+        conn.execute(
+            text("UPDATE alumnos SET turno = :turno WHERE numero_control = :numero"),
+            {"turno": destino[0]["turno"], "numero": numero_control},
+        )
+
+    return estado_horario_alumno(numero_control)
+
+
+def lista_alumnos_paquete(id_paquete: int) -> dict:
+    with engine.connect() as conn:
+        paquete = next(
+            (fila for fila in _resumen_paquetes_horario(conn, PERIODO_1ISC)
+             if fila["id_paquete"] == id_paquete),
+            None,
+        )
+        if paquete is None:
+            raise NoEncontrado()
+        alumnos = conn.execute(
+            text("""SELECT DISTINCT a.numero_control, a.nombres, a.apellido_paterno,
+                           a.apellido_materno, a.correo_institucional
+                    FROM inscripciones_grupos i
+                    JOIN grupos g ON g.id_grupo = i.id_grupo
+                    JOIN alumnos a ON a.numero_control = i.numero_control
+                    WHERE g.id_paquete = :paquete AND g.periodo_escolar = :periodo
+                      AND a.estatus = 'Activo' AND a.eliminado = FALSE
+                    ORDER BY a.apellido_paterno, a.apellido_materno, a.nombres,
+                             a.numero_control"""),
+            {"paquete": id_paquete, "periodo": PERIODO_1ISC},
+        ).mappings().all()
+    return {"paquete": paquete, "alumnos": [dict(fila) for fila in alumnos]}
+
+
+def listar_docentes_activos() -> list[dict]:
+    with engine.connect() as conn:
+        filas = conn.execute(
+            text("""SELECT d.id_docente, d.nombres, d.apellidos, u.correo
+                    FROM empleados_docentes d
+                    JOIN usuarios u ON u.id_usuario = d.id_usuario
+                    JOIN roles r ON r.id_rol = u.id_rol
+                    WHERE r.nombre_rol = :rol AND u.estatus = 'Activo'
+                    ORDER BY d.apellidos, d.nombres, u.correo"""),
+            {"rol": ROL_DOCENTE},
+        ).mappings().all()
+    return [dict(fila) for fila in filas]
+
+
+def actualizar_docente_grupo(id_grupo: int, id_docente: int | None) -> dict:
+    with engine.begin() as conn:
+        grupo = conn.execute(
+            text("""SELECT g.id_grupo FROM grupos g
+                    JOIN paquetes_horario p ON p.id_paquete = g.id_paquete
+                    WHERE g.id_grupo = :grupo AND g.periodo_escolar = :periodo
+                      AND p.nombre_paquete LIKE '1ISC%'
+                    FOR UPDATE"""),
+            {"grupo": id_grupo, "periodo": PERIODO_1ISC},
+        ).mappings().first()
+        if grupo is None:
+            raise NoEncontrado()
+        id_paquete = conn.execute(
+            text("SELECT id_paquete FROM grupos WHERE id_grupo = :grupo"),
+            {"grupo": id_grupo},
+        ).scalar_one()
+        if id_docente is not None:
+            docente = conn.execute(
+                text("""SELECT d.id_docente FROM empleados_docentes d
+                        JOIN usuarios u ON u.id_usuario = d.id_usuario
+                        JOIN roles r ON r.id_rol = u.id_rol
+                        WHERE d.id_docente = :docente AND u.estatus = 'Activo'
+                          AND r.nombre_rol = :rol"""),
+                {"docente": id_docente, "rol": ROL_DOCENTE},
+            ).first()
+            if docente is None:
+                raise Conflicto("Selecciona una cuenta de maestro activa.")
+        conn.execute(
+            text("UPDATE grupos SET id_docente = :docente WHERE id_grupo = :grupo"),
+            {"docente": id_docente, "grupo": id_grupo},
+        )
+    return detalle_paquete_horario(id_paquete)
+
+
 def migrar_docente_sin_asignar(conn) -> None:
     """Makes group assignments optional and removes the legacy fake teacher."""
     columna_docente = conn.execute(
@@ -752,7 +1281,6 @@ def listar_bitacora_accesos(limite: int = 200) -> list[dict]:
 # --------------------------------------------------------------------------
 def registrar_alta(d: AltaIn, pdfs: dict[str, str], usuario: dict) -> dict:
     """`pdfs` mapea nombre visible del documento -> ruta temporal ya validada."""
-    periodo = settings.periodo
     base = settings.storage_dir
 
     # El candado vive en su propia conexión y se libera DESPUÉS del commit; si se
@@ -772,10 +1300,7 @@ def registrar_alta(d: AltaIn, pdfs: dict[str, str], usuario: dict) -> dict:
                 if errores:
                     raise Conflicto("El alumno ya está registrado", errores)
 
-                paquetes = _lugares_por_paquete(conn, periodo)
-                if not paquetes:
-                    raise SinGrupos(f"No hay grupos de primer semestre para el periodo {periodo}.")
-                paquete, turno, aviso = elegir_paquete(paquetes, v.turno_por_promedio(d.promedio))
+                turno = v.turno_por_promedio(d.promedio)
 
                 hoy = date.today()
                 prefijo = v.prefijo_control(hoy.year, settings.numero_tecnologico)
@@ -840,29 +1365,14 @@ def registrar_alta(d: AltaIn, pdfs: dict[str, str], usuario: dict) -> dict:
                          for doc, ruta in rutas.items()],
                     )
 
-                id_grupos = conn.execute(
-                    text("SELECT id_grupo FROM grupos WHERE id_paquete = :p AND periodo_escolar = :per"),
-                    {"p": paquete["id_paquete"], "per": periodo},
-                ).scalars().all()
-                try:
-                    # Los triggers descuentan cupo_disponible; el CHECK rechaza si no hay lugar
-                    conn.execute(
-                        text("INSERT INTO inscripciones_grupos (numero_control, id_grupo) VALUES (:n, :g)"),
-                        [{"n": numero, "g": g} for g in id_grupos],
-                    )
-                except DBAPIError as exc:
-                    if _check_violado(exc):
-                        raise CupoLleno("El cupo se agotó mientras se registraba al alumno.") from exc
-                    raise
-
             log.info("Alta %s registrada por usuario %s", numero, usuario["id_usuario"])
             return {
                 "numero_control": numero,
                 "correo_institucional": correo_inst,
                 "nombre_completo": f"{d.nombre} {d.ap_paterno} {d.ap_materno}",
                 "turno": turno,
-                "grupo": paquete["nombre"],
-                "aviso_turno": aviso,
+                "grupo": None,
+                "aviso_turno": "El paquete horario se asignará desde Consultas.",
                 "documentos": len(rutas),
             }
         except IntegrityError as exc:

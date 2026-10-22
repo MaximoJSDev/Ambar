@@ -6,7 +6,7 @@ from xml.sax.saxutils import escape
 
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_LEFT, TA_RIGHT
-from reportlab.lib.pagesizes import letter
+from reportlab.lib.pagesizes import landscape, letter
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
 from reportlab.lib.utils import ImageReader
@@ -306,4 +306,186 @@ def generar_expediente_pdf(datos: dict) -> bytes:
         onFirstPage=dibujar_membrete,
         onLaterPages=dibujar_membrete,
     )
+    return buffer.getvalue()
+
+
+def _dibujar_membrete(canvas, documento):
+    canvas.saveState()
+    ancho, alto = documento.pagesize
+    imagen = ImageReader(str(MEMBRETE))
+    imagen_ancho, imagen_alto = imagen.getSize()
+    membrete_alto = ancho * imagen_alto / imagen_ancho
+    canvas.drawImage(
+        imagen,
+        0,
+        alto - membrete_alto,
+        width=ancho,
+        height=membrete_alto,
+        preserveAspectRatio=True,
+        mask="auto",
+    )
+    canvas.setStrokeColor(LINE)
+    canvas.setLineWidth(0.5)
+    canvas.line(documento.leftMargin, 15 * mm, ancho - documento.rightMargin, 15 * mm)
+    canvas.setFillColor(MUTED)
+    canvas.setFont("Helvetica", 7)
+    canvas.drawString(documento.leftMargin, 10.5 * mm, "Este documento no tiene validez oficial.")
+    canvas.drawRightString(ancho - documento.rightMargin, 10.5 * mm, f"Página {documento.page}")
+    canvas.restoreState()
+
+
+def _documento_horario(buffer: BytesIO, titulo: str, autor: str) -> SimpleDocTemplate:
+    if not MEMBRETE.is_file():
+        raise FileNotFoundError(f"No se encontró la imagen del membrete: {MEMBRETE}")
+    return SimpleDocTemplate(
+        buffer,
+        pagesize=landscape(letter),
+        rightMargin=13 * mm,
+        leftMargin=13 * mm,
+        topMargin=39 * mm,
+        bottomMargin=19 * mm,
+        title=titulo,
+        author=autor,
+    )
+
+
+def _estilo_tabla_horario() -> ParagraphStyle:
+    return ParagraphStyle(
+        name="HorarioTable",
+        fontName="Helvetica",
+        fontSize=7.5,
+        leading=9,
+        textColor=colors.HexColor("#1B2A41"),
+        wordWrap="CJK",
+    )
+
+
+def generar_horario_alumno_pdf(datos: dict) -> bytes:
+    """Genera el horario individual del alumno con membrete institucional."""
+    buffer = BytesIO()
+    documento = _documento_horario(
+        buffer,
+        f"Horario {datos['alumno']['numero_control']}",
+        "Sistema Integral de Gestión Escolar",
+    )
+    estilos = _crear_estilos()
+    estilo_tabla = _estilo_tabla_horario()
+    alumno = datos["alumno"]
+    paquete = datos["paquete"]
+    encabezados = ["Asignatura", "Horario semanal", "Aula", "Docente", "Créditos"]
+    filas = [[
+        Paragraph(f'<font color="#FFFFFF"><b>{texto}</b></font>', estilo_tabla)
+        for texto in encabezados
+    ]]
+    for materia in datos["materias"]:
+        horarios = "<br/>".join(
+            f"{_texto(horario['dia'])}: {_texto(horario['inicio'])}–{_texto(horario['fin'])}"
+            for horario in materia["horarios"]
+        ) or "Sin horario"
+        filas.append([
+            Paragraph(_texto(materia["nombre_materia"]), estilo_tabla),
+            Paragraph(horarios, estilo_tabla),
+            Paragraph(_texto(materia["aula"]), estilo_tabla),
+            Paragraph(_texto(materia["docente"]), estilo_tabla),
+            Paragraph(_texto(materia["creditos"]), estilo_tabla),
+        ])
+
+    tabla = Table(
+        filas,
+        colWidths=[53 * mm, 78 * mm, 22 * mm, 76 * mm, 19 * mm],
+        repeatRows=1,
+        hAlign="LEFT",
+    )
+    tabla.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), NAVY),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("GRID", (0, 0), (-1, -1), 0.4, LINE),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 5),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+    ]))
+    elementos = [
+        Paragraph("HORARIO DEL ESTUDIANTE", estilos["ReportTitle"]),
+        Paragraph(
+            f"<b>{_texto(alumno['nombre_completo'])}</b> · "
+            f"Número de control: <b>{_texto(alumno['numero_control'])}</b>",
+            estilos["ReportSubtitle"],
+        ),
+        Paragraph(
+            f"Semestre: <b>{_texto(alumno['semestre'])}</b> · "
+            f"Grupo: <b>{_texto(paquete['nombre'])}</b> · "
+            f"Periodo: <b>{_texto(paquete['periodo'])}</b>",
+            estilos["ReportSubtitle"],
+        ),
+        Spacer(1, 4 * mm),
+        tabla,
+    ]
+    documento.build(elementos, onFirstPage=_dibujar_membrete, onLaterPages=_dibujar_membrete)
+    return buffer.getvalue()
+
+
+def generar_lista_grupo_pdf(datos: dict) -> bytes:
+    """Genera la lista de alumnos inscritos en una sección con membrete."""
+    buffer = BytesIO()
+    paquete = datos["paquete"]
+    documento = _documento_horario(
+        buffer,
+        f"Lista {paquete['nombre']}",
+        "Sistema Integral de Gestión Escolar",
+    )
+    estilos = _crear_estilos()
+    estilo_tabla = _estilo_tabla_horario()
+    filas = [[
+        Paragraph('<font color="#FFFFFF"><b>No.</b></font>', estilo_tabla),
+        Paragraph('<font color="#FFFFFF"><b>Número de control</b></font>', estilo_tabla),
+        Paragraph('<font color="#FFFFFF"><b>Apellidos y nombre(s)</b></font>', estilo_tabla),
+        Paragraph('<font color="#FFFFFF"><b>Correo institucional</b></font>', estilo_tabla),
+    ]]
+    for indice, alumno in enumerate(datos["alumnos"], 1):
+        nombre = " ".join(
+            parte for parte in (
+                alumno["apellido_paterno"], alumno["apellido_materno"], alumno["nombres"],
+            ) if parte
+        )
+        filas.append([
+            Paragraph(str(indice), estilo_tabla),
+            Paragraph(_texto(alumno["numero_control"]), estilo_tabla),
+            Paragraph(_texto(nombre), estilo_tabla),
+            Paragraph(_texto(alumno["correo_institucional"]), estilo_tabla),
+        ])
+
+    tabla = Table(
+        filas,
+        colWidths=[15 * mm, 43 * mm, 110 * mm, 80 * mm],
+        repeatRows=1,
+        hAlign="LEFT",
+    )
+    tabla.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), NAVY),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("GRID", (0, 0), (-1, -1), 0.4, LINE),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 5),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+    ]))
+    elementos = [
+        Paragraph("LISTA DE ALUMNOS POR GRUPO", estilos["ReportTitle"]),
+        Paragraph(
+            f"Grupo: <b>{_texto(paquete['nombre'])}</b> · "
+            f"Semestre: <b>{_texto(paquete['semestre'])}</b> · "
+            f"Periodo: <b>{_texto(paquete['periodo'])}</b>",
+            estilos["ReportSubtitle"],
+        ),
+        Paragraph(
+            f"Alumnos inscritos: <b>{len(datos['alumnos'])}</b>",
+            estilos["ReportSubtitle"],
+        ),
+        Spacer(1, 4 * mm),
+        tabla,
+    ]
+    documento.build(elementos, onFirstPage=_dibujar_membrete, onLaterPages=_dibujar_membrete)
     return buffer.getvalue()

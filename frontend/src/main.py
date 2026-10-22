@@ -37,7 +37,6 @@ log = logging.getLogger("sige.frontend")
 
 
 # --- Reglas de Altas (documento de contexto, Algoritmo 3) -------------------
-TURNOS = ("Matutino", "Vespertino")          # La asignación de nuevo ingreso se limita a un grupo por turno.
 DOCUMENTOS = [                               # La API usa estos nombres para asociar cada PDF con su tipo documental.
     "Acta de nacimiento",
     "CURP",
@@ -58,6 +57,7 @@ NAV = [
     ("/altas-maestros", "Alta de maestros", ft.Icons.PERSON_ADD_ALT_1),
     ("/consulta-maestros", "Consulta de maestros", ft.Icons.GROUP_OUTLINED),
     ("/consultas", "Consultas", ft.Icons.LIST_ALT),
+    ("/grupos-horarios", "Grupos y horarios", ft.Icons.GROUP_OUTLINED),
     ("/modificacion", "Modificación", ft.Icons.EDIT_OUTLINED),
     ("/bajas", "Bajas", ft.Icons.REMOVE),
     ("/reinscripcion", "Reinscripción", ft.Icons.REPLAY),
@@ -78,7 +78,8 @@ RUTAS_ADMIN = {
     "/bitacora",
 }
 IMPLEMENTADAS = {
-    "/secretaria", "/altas", "/altas-maestros", "/consulta-maestros", "/modificacion",
+    "/secretaria", "/altas", "/altas-maestros", "/consulta-maestros",
+    "/grupos-horarios", "/modificacion", "/bajas",
     *RUTAS_ADMIN,
 }
 
@@ -642,14 +643,17 @@ def build_alta_secretaria(page: ft.Page, navegar) -> ft.Control:
             campo.error = None
         aviso.visible = False
         errores = []
-        if not (nombres.value or "").strip():
-            nombres.error = "Escribe el nombre"
+        error_nombre = v.validar_nombre_personal(nombres.value or "", "Nombre", 50)
+        if error_nombre:
+            nombres.error = error_nombre
             errores.append(True)
-        if not (apellidos.value or "").strip():
-            apellidos.error = "Escribe los apellidos"
+        error_apellidos = v.validar_nombre_personal(apellidos.value or "", "Apellidos", 100)
+        if error_apellidos:
+            apellidos.error = error_apellidos
             errores.append(True)
-        if not (correo.value or "").strip():
-            correo.error = "Escribe el correo"
+        error_correo = v.validar_correo(correo.value or "")
+        if error_correo:
+            correo.error = error_correo
             errores.append(True)
         if len(password.value or "") < 10:
             password.error = "Usa al menos 10 caracteres"
@@ -718,14 +722,17 @@ def build_alta_maestro(page: ft.Page, navegar) -> ft.Control:
             campo.error = None
         aviso.visible = False
         errores = []
-        if not (nombres.value or "").strip():
-            nombres.error = "Escribe el nombre"
+        error_nombre = v.validar_nombre_personal(nombres.value or "", "Nombre", 50)
+        if error_nombre:
+            nombres.error = error_nombre
             errores.append(True)
-        if not (apellidos.value or "").strip():
-            apellidos.error = "Escribe los apellidos"
+        error_apellidos = v.validar_nombre_personal(apellidos.value or "", "Apellidos", 100)
+        if error_apellidos:
+            apellidos.error = error_apellidos
             errores.append(True)
-        if not (correo.value or "").strip():
-            correo.error = "Escribe el correo"
+        error_correo = v.validar_correo(correo.value or "")
+        if error_correo:
+            correo.error = error_correo
             errores.append(True)
         if len(password.value or "") < 10:
             password.error = "Usa al menos 10 caracteres"
@@ -950,6 +957,242 @@ def build_consulta_maestros(page: ft.Page, navegar) -> ft.Control:
     ])
 
 
+def build_grupos_horarios(page: ft.Page, navegar) -> ft.Control:
+    paquetes: list[dict] = []
+    docentes: list[dict] = []
+    paquete_seleccionado: int | None = None
+    panel_grupo = ft.Column(spacing=16)
+    aviso = ft.Text("", size=13, color=WARN_FG, visible=False)
+    selector = ft.Dropdown(label="Paquete / grupo", width=300, options=[])
+
+    def mostrar_error(ex: ApiError):
+        if ex.status == 401:
+            navegar("/secretaria")
+            return
+        aviso.value = ex.mensaje
+        aviso.visible = True
+        panel_grupo.controls = []
+        page.update()
+
+    def guardar_docente(id_grupo: int, selector_docente: ft.Dropdown):
+        try:
+            id_docente = (
+                int(selector_docente.value)
+                if selector_docente.value not in (None, "none")
+                else None
+            )
+            api.asignar_docente_grupo(id_grupo, id_docente)
+            cargar_paquete()
+            snackbar(page, "Asignación docente actualizada.")
+        except ApiError as ex:
+            mostrar_error(ex)
+        except ValueError:
+            snackbar(page, "Selecciona una cuenta de maestro válida.")
+
+    def _materia_control(materia: dict) -> ft.Control:
+        horarios = ", ".join(
+            f"{fila['dia'][:3]} {fila['inicio']}-{fila['fin']}"
+            for fila in materia["horarios"]
+        ) or "Sin horario publicado"
+        valor = str(materia["id_docente"]) if materia["id_docente"] is not None else "none"
+        selector_docente = ft.Dropdown(
+            label="Cuenta vinculada",
+            value=valor,
+            options=[
+                ft.DropdownOption(key="none", text="Sin cuenta vinculada"),
+                *[
+                    ft.DropdownOption(
+                        key=str(docente["id_docente"]),
+                        text=f"{docente['nombres']} {docente['apellidos']}",
+                    )
+                    for docente in docentes
+                ],
+            ],
+            width=260,
+        )
+        return crear_tarjeta(ft.Column(spacing=10, controls=[
+            ft.Text(materia["nombre_materia"], size=15, weight=ft.FontWeight.BOLD, color=NAVY),
+            ft.Text(
+                f"Aula {materia['aula']} · {materia['creditos']} créditos · {horarios}",
+                size=12,
+                color=MUTED,
+            ),
+            ft.Text(
+                f"Docente en horario: {materia['docente']}",
+                size=12,
+                color=TEXT,
+            ),
+            ft.Row(spacing=12, controls=[
+                selector_docente,
+                ft.OutlinedButton(
+                    "Guardar docente",
+                    style=estilo_boton_secundario(),
+                    on_click=lambda _, gid=materia["id_grupo"], campo=selector_docente:
+                        guardar_docente(gid, campo),
+                ),
+            ]),
+        ]), padding=16)
+
+    def descargar_lista(_=None):
+        if paquete_seleccionado is None:
+            return
+        paquete = next(
+            (item for item in paquetes if item["id_paquete"] == paquete_seleccionado),
+            None,
+        )
+        if paquete is None:
+            return
+        try:
+            contenido = api.descargar_lista_grupo(paquete_seleccionado)
+            destino = _carpeta_pdf_temporal() / f"lista_{paquete['nombre']}.pdf"
+            destino.write_bytes(contenido)
+            abrir_archivo(destino)
+        except ApiError as ex:
+            mostrar_error(ex)
+        except OSError as ex:
+            snackbar(page, f"No se pudo guardar la lista PDF: {ex}")
+
+    def cargar_paquete(_=None):
+        nonlocal paquete_seleccionado
+        if paquete_seleccionado is None:
+            panel_grupo.controls = []
+            page.update()
+            return
+        aviso.visible = False
+        try:
+            detalle = api.detalle_grupo_horario(paquete_seleccionado)
+            lista = api.lista_alumnos_grupo(paquete_seleccionado)
+        except ApiError as ex:
+            mostrar_error(ex)
+            return
+
+        paquete = detalle["paquete"]
+        alumnos = lista["alumnos"]
+        materias = detalle["materias"]
+        filas_alumnos = [
+            ft.Container(
+                padding=ft.Padding.symmetric(horizontal=12, vertical=8),
+                border=ft.Border.only(bottom=ft.BorderSide(1, BORDER)),
+                content=ft.Row(spacing=14, controls=[
+                    ft.Text(f"{indice}.", width=35, size=13, color=MUTED),
+                    ft.Text(alumno["numero_control"], width=125, size=13, color=TEXT),
+                    ft.Text(
+                        " ".join(filter(None, (
+                            alumno["apellido_paterno"], alumno["apellido_materno"],
+                            alumno["nombres"],
+                        ))),
+                        expand=True,
+                        size=13,
+                        color=NAVY,
+                    ),
+                ]),
+            )
+            for indice, alumno in enumerate(alumnos, 1)
+        ]
+        if not filas_alumnos:
+            filas_alumnos = [ft.Text("Aún no hay alumnos inscritos en este grupo.", color=MUTED)]
+
+        panel_grupo.controls = [
+            crear_tarjeta(ft.ResponsiveRow(spacing=16, run_spacing=10, controls=[
+                ft.Container(col={"xs": 12, "md": 5}, content=ft.Column(spacing=4, controls=[
+                    ft.Text("Periodo", size=12, color=MUTED),
+                    ft.Text(paquete["periodo"], size=14, weight=ft.FontWeight.BOLD, color=NAVY),
+                ])),
+                ft.Container(col={"xs": 6, "md": 3}, content=ft.Column(spacing=4, controls=[
+                    ft.Text("Alumnos inscritos", size=12, color=MUTED),
+                    ft.Text(f"{len(alumnos)} / {paquete['cupo_maximo']}", size=14,
+                            weight=ft.FontWeight.BOLD, color=NAVY),
+                ])),
+                ft.Container(col={"xs": 6, "md": 4}, content=ft.Column(spacing=4, controls=[
+                    ft.Text("Lugares disponibles", size=12, color=MUTED),
+                    ft.Text(str(paquete["lugares"]), size=14,
+                            weight=ft.FontWeight.BOLD, color=NAVY),
+                ])),
+            ]), padding=18),
+            ft.Text("Materias y asignación de maestros", size=19,
+                    weight=ft.FontWeight.BOLD, color=NAVY),
+            *[_materia_control(materia) for materia in materias],
+            crear_tarjeta(ft.Column(spacing=12, controls=[
+                ft.Row(alignment=ft.MainAxisAlignment.SPACE_BETWEEN, controls=[
+                    ft.Text(
+                        "Alumnos del grupo",
+                        size=19,
+                        weight=ft.FontWeight.BOLD,
+                        color=NAVY,
+                    ),
+                    ft.OutlinedButton(
+                        "Descargar lista PDF",
+                        icon=ft.Icons.DOWNLOAD_OUTLINED,
+                        style=estilo_boton_secundario(),
+                        on_click=descargar_lista,
+                    ),
+                ]),
+                ft.Column(spacing=0, controls=filas_alumnos),
+            ]), padding=18),
+        ]
+        page.update()
+
+    def cambiar_paquete(e):
+        nonlocal paquete_seleccionado
+        paquete_seleccionado = int(e.control.value) if e.control.value else None
+        cargar_paquete()
+
+    def cargar(_=None):
+        nonlocal paquetes, docentes, paquete_seleccionado
+        aviso.visible = False
+        try:
+            paquetes = api.grupos_horario()
+            docentes = api.docentes_horario()
+        except ApiError as ex:
+            mostrar_error(ex)
+            return
+        selector.options = [
+            ft.DropdownOption(
+                key=str(paquete["id_paquete"]),
+                text=(
+                    f"{paquete['nombre']} · {paquete['turno']} · "
+                    f"{paquete['alumnos']} alumnos"
+                ),
+            )
+            for paquete in paquetes
+        ]
+        if paquetes:
+            ids_disponibles = {item["id_paquete"] for item in paquetes}
+            if paquete_seleccionado not in ids_disponibles:
+                paquete_seleccionado = paquetes[0]["id_paquete"]
+            selector.value = str(paquete_seleccionado)
+            cargar_paquete()
+        else:
+            paquete_seleccionado = None
+            selector.value = None
+            panel_grupo.controls = [crear_tarjeta(ft.Text(
+                "No hay paquetes 1ISC configurados para el periodo activo. "
+                "Reinicia el backend después de actualizar SIGE.",
+                color=MUTED,
+            ))]
+            page.update()
+
+    selector.on_select = cambiar_paquete
+    cargar()
+    return ft.Column(expand=True, scroll=ft.ScrollMode.AUTO, spacing=20, controls=[
+        titulo_pagina(
+            "Grupos y horarios",
+            "Consulta las listas por sección y vincula las cuentas de maestros con el horario.",
+        ),
+        ft.Row(alignment=ft.MainAxisAlignment.SPACE_BETWEEN, controls=[
+            selector,
+            ft.OutlinedButton(
+                "Actualizar",
+                icon=ft.Icons.REFRESH,
+                style=estilo_boton_secundario(),
+                on_click=cargar,
+            ),
+        ]),
+        aviso,
+        panel_grupo,
+    ])
+
+
 def build_bitacora_admin(page: ft.Page, navegar) -> ft.Control:
     filas = ft.Column(spacing=0)
     aviso = ft.Text("", size=13, color=WARN_FG, visible=False)
@@ -1089,11 +1332,10 @@ class FormAltas:
                                 horizontal_alignment=ft.CrossAxisAlignment.STRETCH)
         self.botones = ft.Row(alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
         self.res_estatus = ft.Container()
-        self.res_turno = ft.Text("Se asigna según el promedio", size=14, color=TEXT)
+        self.res_turno = ft.Text("Se sugiere según el promedio", size=14, color=TEXT)
         self.res_expediente = ft.Text(f"0 de {len(DOCUMENTOS)} documentos", size=14, color=TEXT)
-        self.res_cupo = ft.Text("", size=14, color=TEXT)
+        self.res_horario = ft.Text("Se asigna desde Consultas después del alta", size=14, color=TEXT)
         self.aviso_docs = ft.Text("", size=13, color=ft.Colors.RED_700, visible=False)
-        self._refrescar_cupo()
 
         tarjeta_form = ft.Container(
             expand=True,
@@ -1133,7 +1375,7 @@ class FormAltas:
             ft.Column(spacing=3, controls=[ft.Text("Estatus", size=13, color=MUTED), self.res_estatus]),
             dato("Número de control", "Se genera al finalizar"),
             dato("Turno", self.res_turno),
-            dato("Cupo disponible (primer semestre)", self.res_cupo),
+            dato("Paquete de horario", self.res_horario),
             dato("Expediente", self.res_expediente),
         ]))
 
@@ -1151,16 +1393,6 @@ class FormAltas:
         self.res_estatus.padding = ft.Padding.symmetric(horizontal=12, vertical=4)
         self.res_estatus.content = ft.Text(texto, size=12, weight=ft.FontWeight.BOLD,
                                            color=OK_FG if ok else WARN_FG)
-
-    def _refrescar_cupo(self) -> dict | None:
-        """Consulta los lugares al servidor y actualiza el resumen lateral."""
-        try:
-            cupo = api.cupo()
-        except ApiError:
-            self.res_cupo.value = "No disponible"
-            return None
-        self.res_cupo.value = " · ".join(f"{t} {cupo['turnos'].get(t, 0)}" for t in TURNOS)
-        return cupo
 
     def _refrescar_docs(self):
         documentos_cargados = len(self.archivos)
@@ -1313,19 +1545,6 @@ class FormAltas:
     # ------------------------------------------------------------------
     # Navegación entre pasos
     # ------------------------------------------------------------------
-    def _sin_cupo(self) -> bool:
-        disponibilidad_cupo = self._refrescar_cupo()
-        # Si falla la consulta, el servidor aplica el límite al registrar el alta.
-        if disponibilidad_cupo is None or disponibilidad_cupo["total"] > 0:
-            return False
-        self.page.show_dialog(ft.AlertDialog(
-            title=ft.Text("Cupo completo"),
-            content=ft.Text("Los dos grupos de primer semestre ya tienen 25 alumnos. "
-                            "No es posible inscribir más alumnos de nuevo ingreso."),
-            actions=[ft.TextButton("Entendido", on_click=lambda _: self.page.pop_dialog())],
-        ))
-        return True
-
     async def _scroll_arriba(self):
         try:
             await self.cuerpo.scroll_to(offset=0, duration=0)
@@ -1339,8 +1558,6 @@ class FormAltas:
             await primer_campo.focus()
 
     def siguiente(self, e=None):
-        if self.paso == 0 and self._sin_cupo():
-            return
         if self.paso < 3 and not self.validar_paso(self.paso):
             self.page.update()
             return
@@ -1390,9 +1607,6 @@ class FormAltas:
                 self.paso = paso_a_validar
                 self._pintar()
                 return
-        if self._sin_cupo():
-            return
-
         def si(_):
             self.page.pop_dialog()
             try:
@@ -1401,9 +1615,10 @@ class FormAltas:
                 self._error_api(ex)
 
         self.page.show_dialog(ft.AlertDialog(
-            title=ft.Text("¿Confirmar la inscripción?"),
+            title=ft.Text("¿Confirmar el alta?"),
             content=ft.Text("Se registrará al alumno, se guardarán sus documentos y se generará "
-                            "su número de control."),
+                            "su número de control. El paquete de horario se asignará después "
+                            "desde Consultas."),
             actions=[ft.TextButton("Sí", on_click=si),
                      ft.TextButton("No", on_click=lambda _: self.page.pop_dialog())],
             actions_alignment=ft.MainAxisAlignment.END,
@@ -1439,7 +1654,6 @@ class FormAltas:
         self._error_guardado(ex.mensaje)
 
     def _error_guardado(self, mensaje: str):
-        self._refrescar_cupo()
         self.page.show_dialog(ft.AlertDialog(
             title=ft.Text("No se pudo completar el alta"),
             content=ft.Text(mensaje),
@@ -1659,7 +1873,12 @@ def build_altas(page: ft.Page, picker, usuario: dict, navegar) -> ft.Control:
                 ft.Text(registro["numero_control"], size=30, weight=ft.FontWeight.BOLD, color=NAVY),
                 ft.Text(f"Alumno: {registro['nombre_completo']}", size=14),
                 ft.Text(f"Correo institucional: {registro['correo_institucional']}", size=14),
-                ft.Text(f"Turno: {registro['turno']} · Grupo {registro['grupo']}", size=14),
+                ft.Text(
+                    f"Turno sugerido: {registro['turno']} · Horario pendiente de asignación"
+                    if not registro.get("grupo")
+                    else f"Turno: {registro['turno']} · Grupo {registro['grupo']}",
+                    size=14,
+                ),
                 *([ft.Text(registro["aviso_turno"], size=13, color=WARN_FG)] if registro.get("aviso_turno") else []),
                 ft.Text("Comunica este número de control al alumno.", size=13, color=MUTED),
             ]),
@@ -1781,17 +2000,22 @@ class ConsultaExpediente:
         usuario: dict,
         navegar,
         modo_modificacion: bool = False,
+        modo_bajas: bool = False,
     ):
         self.page = page
         self.picker = picker
         self.usuario = usuario
         self.es_admin = usuario["rol"] == "Administrador"
         self.modo_modificacion = modo_modificacion
+        self.modo_bajas = modo_bajas
         self.navegar = navegar
         self.datos: dict | None = None
         self.incluir_bajas = False
         self.historial: list[dict] = []
         self.error_historial: str | None = None
+        self.horario: dict | None = None
+        self.paquetes_horario: list[dict] = []
+        self.error_horario: str | None = None
         self.seccion = "personales"
         self.boton_descargar = ft.OutlinedButton(
             "Descargar expediente PDF",
@@ -1823,7 +2047,10 @@ class ConsultaExpediente:
 
         if self.modo_modificacion:
             titulo = "Modificación de alumnos"
-            subtitulo = "Busca un alumno para modificar sus datos o dar de baja su expediente."
+            subtitulo = "Busca un alumno para modificar sus datos y documentos."
+        elif self.modo_bajas:
+            titulo = "Bajas de alumnos"
+            subtitulo = "Busca un alumno para dar de baja su expediente."
         elif self.es_admin:
             titulo = "Historial administrativo"
             subtitulo = "Consulta expedientes, bajas y versiones anteriores."
@@ -1853,6 +2080,26 @@ class ConsultaExpediente:
             self.seccion = "personales"
             self.historial = []
             self.error_historial = None
+            self.horario = None
+            self.paquetes_horario = []
+            self.error_horario = None
+            if (
+                self.usuario["rol"] == "Secretaría"
+                and not self.modo_modificacion
+                and not self.modo_bajas
+            ):
+                try:
+                    self.horario = api.estado_horario(self.datos["numero_control"])
+                    if (
+                        not self.horario["asignado"]
+                        or self.horario.get("puede_migrar", False)
+                    ):
+                        self.paquetes_horario = api.paquetes_horario(self.horario["semestre"])
+                except ApiError as ex:
+                    if ex.status == 401:
+                        self.navegar("/consultas")
+                        return
+                    self.error_horario = ex.mensaje
             if self.es_admin:
                 try:
                     self.historial = api.historial_alumno(self.datos["numero_control"])
@@ -1863,6 +2110,7 @@ class ConsultaExpediente:
                     self.error_historial = ex.mensaje
         except ApiError as ex:
             self.datos = None
+            self.horario = None
             if ex.status == 401:            # El manejador de rutas redirige al login cuando la sesión vence.
                 self.navegar("/consultas")
                 return
@@ -1987,6 +2235,208 @@ class ConsultaExpediente:
             self.boton_descargar.disabled = False
             self.page.update()
 
+    def _descargar_horario(self):
+        if not self.horario or not self.horario.get("asignado"):
+            return
+        numero = self.datos["numero_control"]
+        try:
+            contenido = api.descargar_horario_alumno(numero)
+            destino = _carpeta_pdf_temporal() / f"horario_{numero}.pdf"
+            destino.write_bytes(contenido)
+            abrir_archivo(destino)
+        except ApiError as ex:
+            if ex.status == 401:
+                self.navegar("/consultas")
+                return
+            snackbar(self.page, ex.mensaje)
+        except OSError as ex:
+            snackbar(self.page, f"No se pudo guardar el horario PDF: {ex}")
+
+    def _confirmar_asignacion_paquete(self, selector: ft.Dropdown):
+        try:
+            id_paquete = int(selector.value)
+        except (TypeError, ValueError):
+            snackbar(self.page, "Selecciona un paquete de horario.")
+            return
+        paquete = next(
+            (item for item in self.paquetes_horario if item["id_paquete"] == id_paquete),
+            None,
+        )
+        if paquete is None:
+            snackbar(self.page, "El paquete seleccionado ya no está disponible.")
+            return
+        es_migracion = self.horario["asignado"]
+        detalle = (
+            f"El alumno pasará de {self.horario['paquete']['nombre']} a {paquete['nombre']}. "
+            "Se conservarán las calificaciones y asistencias de las materias que coincidan; "
+            "si hay datos históricos en materias sin equivalente, la operación se cancelará."
+            if es_migracion
+            else (
+                f"Se inscribirá al alumno en todas las materias de {paquete['nombre']} "
+                f"para {paquete['periodo']}."
+            )
+        )
+        self.page.show_dialog(ft.AlertDialog(
+            modal=True,
+            title=ft.Text("Migrar al paquete seleccionado" if es_migracion else "Asignar paquete de horario"),
+            content=ft.Text(
+                f"{detalle} Al confirmar, el alumno quedará en un solo paquete para "
+                f"{paquete['periodo']}."
+            ),
+            actions=[
+                ft.TextButton("Cancelar", on_click=lambda _: self.page.pop_dialog()),
+                ft.FilledButton(
+                    "Confirmar migración" if es_migracion else "Confirmar asignación",
+                    style=estilo_boton_primario(),
+                    on_click=lambda _: self._asignar_paquete(id_paquete),
+                ),
+            ],
+        ))
+
+    def _asignar_paquete(self, id_paquete: int):
+        self.page.pop_dialog()
+        try:
+            if self.horario["asignado"]:
+                self.horario = api.migrar_paquete(self.datos["numero_control"], id_paquete)
+            else:
+                self.horario = api.asignar_paquete(self.datos["numero_control"], id_paquete)
+            self.datos = api.expediente(self.datos["numero_control"])
+            self.error_horario = None
+            self._pintar()
+            self.page.update()
+            snackbar(self.page, f"Horario {self.horario['paquete']['nombre']} asignado.")
+        except ApiError as ex:
+            if ex.status == 401:
+                self.navegar("/consultas")
+                return
+            self.error_horario = ex.mensaje
+            self._pintar()
+            self.page.update()
+
+    def _panel_horario(self) -> ft.Control:
+        if self.error_horario:
+            return crear_tarjeta(ft.Column(spacing=8, controls=[
+                ft.Text("Horario y grupo", size=19, weight=ft.FontWeight.BOLD, color=NAVY),
+                ft.Text(self.error_horario, color=ft.Colors.RED_700),
+            ]), padding=20)
+        if self.horario is None:
+            return crear_tarjeta(ft.Text(
+                "No se pudo cargar el estado del horario.",
+                color=ft.Colors.RED_700,
+            ), padding=20)
+
+        if not self.horario["asignado"] or self.horario.get("puede_migrar", False):
+            es_migracion = self.horario["asignado"]
+            selector = ft.Dropdown(
+                label=f"Grupo destino para semestre {self.horario['semestre']}",
+                options=[
+                    ft.DropdownOption(
+                        key=str(paquete["id_paquete"]),
+                        text=(
+                            f"{paquete['nombre']} · {paquete['turno']} · "
+                            f"{paquete['lugares']} lugares disponibles"
+                        ),
+                    )
+                    for paquete in self.paquetes_horario
+                ],
+                width=380,
+                disabled=not self.paquetes_horario,
+            )
+            if es_migracion:
+                mensaje = (
+                    f"El alumno conserva el grupo anterior {self.horario['paquete']['nombre']}. "
+                    "Elige manualmente uno de los grupos oficiales disponibles."
+                )
+            elif self.paquetes_horario:
+                mensaje = f"El alumno aún no tiene paquete para {self.horario['periodo']}."
+            else:
+                mensaje = (
+                    f"No hay paquetes disponibles para el semestre "
+                    f"{self.horario['semestre']} en {self.horario['periodo']}."
+                )
+            return crear_tarjeta(ft.Column(spacing=12, controls=[
+                ft.Text("Horario y grupo", size=19, weight=ft.FontWeight.BOLD, color=NAVY),
+                ft.Text(mensaje, size=14, color=TEXT),
+                ft.Row(spacing=12, controls=[
+                    selector,
+                    ft.FilledButton(
+                        "Migrar al grupo elegido" if es_migracion else "Asignar paquete",
+                        style=estilo_boton_primario(),
+                        disabled=not self.paquetes_horario or es_migracion and not self.horario.get("puede_migrar", False),
+                        on_click=lambda _: self._confirmar_asignacion_paquete(selector),
+                    ),
+                ]),
+                ft.Text(
+                    (
+                        "La migración conserva calificaciones y asistencias en materias "
+                        "coincidentes y respeta los cupos."
+                        if es_migracion
+                        else "La asignación inscribe al alumno en todas las materias del paquete "
+                        "y respeta el cupo de cada grupo."
+                    ),
+                    size=12,
+                    color=MUTED,
+                ),
+            ]), padding=20)
+
+        paquete = self.horario["paquete"]
+        materias = self.horario["materias"]
+        if not any(materia["horarios"] for materia in materias):
+            horario_tabla: list[ft.Control] = [ft.Text(
+                "El grupo existe, pero no tiene un horario cargado en el sistema.",
+                size=13,
+                color=WARN_FG,
+            )]
+        else:
+            horario_tabla = [
+                ft.Container(
+                    padding=ft.Padding.symmetric(vertical=8),
+                    border=ft.Border.only(bottom=ft.BorderSide(1, BORDER)),
+                    content=ft.ResponsiveRow(spacing=10, run_spacing=5, controls=[
+                        ft.Container(col={"xs": 12, "md": 3}, content=ft.Text(
+                            materia["nombre_materia"], size=13,
+                            weight=ft.FontWeight.BOLD, color=TEXT,
+                        )),
+                        ft.Container(col={"xs": 12, "md": 6}, content=ft.Text(
+                            ", ".join(
+                                f"{fila['dia'][:3]} {fila['inicio']}-{fila['fin']}"
+                                for fila in materia["horarios"]
+                            ) or "Sin horario",
+                            size=12,
+                            color=MUTED,
+                        )),
+                        ft.Container(col={"xs": 6, "md": 1}, content=ft.Text(
+                            materia["aula"], size=12, color=TEXT,
+                        )),
+                        ft.Container(col={"xs": 6, "md": 2}, content=ft.Text(
+                            materia["docente"], size=12, color=TEXT,
+                        )),
+                    ]),
+                )
+                for materia in materias
+            ]
+        return crear_tarjeta(ft.Column(spacing=12, controls=[
+            ft.Row(alignment=ft.MainAxisAlignment.SPACE_BETWEEN, controls=[
+                ft.Column(spacing=4, controls=[
+                    ft.Text("Horario y grupo", size=19, weight=ft.FontWeight.BOLD, color=NAVY),
+                    ft.Text(
+                        f"{paquete['nombre']} · {paquete['periodo']} · "
+                        f"{len(materias)} materias",
+                        size=13,
+                        color=MUTED,
+                    ),
+                ]),
+                ft.OutlinedButton(
+                    "Descargar horario PDF",
+                    icon=ft.Icons.DOWNLOAD_OUTLINED,
+                    style=estilo_boton_secundario(),
+                    disabled=not any(materia["horarios"] for materia in materias),
+                    on_click=lambda _: self._descargar_horario(),
+                ),
+            ]),
+            ft.Column(spacing=0, controls=horario_tabla),
+        ]), padding=20)
+
     # --- vista ----------------------------------------------------------
     def _pintar(self):
         if self.datos is None:
@@ -1996,6 +2446,13 @@ class ConsultaExpediente:
             return
         self.resultado.controls = [
             self._encabezado(),
+            *([
+                self._panel_horario()
+            ] if (
+                self.usuario["rol"] == "Secretaría"
+                and not self.modo_modificacion
+                and not self.modo_bajas
+            ) else []),
             self._pestanas(),
             *([self._panel_historial()] if self.es_admin else []),
         ]
@@ -2020,16 +2477,20 @@ class ConsultaExpediente:
                     *([chip("Dado de baja", False)] if d["eliminado"] else []),
                 ]),
                 self.boton_descargar,
-                *([] if d["eliminado"] or not self.modo_modificacion else [
+                *([] if d["eliminado"] or not (self.modo_modificacion or self.modo_bajas) else [
                     ft.Row(spacing=8, controls=[
-                        ft.OutlinedButton(
-                            "Modificar datos", style=estilo_boton_secundario(),
-                            on_click=self._editar_alumno,
-                        ),
-                        ft.OutlinedButton(
-                            "Dar de baja", style=estilo_boton_secundario(),
-                            on_click=self._confirmar_baja,
-                        ),
+                        *([
+                            ft.OutlinedButton(
+                                "Modificar datos", style=estilo_boton_secundario(),
+                                on_click=self._editar_alumno,
+                            ),
+                        ] if self.modo_modificacion else []),
+                        *([
+                            ft.OutlinedButton(
+                                "Dar de baja", style=estilo_boton_secundario(),
+                                on_click=self._confirmar_baja,
+                            ),
+                        ] if self.modo_bajas else []),
                     ]),
                 ]),
             ]),
@@ -2347,6 +2808,12 @@ def build_modificacion(page: ft.Page, picker: ft.FilePicker, usuario: dict, nave
     ).vista
 
 
+def build_bajas(page: ft.Page, picker: ft.FilePicker, usuario: dict, navegar) -> ft.Control:
+    return ConsultaExpediente(
+        page, picker, usuario, navegar, modo_bajas=True,
+    ).vista
+
+
 # =====================================================================
 # 5. APLICACIÓN Y RUTAS
 # =====================================================================
@@ -2396,10 +2863,14 @@ def main(page: ft.Page):
             return build_alta_maestro(page, navegar)
         if ruta == "/consulta-maestros":
             return build_consulta_maestros(page, navegar)
+        if ruta == "/grupos-horarios":
+            return build_grupos_horarios(page, navegar)
         if ruta == "/consultas":
             return build_consultas(page, selector_archivos, usuario, navegar)
         if ruta == "/modificacion":
             return build_modificacion(page, selector_archivos, usuario, navegar)
+        if ruta == "/bajas":
+            return build_bajas(page, selector_archivos, usuario, navegar)
         if ruta == "/administracion/secretarias/alta":
             return build_alta_secretaria(page, navegar)
         if ruta == "/administracion/secretarias":
