@@ -40,8 +40,9 @@ class SecretariaCreate(BaseModel):
     @classmethod
     def _correo_valido(cls, valor: str) -> str:
         valor = valor.strip().lower()
-        if v.validar_correo(valor):
-            raise ValueError("Escribe un correo válido")
+        error = v.validar_correo_institucional(valor)
+        if error:
+            raise ValueError(error)
         return valor
 
     @field_validator("password")

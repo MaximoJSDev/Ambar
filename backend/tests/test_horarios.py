@@ -32,6 +32,107 @@ class HorariosTests(unittest.TestCase):
         respuesta = self.client.get("/horarios/grupos")
         self.assertEqual(respuesta.status_code, 403)
 
+    def test_docente_consulta_solo_sus_grupos_y_calificaciones(self):
+        self.usuario.update({"id_usuario": 42, "rol": "Docente"})
+        grupos = [{
+            "id_grupo": 7,
+            "grupo": "1ISC1",
+            "nombre_materia": "Cálculo Diferencial",
+            "horarios": [{"dia": "Lunes", "inicio": "08:00", "fin": "09:00"}],
+            "alumnos": [{
+                "numero_control": "26320700",
+                "nombre_completo": "Ana Prueba",
+                "semana_5": 90,
+                "semana_9": None,
+                "semana_13": None,
+                "final": None,
+            }],
+        }]
+        with patch(
+            "backend.routers.horarios.servicios.listar_grupos_docente",
+            return_value=grupos,
+        ) as listar:
+            respuesta = self.client.get("/horarios/docente/grupos")
+
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertEqual(respuesta.json(), grupos)
+        listar.assert_called_once_with(42)
+
+    def test_consulta_de_grupos_docente_rechaza_otros_roles(self):
+        for rol in ("Secretaría", "Administrador"):
+            with self.subTest(rol=rol):
+                self.usuario["rol"] = rol
+                with patch("backend.routers.horarios.servicios.listar_grupos_docente") as listar:
+                    respuesta = self.client.get("/horarios/docente/grupos")
+
+                self.assertEqual(respuesta.status_code, 403)
+                listar.assert_not_called()
+
+    def test_servicio_entrega_horarios_y_calificaciones_de_grupos_asignados(self):
+        resultado_grupos = MagicMock()
+        resultado_grupos.mappings.return_value.all.return_value = [
+            {
+                "id_grupo": 7,
+                "id_paquete": 2,
+                "grupo": "1ISC1",
+                "nombre_materia": "Cálculo Diferencial",
+                "aula": "G301",
+                "creditos": 5,
+                "turno": "Matutino",
+                "periodo_escolar": PERIODO_1ISC,
+                "dia_semana": 1,
+                "hora_inicio": "08:00:00",
+                "hora_fin": "09:00:00",
+            },
+            {
+                "id_grupo": 7,
+                "id_paquete": 2,
+                "grupo": "1ISC1",
+                "nombre_materia": "Cálculo Diferencial",
+                "aula": "G301",
+                "creditos": 5,
+                "turno": "Matutino",
+                "periodo_escolar": PERIODO_1ISC,
+                "dia_semana": 3,
+                "hora_inicio": "08:00:00",
+                "hora_fin": "09:00:00",
+            },
+        ]
+        resultado_alumnos = MagicMock()
+        resultado_alumnos.mappings.return_value.all.return_value = [{
+            "id_grupo": 7,
+            "numero_control": "26320700",
+            "nombres": "Ana",
+            "apellido_paterno": "Prueba",
+            "apellido_materno": None,
+            "semana_5": 90,
+            "semana_9": None,
+            "semana_13": 88,
+            "final": None,
+        }]
+        conn = MagicMock()
+        conn.execute.side_effect = [resultado_grupos, resultado_alumnos]
+
+        with patch("backend.servicios.engine.connect") as conectar:
+            conectar.return_value.__enter__.return_value = conn
+            grupos = servicios.listar_grupos_docente(42)
+
+        self.assertEqual(len(grupos), 1)
+        self.assertEqual(grupos[0]["horarios"], [
+            {"dia": "Lunes", "inicio": "08:00", "fin": "09:00"},
+            {"dia": "Miércoles", "inicio": "08:00", "fin": "09:00"},
+        ])
+        self.assertEqual(grupos[0]["alumnos"], [{
+            "numero_control": "26320700",
+            "nombre_completo": "Ana Prueba",
+            "semana_5": 90,
+            "semana_9": None,
+            "semana_13": 88,
+            "final": None,
+        }])
+        self.assertEqual(conn.execute.call_args_list[0].args[1]["usuario"], 42)
+        self.assertIn("g.id_docente = d.id_docente", str(conn.execute.call_args_list[0].args[0]))
+
     def test_secretaria_puede_consultar_paquetes_del_semestre(self):
         paquetes = [{"id_paquete": 5, "nombre": "1ISC1", "semestre": 1}]
         with patch("backend.routers.horarios.servicios.listar_paquetes_horario",
@@ -299,6 +400,7 @@ class HorariosTests(unittest.TestCase):
         self.assertIn("put", paths["/horarios/alumnos/{numero_control}/paquete"])
         self.assertIn("get", paths["/horarios/grupos/{id_paquete}/alumnos/pdf"])
         self.assertIn("put", paths["/horarios/grupos/{id_grupo}/docente"])
+        self.assertIn("get", paths["/horarios/docente/grupos"])
 
 
 if __name__ == "__main__":

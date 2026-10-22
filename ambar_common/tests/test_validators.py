@@ -88,18 +88,26 @@ class ValidacionesAltasTests(unittest.TestCase):
 
     def test_fecha_nacimiento_respeta_limites_de_edad(self):
         hoy = datetime.date(2026, 10, 21)
-        self.assertIsNone(v.validar_fecha_nacimiento(v.hace_anios(16, hoy), hoy))
-        self.assertIsNone(v.validar_fecha_nacimiento(v.hace_anios(70, hoy), hoy))
+        self.assertIsNone(v.validar_fecha_nacimiento(v.hace_anios(12, hoy), hoy))
+        self.assertIsNone(v.validar_fecha_nacimiento(v.hace_anios(80, hoy), hoy))
 
         invalidas = (
             None,
             hoy + datetime.timedelta(days=1),
-            v.hace_anios(16, hoy) + datetime.timedelta(days=1),
-            v.hace_anios(70, hoy) - datetime.timedelta(days=1),
+            v.hace_anios(12, hoy) + datetime.timedelta(days=1),
+            v.hace_anios(80, hoy) - datetime.timedelta(days=1),
         )
         for fecha in invalidas:
             with self.subTest(fecha=fecha):
                 self.assertIsNotNone(v.validar_fecha_nacimiento(fecha, hoy))
+
+    def test_documentos_de_identificacion_solo_son_obligatorios_tras_cumplir_18(self):
+        hoy = datetime.date(2026, 10, 21)
+        self.assertFalse(v.es_mayor_de_18(v.hace_anios(17, hoy), hoy))
+        self.assertTrue(v.es_mayor_de_18(v.hace_anios(18, hoy), hoy))
+        self.assertTrue(v.es_mayor_de_18(v.hace_anios(19, hoy), hoy))
+        self.assertIsNone(v.validar_rfc(None, hoy))
+        self.assertIsNone(v.validar_ine(None, hoy))
 
     def test_curp_rfc_e_ine_validan_formato_y_coincidencia_de_fecha(self):
         nacimiento = datetime.date(2005, 11, 5)
@@ -116,6 +124,22 @@ class ValidacionesAltasTests(unittest.TestCase):
         self.assertIsNotNone(v.validar_ine(ine, datetime.date(2005, 11, 6)))
         self.assertIsNone(v.validar_rfc(None, nacimiento))
         self.assertIsNone(v.validar_ine("", nacimiento))
+
+    def test_curp_coincide_con_las_iniciales_de_los_apellidos(self):
+        curp = "CAJG050302HGRSSLA4"
+        self.assertIsNone(
+            v.validar_curp(curp, datetime.date(2005, 3, 2), "Castañón", "De Jesús")
+        )
+        self.assertIsNotNone(
+            v.validar_curp(curp, datetime.date(2005, 3, 2), "López", "De Jesús")
+        )
+        self.assertEqual(v.prefijo_curp_apellidos("De la Cruz", "Ñúñez"), "CUX")
+
+    def test_correo_institucional_requiere_dominio_tecnm(self):
+        self.assertIsNone(v.validar_correo_institucional("persona@acapulco.tecnm.mx"))
+        self.assertIsNone(v.validar_correo_institucional("PERSONA@ACAPULCO.TECNM.MX"))
+        self.assertIsNotNone(v.validar_correo_institucional("persona@example.com"))
+        self.assertIsNotNone(v.validar_correo_institucional("persona@sub.acapulco.tecnm.mx"))
 
     def test_nombre_rechaza_simbolos_y_acepta_nombres_compuestos(self):
         for valor in ("Ana", "María José", "Jean-Luc", "O'Brien", "Núñez"):

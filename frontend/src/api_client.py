@@ -260,6 +260,9 @@ class ApiClient:
     def docentes_horario(self) -> list[dict]:
         return self._request("GET", "/horarios/docentes")
 
+    def grupos_docente(self) -> list[dict]:
+        return self._request("GET", "/horarios/docente/grupos")
+
     def asignar_docente_grupo(self, id_grupo: int, id_docente: int | None) -> dict:
         return self._request(
             "PUT",

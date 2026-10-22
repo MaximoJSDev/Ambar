@@ -17,6 +17,8 @@ import unicodedata
 
 from sqlalchemy import text
 
+from ambar_common import validators as v
+
 from .config import engine, settings
 from .constantes import (
     ROL_ADMINISTRADOR,
@@ -52,7 +54,7 @@ def _datos_alumno_demo(indice: int) -> AltaIn:
     fecha = datetime.date(hoy.year - 18, (indice - 1) % 12 + 1, (indice - 1) % 28 + 1)
     yymmdd = fecha.strftime("%y%m%d")
 
-    iniciales = (_ascii(paterno)[:1] + _ascii(materno)[:1] + _ascii(nombre)[:2])
+    iniciales = v.prefijo_curp_apellidos(paterno, materno) + _ascii(nombre)[:1]
     consonantes = "".join(letra for letra in _ascii(paterno + materno + nombre) if letra not in "AEIOU")[:3]
     consonantes = (consonantes + "XXX")[:3]
     alfanumerico = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"[(indice - 1) % 36]
