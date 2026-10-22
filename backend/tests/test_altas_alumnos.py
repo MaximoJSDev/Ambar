@@ -1,0 +1,260 @@
+"""Regresión de validaciones del formulario de altas antes de persistir."""
+import datetime
+import json
+import unittest
+from unittest.mock import patch
+
+from fastapi.testclient import TestClient
+
+from backend.deps import usuario_actual
+from backend.esquemas import AltaIn
+from backend.main import app
+from backend.servicios import validar_alta
+
+
+def datos_validos() -> dict:
+    return {
+        "ficha": "2026123456",
+        "nombre": "Gael",
+        "ap_paterno": "Castanon",
+        "ap_materno": "Jesus",
+        "fecha_nacimiento": "2005-03-02",
+        "curp": "CAJG050302HGRSSLA4",
+        "nss": "12345678901",
+        "genero": "hombre",
+        "celular": "7441234567",
+        "correo": "alumno@example.com",
+        "domicilio": "Calle 1, Colonia Centro, Acapulco",
+        "preparatoria": "Preparatoria de prueba",
+        "promedio": 9.5,
+        "celular_emergencia": "7447654321",
+        "correo_emergencia": "contacto@example.com",
+        "alergias": "Ninguna",
+    }
+
+
+class ValidacionAltaAntesDePersistirTests(unittest.TestCase):
+    def setUp(self):
+        app.dependency_overrides[usuario_actual] = lambda: {
+            "id_usuario": 1,
+            "rol": "Secretaría",
+        }
+        self.client = TestClient(app)
+        self.addCleanup(app.dependency_overrides.clear)
+
+    def post_alta(self, payload: dict, incluir_documentos: bool = False):
+        files = {
+            campo: (f"{campo}.pdf", b"%PDF-1.4 documento de prueba", "application/pdf")
+            for campo in (
+                "doc_acta_nacimiento",
+                "doc_curp",
+                "doc_comprobante_domicilio",
+                "doc_ine",
+                "doc_certificado_preparatoria",
+                "doc_certificado_medico",
+            )
+        } if incluir_documentos else None
+        return self.client.post(
+            "/alumnos",
+            data={"datos": json.dumps(payload)},
+            files=files,
+        )
+
+    def test_datos_validos_pasan_las_reglas_del_backend(self):
+        datos = AltaIn.model_validate(datos_validos())
+
+        self.assertEqual(validar_alta(datos), {})
+
+    def test_rechaza_campos_invalidos_sin_llamar_a_persistencia(self):
+        casos_invalidos = {
+            "ficha": "." * 10,
+            "nombre": "...",
+            "ap_paterno": "!!!",
+            "ap_materno": "...",
+            "fecha_nacimiento": (datetime.date.today() + datetime.timedelta(days=1)).isoformat(),
+            "curp": "!" * 18,
+            "rfc": "." * 13,
+            "nss": "." * 11,
+            "ine": "." * 18,
+            "genero": "...",
+            "celular": "." * 10,
+            "correo": "." * 20,
+            "domicilio": "." * 20,
+            "preparatoria": "." * 20,
+            "promedio": 6.99,
+            "celular_emergencia": "." * 10,
+            "correo_emergencia": "." * 20,
+            "alergias": "...!!!",
+        }
+
+        for campo, valor in casos_invalidos.items():
+            with self.subTest(campo=campo), patch(
+                "backend.routers.alumnos.servicios.registrar_alta"
+            ) as persistir:
+                payload = datos_validos()
+                payload[campo] = valor
+
+                respuesta = self.post_alta(payload)
+
+                self.assertEqual(respuesta.status_code, 422)
+                self.assertIn(campo, respuesta.json()["detail"]["errores"])
+                persistir.assert_not_called()
+
+    def test_rechaza_campos_no_definidos_en_el_esquema(self):
+        payload = datos_validos() | {"campo_inesperado": "basura"}
+
+        with patch("backend.routers.alumnos.servicios.registrar_alta") as persistir:
+            respuesta = self.post_alta(payload)
+
+        self.assertEqual(respuesta.status_code, 422)
+        self.assertIn("campo_inesperado", respuesta.json()["detail"]["errores"])
+        persistir.assert_not_called()
+
+    def test_rechaza_campos_faltantes_tipos_incorrectos_y_fechas_imposibles(self):
+        casos_invalidos = (
+            ("nombre", lambda datos: datos.pop("nombre")),
+            ("ficha", lambda datos: datos.update(ficha=2026123456)),
+            ("fecha_nacimiento", lambda datos: datos.update(fecha_nacimiento="2005-02-30")),
+            ("fecha_nacimiento", lambda datos: datos.update(fecha_nacimiento=[])),
+            ("promedio", lambda datos: datos.update(promedio="NaN")),
+            ("promedio", lambda datos: datos.update(promedio="Infinity")),
+            ("promedio", lambda datos: datos.update(promedio=[])),
+        )
+        with patch("backend.routers.alumnos.servicios.registrar_alta") as persistir:
+            for campo, modificar in casos_invalidos:
+                with self.subTest(campo=campo, modificar=modificar):
+                    payload = datos_validos()
+                    modificar(payload)
+
+                    respuesta = self.post_alta(payload)
+
+                    self.assertEqual(respuesta.status_code, 422)
+                    self.assertIn(campo, respuesta.json()["detail"]["errores"])
+            persistir.assert_not_called()
+
+    def test_acepta_valores_en_los_limites_de_longitud_y_promedio(self):
+        payload = datos_validos() | {
+            "nombre": "A" * 20,
+            "ap_paterno": "B" * 20,
+            "ap_materno": "C" * 20,
+            "correo": f"{'a' * 88}@example.com",
+            "correo_emergencia": f"{'b' * 88}@example.com",
+            "domicilio": "Calle " + "D" * 249,
+            "preparatoria": "E" * 100,
+            "promedio": 7,
+            "alergias": "F" * 200,
+        }
+        with patch(
+            "backend.routers.alumnos.servicios.registrar_alta",
+            return_value={
+                "numero_control": "26320700",
+                "correo_institucional": "al26320700@example.com",
+                "nombre_completo": f"{'A' * 20} {'B' * 20} {'C' * 20}",
+                "turno": "Vespertino",
+                "documentos": 6,
+            },
+        ) as persistir:
+            respuesta = self.post_alta(payload, incluir_documentos=True)
+
+        self.assertEqual(respuesta.status_code, 201, msg=respuesta.text)
+        persistir.assert_called_once()
+
+    def test_rechaza_alta_con_excepcion_de_conflicto_del_servicio(self):
+        from backend.servicios import Conflicto
+
+        with patch(
+            "backend.routers.alumnos.servicios.registrar_alta",
+            side_effect=Conflicto("La ficha ya está registrada", {"ficha": "Duplicada"}),
+        ) as persistir:
+            respuesta = self.post_alta(datos_validos(), incluir_documentos=True)
+
+        self.assertEqual(respuesta.status_code, 409)
+        self.assertEqual(respuesta.json()["detail"]["errores"]["ficha"], "Duplicada")
+        persistir.assert_called_once()
+
+    def test_mapea_excepciones_operativas_del_servicio(self):
+        from backend.servicios import CupoLleno, Ocupado, SinGrupos
+
+        casos = (
+            (CupoLleno("No hay cupo"), 409, "cupo_lleno"),
+            (SinGrupos("No hay grupos"), 503, None),
+            (Ocupado(), 503, None),
+            (OSError("Disco lleno"), 500, None),
+        )
+        for excepcion, status_esperado, codigo_esperado in casos:
+            with self.subTest(excepcion=type(excepcion).__name__), patch(
+                "backend.routers.alumnos.servicios.registrar_alta",
+                side_effect=excepcion,
+            ):
+                respuesta = self.post_alta(
+                    datos_validos(),
+                    incluir_documentos=True,
+                )
+
+                self.assertEqual(respuesta.status_code, status_esperado)
+                if codigo_esperado:
+                    self.assertEqual(respuesta.json()["detail"]["codigo"], codigo_esperado)
+
+    def test_excepcion_no_controlada_del_servicio_responde_500(self):
+        client = TestClient(app, raise_server_exceptions=False)
+        with patch(
+            "backend.routers.alumnos.servicios.registrar_alta",
+            side_effect=RuntimeError("Fallo inesperado"),
+        ):
+            respuesta = client.post(
+                "/alumnos",
+                data={"datos": json.dumps(datos_validos())},
+                files={
+                    campo: (f"{campo}.pdf", b"%PDF-1.4 documento de prueba", "application/pdf")
+                    for campo in (
+                        "doc_acta_nacimiento",
+                        "doc_curp",
+                        "doc_comprobante_domicilio",
+                        "doc_ine",
+                        "doc_certificado_preparatoria",
+                        "doc_certificado_medico",
+                    )
+                },
+            )
+
+        self.assertEqual(respuesta.status_code, 500)
+
+    def test_limita_correos_a_la_longitud_de_la_columna(self):
+        correo_largo = f"{'a' * 91}@example.com"
+        for campo in ("correo", "correo_emergencia"):
+            with self.subTest(campo=campo), patch(
+                "backend.routers.alumnos.servicios.registrar_alta"
+            ) as persistir:
+                payload = datos_validos()
+                payload[campo] = correo_largo
+
+                respuesta = self.post_alta(payload)
+
+                self.assertEqual(respuesta.status_code, 422)
+                self.assertIn(campo, respuesta.json()["detail"]["errores"])
+                persistir.assert_not_called()
+
+    def test_alta_valida_llama_a_persistencia_con_los_datos_normalizados(self):
+        payload = datos_validos()
+        resultado_esperado = {
+            "numero_control": "26320700",
+            "correo_institucional": "al26320700@example.com",
+            "nombre_completo": "Gael Castanon Jesus",
+            "turno": "Matutino",
+            "documentos": 6,
+        }
+        with patch(
+            "backend.routers.alumnos.servicios.registrar_alta",
+            return_value=resultado_esperado,
+        ) as persistir:
+            respuesta = self.post_alta(payload, incluir_documentos=True)
+
+        self.assertEqual(respuesta.status_code, 201, msg=respuesta.text)
+        self.assertEqual(respuesta.json()["numero_control"], resultado_esperado["numero_control"])
+        self.assertEqual(respuesta.json()["documentos"], resultado_esperado["documentos"])
+        persistir.assert_called_once()
+        self.assertEqual(persistir.call_args.args[0].curp, payload["curp"])
+
+
+if __name__ == "__main__":
+    unittest.main()

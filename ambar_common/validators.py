@@ -22,6 +22,8 @@ PATRON_CURP = re.compile(
 PATRON_RFC = re.compile(r"[A-ZÑ&]{4}\d{6}[A-Z0-9]{3}")
 PATRON_NSS = re.compile(r"\d{11}")
 PATRON_INE = re.compile(r"[A-Z]{6}\d{8}[HM]\d{3}")
+PATRON_PROMEDIO = re.compile(r"\d{1,3}(?:[.,]\d{1,2})?")
+PUNTUACION_DESCRIPTIVA = " .,#°ºª'’()/&-;:+"
 
 EDAD_MINIMA = 16
 EDAD_MAXIMA = 70
@@ -78,8 +80,8 @@ def validar_nombre_personal(
     maximo: int = 100,
 ) -> str | None:
     v = valor.strip()
-    if not v:
-        return f"{tipo}: este campo es obligatorio"
+    if len(v) < 2:
+        return f"{tipo}: mínimo 2 caracteres"
     if len(v) > maximo:
         return f"{tipo}: máximo {maximo} caracteres"
     if not PATRON_NOMBRE.fullmatch(v):
@@ -141,27 +143,48 @@ def validar_celular(valor: str) -> str | None:
     return None
 
 
-def validar_correo(valor: str) -> str | None:
-    if not PATRON_EMAIL.fullmatch(valor.strip()):
+def validar_correo(valor: str, maximo: int = 150) -> str | None:
+    v = valor.strip()
+    if len(v) > maximo:
+        return f"El correo no puede exceder {maximo} caracteres"
+    if not PATRON_EMAIL.fullmatch(v):
         return "Formato de correo electrónico inválido"
     return None
 
 
+def _texto_descriptivo_valido(valor: str) -> bool:
+    return any(caracter.isalpha() for caracter in valor) and all(
+        caracter.isalnum() or caracter in PUNTUACION_DESCRIPTIVA
+        for caracter in valor
+    )
+
+
 def validar_domicilio(valor: str) -> str | None:
-    if len(valor.strip()) < 10:
+    v = valor.strip()
+    if len(v) < 10:
         return "Escribe calle, número, colonia, ciudad y estado"
+    if len(v) > 255:
+        return "El domicilio no puede exceder 255 caracteres"
+    if not _texto_descriptivo_valido(v):
+        return "El domicilio debe contener texto"
     return None
 
 
 def validar_preparatoria(valor: str) -> str | None:
-    if not 3 <= len(valor.strip()) <= 80:
-        return "Nombre de la preparatoria: de 3 a 80 caracteres"
+    v = valor.strip()
+    if not 3 <= len(v) <= 100:
+        return "Nombre de la preparatoria: de 3 a 100 caracteres"
+    if not _texto_descriptivo_valido(v):
+        return "El nombre de la preparatoria debe contener texto"
     return None
 
 
 def validar_promedio(valor: str) -> str | None:
+    texto = valor.strip().replace(",", ".")
+    if not PATRON_PROMEDIO.fullmatch(texto):
+        return "Promedio inválido"
     try:
-        promedio = float(valor.strip().replace(",", "."))
+        promedio = float(texto)
     except ValueError:
         return "Promedio inválido"
     if not PROMEDIO_MIN <= promedio <= PROMEDIO_MAX:
@@ -199,8 +222,12 @@ def validar_celular_emergencia(valor: str, celular_alumno: str = "") -> str | No
     return None
 
 
-def validar_correo_emergencia(valor: str, correo_alumno: str = "") -> str | None:
-    err = validar_correo(valor)
+def validar_correo_emergencia(
+    valor: str,
+    correo_alumno: str = "",
+    maximo: int = 150,
+) -> str | None:
+    err = validar_correo(valor, maximo)
     if err:
         return err
     if correo_alumno and valor.strip().lower() == correo_alumno.strip().lower():
@@ -210,8 +237,11 @@ def validar_correo_emergencia(valor: str, correo_alumno: str = "") -> str | None
 
 def validar_alergias(valor: str) -> str | None:
     """Opcional; vacío equivale a «Ninguna»."""
-    if len(valor.strip()) > 200:
+    v = valor.strip()
+    if len(v) > 200:
         return "Máximo 200 caracteres"
+    if v and not _texto_descriptivo_valido(v):
+        return "Describe la alergia con texto o escribe «Ninguna»"
     return None
 
 

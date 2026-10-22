@@ -647,7 +647,7 @@ def build_alta_secretaria(page: ft.Page, navegar) -> ft.Control:
         if error_nombre:
             nombres.error = error_nombre
             errores.append(True)
-        error_apellidos = v.validar_nombre_personal(apellidos.value or "", "Apellidos", 100)
+        error_apellidos = v.validar_nombre_personal(apellidos.value or "", "Apellidos", 50)
         if error_apellidos:
             apellidos.error = error_apellidos
             errores.append(True)
@@ -726,7 +726,7 @@ def build_alta_maestro(page: ft.Page, navegar) -> ft.Control:
         if error_nombre:
             nombres.error = error_nombre
             errores.append(True)
-        error_apellidos = v.validar_nombre_personal(apellidos.value or "", "Apellidos", 100)
+        error_apellidos = v.validar_nombre_personal(apellidos.value or "", "Apellidos", 50)
         if error_apellidos:
             apellidos.error = error_apellidos
             errores.append(True)
@@ -1519,7 +1519,7 @@ class FormAltas:
             self.genero.error_text = v.validar_genero(self.genero.value)
             paso_valido &= self.genero.error_text is None
             paso_valido &= self._requerido(self.celular, v.validar_celular)
-            paso_valido &= self._requerido(self.correo, v.validar_correo)
+            paso_valido &= self._requerido(self.correo, v.validar_correo, maximo=100)
             paso_valido &= self._requerido(self.domicilio, v.validar_domicilio)
             if self.ficha.error is None and self.curp.error is None:
                 paso_valido &= self._no_duplicado()
@@ -1529,7 +1529,7 @@ class FormAltas:
             paso_valido &= self._requerido(self.cel_emerg, v.validar_celular_emergencia,
                                   celular_alumno=self._texto_campo(self.celular))
             paso_valido &= self._requerido(self.correo_emerg, v.validar_correo_emergencia,
-                                  correo_alumno=self._texto_campo(self.correo))
+                                  correo_alumno=self._texto_campo(self.correo), maximo=100)
             self.alergias.error = v.validar_alergias(self._texto_campo(self.alergias))
             paso_valido &= self.alergias.error is None
         elif paso == 2:
