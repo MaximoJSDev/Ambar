@@ -121,12 +121,15 @@ def validar_alta(d: AltaIn) -> dict[str, str]:
     revisar("ine", v.validar_ine(d.ine, ref))
     revisar("genero", v.validar_genero(d.genero))
     revisar("celular", v.validar_celular(d.celular))
-    revisar("correo", v.validar_correo(d.correo))
+    revisar("correo", v.validar_correo(d.correo, maximo=100))
     revisar("domicilio", v.validar_domicilio(d.domicilio))
     revisar("preparatoria", v.validar_preparatoria(d.preparatoria))
     revisar("promedio", v.validar_promedio(str(d.promedio)))
     revisar("celular_emergencia", v.validar_celular_emergencia(d.celular_emergencia, d.celular))
-    revisar("correo_emergencia", v.validar_correo_emergencia(d.correo_emergencia, d.correo))
+    revisar(
+        "correo_emergencia",
+        v.validar_correo_emergencia(d.correo_emergencia, d.correo, maximo=100),
+    )
     revisar("alergias", v.validar_alergias(d.alergias))
     return errores
 

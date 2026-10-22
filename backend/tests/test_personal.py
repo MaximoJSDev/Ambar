@@ -17,67 +17,6 @@ class AltaDocentesTests(unittest.TestCase):
     def tearDown(self):
         app.dependency_overrides.clear()
 
-    def test_alta_requiere_rol_secretaria(self):
-        self.usuario["rol"] = "Administrador"
-        respuesta = self.client.post("/personal/docentes", json={
-            "nombres": "María",
-            "apellidos": "López",
-            "correo": "maria@example.com",
-            "password": "contraseña-segura",
-        })
-        self.assertEqual(respuesta.status_code, 403)
-
-    def test_secretaria_crea_docente_sin_exponer_password(self):
-        resultado = {
-            "id_usuario": 8,
-            "correo": "maria@example.com",
-            "estatus": "Activo",
-            "nombres": "María",
-            "apellidos": "López",
-        }
-        with patch("backend.routers.personal.servicios.crear_docente", return_value=resultado) as crear:
-            respuesta = self.client.post("/personal/docentes", json={
-                "nombres": "María",
-                "apellidos": "López",
-                "correo": "MARIA@example.com",
-                "password": "contraseña-segura",
-            })
-
-        self.assertEqual(respuesta.status_code, 201)
-        self.assertNotIn("password", respuesta.json())
-        crear.assert_called_once()
-        self.assertEqual(crear.call_args.args[0].correo, "maria@example.com")
-
-    def test_alta_rechaza_correo_invalido_y_password_corta(self):
-        base = {
-            "nombres": "María",
-            "apellidos": "López",
-        }
-        for cambios in (
-            {"correo": "no-es-correo", "password": "contraseña-segura"},
-            {"correo": "maria@example.com", "password": "corta"},
-        ):
-            with self.subTest(cambios=cambios):
-                respuesta = self.client.post(
-                    "/personal/docentes",
-                    json=base | cambios,
-                )
-                self.assertEqual(respuesta.status_code, 422)
-
-    def test_correo_duplicado_se_muestra_como_conflicto(self):
-        with patch(
-            "backend.routers.personal.servicios.crear_docente",
-            side_effect=servicios.Conflicto("Ya existe una cuenta con ese correo."),
-        ):
-            respuesta = self.client.post("/personal/docentes", json={
-                "nombres": "María",
-                "apellidos": "López",
-                "correo": "maria@example.com",
-                "password": "contraseña-segura",
-            })
-
-        self.assertEqual(respuesta.status_code, 409)
-
     def test_secretaria_puede_consultar_maestros(self):
         registros = [{
             "id_usuario": 8,

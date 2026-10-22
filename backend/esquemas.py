@@ -18,8 +18,8 @@ class UsuarioOut(BaseModel):
 
 
 class SecretariaCreate(BaseModel):
-    nombres: str = Field(min_length=1, max_length=50)
-    apellidos: str = Field(min_length=1, max_length=100)
+    nombres: str = Field(min_length=2, max_length=50)
+    apellidos: str = Field(min_length=2, max_length=50)
     correo: str = Field(min_length=3, max_length=150)
     password: str = Field(min_length=10, max_length=200)
 
@@ -27,8 +27,11 @@ class SecretariaCreate(BaseModel):
     @classmethod
     def _nombre_no_vacio(cls, valor: str, info: ValidationInfo) -> str:
         valor = valor.strip()
-        maximo = 50 if info.field_name == "nombres" else 100
-        mensaje = v.validar_nombre_personal(valor, info.field_name, maximo)
+        mensaje = v.validar_nombre_personal(
+            valor,
+            info.field_name or "Nombre",
+            maximo=50,
+        )
         if mensaje:
             raise ValueError(mensaje)
         return valor
@@ -61,7 +64,7 @@ class LoginOut(BaseModel):
 
 class AltaIn(BaseModel):
     """Datos del alumno de nuevo ingreso (los PDF viajan aparte, en multipart)."""
-    model_config = ConfigDict(str_strip_whitespace=True)
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
 
     ficha: str
     nombre: str
