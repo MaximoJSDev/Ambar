@@ -20,7 +20,9 @@ def datos_validos() -> dict:
         "ap_materno": "Jesus",
         "fecha_nacimiento": "2005-03-02",
         "curp": "CAJG050302HGRSSLA4",
+        "rfc": "CAJG050302AB1",
         "nss": "12345678901",
+        "ine": "CASTAN05030212H100",
         "genero": "hombre",
         "celular": "7441234567",
         "correo": "alumno@example.com",
@@ -137,6 +139,7 @@ class ValidacionAltaAntesDePersistirTests(unittest.TestCase):
             "nombre": "A" * 50,
             "ap_paterno": "B" * 50,
             "ap_materno": "C" * 50,
+            "curp": "BXCA050302HGRSSLA4",
             "correo": f"{'a' * 88}@example.com",
             "correo_emergencia": f"{'b' * 88}@example.com",
             "domicilio": "Calle " + "D" * 249,
@@ -170,6 +173,32 @@ class ValidacionAltaAntesDePersistirTests(unittest.TestCase):
                     self.assertEqual(respuesta.status_code, 422)
                     self.assertIn(campo, respuesta.json()["detail"]["errores"])
             persistir.assert_not_called()
+
+    def test_curp_debe_coincidir_con_apellidos_y_adultos_requieren_rfc_e_ine(self):
+        casos_invalidos = (
+            ({"ap_paterno": "Lopez"}, "curp"),
+            ({"rfc": None}, "rfc"),
+            ({"ine": None}, "ine"),
+        )
+        with patch("backend.routers.alumnos.servicios.registrar_alta") as persistir:
+            for cambios, campo_esperado in casos_invalidos:
+                with self.subTest(cambios=cambios):
+                    respuesta = self.post_alta(datos_validos() | cambios)
+                    self.assertEqual(respuesta.status_code, 422)
+                    self.assertIn(campo_esperado, respuesta.json()["detail"]["errores"])
+            persistir.assert_not_called()
+
+    def test_menor_de_edad_puede_omitir_rfc_e_ine(self):
+        fecha = datetime.date.today().replace(year=datetime.date.today().year - 16)
+        payload = datos_validos() | {
+            "fecha_nacimiento": fecha.isoformat(),
+            "curp": f"CAJG{fecha:%y%m%d}HGRSSLA4",
+            "rfc": None,
+            "ine": None,
+        }
+        datos = AltaIn.model_validate(payload)
+
+        self.assertEqual(validar_alta(datos), {})
 
     def test_rechaza_alta_con_excepcion_de_conflicto_del_servicio(self):
         from backend.servicios import Conflicto
