@@ -36,16 +36,16 @@ class NumeroControlTests(unittest.TestCase):
 class ValidacionesAltasTests(unittest.TestCase):
     def test_nombres_aceptan_los_limites_exactos_de_longitud(self):
         self.assertIsNone(v.validar_nombre("Ana"))
-        self.assertIsNone(v.validar_nombre("A" * 20))
+        self.assertIsNone(v.validar_nombre("A" * 50))
         self.assertIsNotNone(v.validar_nombre("An"))
-        self.assertIsNotNone(v.validar_nombre("A" * 21))
+        self.assertIsNotNone(v.validar_nombre("A" * 51))
 
         self.assertIsNotNone(v.validar_nombre_personal("A", maximo=50))
         self.assertIsNone(v.validar_nombre_personal("Ab", maximo=50))
         self.assertIsNone(v.validar_nombre_personal("A" * 50, maximo=50))
         self.assertIsNotNone(v.validar_nombre_personal("A" * 51, maximo=50))
-        self.assertIsNone(v.validar_nombre_personal("A" * 100, maximo=100))
-        self.assertIsNotNone(v.validar_nombre_personal("A" * 101, maximo=100))
+        self.assertIsNone(v.validar_nombre_personal("A" * 50))
+        self.assertIsNotNone(v.validar_nombre_personal("A" * 51))
 
     def test_correo_acepta_el_maximo_y_rechaza_un_caracter_mas(self):
         correo_100 = f"{'a' * 88}@example.com"

@@ -134,9 +134,9 @@ class ValidacionAltaAntesDePersistirTests(unittest.TestCase):
 
     def test_acepta_valores_en_los_limites_de_longitud_y_promedio(self):
         payload = datos_validos() | {
-            "nombre": "A" * 20,
-            "ap_paterno": "B" * 20,
-            "ap_materno": "C" * 20,
+            "nombre": "A" * 50,
+            "ap_paterno": "B" * 50,
+            "ap_materno": "C" * 50,
             "correo": f"{'a' * 88}@example.com",
             "correo_emergencia": f"{'b' * 88}@example.com",
             "domicilio": "Calle " + "D" * 249,
@@ -149,7 +149,7 @@ class ValidacionAltaAntesDePersistirTests(unittest.TestCase):
             return_value={
                 "numero_control": "26320700",
                 "correo_institucional": "al26320700@example.com",
-                "nombre_completo": f"{'A' * 20} {'B' * 20} {'C' * 20}",
+                "nombre_completo": f"{'A' * 50} {'B' * 50} {'C' * 50}",
                 "turno": "Vespertino",
                 "documentos": 6,
             },
@@ -158,6 +158,18 @@ class ValidacionAltaAntesDePersistirTests(unittest.TestCase):
 
         self.assertEqual(respuesta.status_code, 201, msg=respuesta.text)
         persistir.assert_called_once()
+
+    def test_rechaza_nombres_y_apellidos_de_51_caracteres_antes_de_persistir(self):
+        with patch("backend.routers.alumnos.servicios.registrar_alta") as persistir:
+            for campo in ("nombre", "ap_paterno", "ap_materno"):
+                with self.subTest(campo=campo):
+                    respuesta = self.post_alta(
+                        datos_validos() | {campo: "A" * 51},
+                    )
+
+                    self.assertEqual(respuesta.status_code, 422)
+                    self.assertIn(campo, respuesta.json()["detail"]["errores"])
+            persistir.assert_not_called()
 
     def test_rechaza_alta_con_excepcion_de_conflicto_del_servicio(self):
         from backend.servicios import Conflicto

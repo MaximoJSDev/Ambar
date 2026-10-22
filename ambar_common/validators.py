@@ -27,7 +27,7 @@ PUNTUACION_DESCRIPTIVA = " .,#°ºª'’()/&-;:+"
 
 EDAD_MINIMA = 16
 EDAD_MAXIMA = 70
-NOMBRE_MIN, NOMBRE_MAX = 3, 20      # longitud de nombre y apellidos (diagrama de Altas)
+NOMBRE_MIN, NOMBRE_MAX = 3, 50
 PROMEDIO_MIN, PROMEDIO_MAX = 7, 10
 MAX_PDF_MB = 500                    # límite por archivo (Algoritmo 3, paso 3)
 MAX_PDF_BYTES = MAX_PDF_MB * 1024 * 1024
@@ -77,7 +77,7 @@ def validar_nombre(valor: str, tipo: str = "Nombre") -> str | None:
 def validar_nombre_personal(
     valor: str,
     tipo: str = "Nombre",
-    maximo: int = 100,
+    maximo: int = 50,
 ) -> str | None:
     v = valor.strip()
     if len(v) < 2:
