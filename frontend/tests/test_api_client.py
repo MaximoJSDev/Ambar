@@ -174,6 +174,23 @@ class ApiClientTests(unittest.TestCase):
         finally:
             cliente._http.close()
 
+    def test_docente_consulta_sus_grupos(self):
+        def responder(request: httpx.Request) -> httpx.Response:
+            self.assertEqual(request.method, "GET")
+            self.assertEqual(request.url.path, "/horarios/docente/grupos")
+            return httpx.Response(200, json=[{"id_grupo": 7, "grupo": "1ISC1"}])
+
+        cliente = ApiClient()
+        cliente._http.close()
+        cliente._http = httpx.Client(
+            base_url="http://test",
+            transport=httpx.MockTransport(responder),
+        )
+        try:
+            self.assertEqual(cliente.grupos_docente(), [{"id_grupo": 7, "grupo": "1ISC1"}])
+        finally:
+            cliente._http.close()
+
     def test_consultar_y_dar_de_baja_maestro_usan_endpoints_personal(self):
         solicitudes = []
 

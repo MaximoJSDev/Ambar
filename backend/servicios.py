@@ -18,7 +18,7 @@ import uuid
 from datetime import date, time, timedelta
 from pathlib import Path
 
-from sqlalchemy import text
+from sqlalchemy import bindparam, text
 from sqlalchemy.exc import DBAPIError, IntegrityError
 
 from ambar_common import validators as v
@@ -101,7 +101,7 @@ def guardar_pdfs(numero_control: str, archivos: dict[str, str], base: Path) -> d
 # --------------------------------------------------------------------------
 # Validación (mismas reglas que la app, que no es de fiar por sí sola)
 # --------------------------------------------------------------------------
-def validar_alta(d: AltaIn) -> dict[str, str]:
+def validar_alta(d: AltaIn, exigir_identificacion_adulto: bool = True) -> dict[str, str]:
     errores: dict[str, str] = {}
 
     def revisar(campo: str, err: str | None) -> None:
@@ -115,9 +115,17 @@ def validar_alta(d: AltaIn) -> dict[str, str]:
     err_fecha = v.validar_fecha_nacimiento(d.fecha_nacimiento)
     revisar("fecha_nacimiento", err_fecha)
     ref = None if err_fecha else d.fecha_nacimiento
-    revisar("curp", v.validar_curp(d.curp, ref))
+    revisar(
+        "curp",
+        v.validar_curp(d.curp, ref, d.ap_paterno, d.ap_materno),
+    )
+    mayor_de_18 = not err_fecha and v.es_mayor_de_18(d.fecha_nacimiento)
+    if exigir_identificacion_adulto and mayor_de_18 and not d.rfc:
+        revisar("rfc", "Campo obligatorio para mayores de edad")
     revisar("rfc", v.validar_rfc(d.rfc, ref))
     revisar("nss", v.validar_nss(d.nss))
+    if exigir_identificacion_adulto and mayor_de_18 and not d.ine:
+        revisar("ine", "Campo obligatorio para mayores de edad")
     revisar("ine", v.validar_ine(d.ine, ref))
     revisar("genero", v.validar_genero(d.genero))
     revisar("celular", v.validar_celular(d.celular))
@@ -1103,6 +1111,84 @@ def listar_docentes_activos() -> list[dict]:
             {"rol": ROL_DOCENTE},
         ).mappings().all()
     return [dict(fila) for fila in filas]
+
+
+def listar_grupos_docente(id_usuario: int) -> list[dict]:
+    """Devuelve solo los grupos asignados al docente, con su horario y calificaciones."""
+    dias = ("", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes")
+    with engine.connect() as conn:
+        filas = conn.execute(
+            text("""SELECT g.id_grupo, p.id_paquete, p.nombre_paquete AS grupo,
+                           m.nombre_materia, g.aula, g.creditos, g.turno,
+                           g.periodo_escolar, h.dia_semana, h.hora_inicio, h.hora_fin
+                    FROM empleados_docentes d
+                    JOIN grupos g ON g.id_docente = d.id_docente
+                    JOIN paquetes_horario p ON p.id_paquete = g.id_paquete
+                    JOIN materias m ON m.id_materia = g.id_materia
+                    LEFT JOIN horarios_grupo h ON h.id_grupo = g.id_grupo
+                    WHERE d.id_usuario = :usuario AND g.periodo_escolar = :periodo
+                    ORDER BY p.nombre_paquete, m.nombre_materia, h.dia_semana"""),
+            {"usuario": id_usuario, "periodo": settings.periodo},
+        ).mappings().all()
+
+        grupos: dict[int, dict] = {}
+        for fila in filas:
+            grupo = grupos.setdefault(fila["id_grupo"], {
+                "id_grupo": fila["id_grupo"],
+                "id_paquete": fila["id_paquete"],
+                "grupo": fila["grupo"],
+                "nombre_materia": fila["nombre_materia"],
+                "aula": fila["aula"],
+                "creditos": fila["creditos"],
+                "turno": fila["turno"],
+                "periodo": fila["periodo_escolar"],
+                "horarios": [],
+                "alumnos": [],
+            })
+            if fila["dia_semana"] is not None:
+                inicio = fila["hora_inicio"]
+                fin = fila["hora_fin"]
+                grupo["horarios"].append({
+                    "dia": dias[fila["dia_semana"]],
+                    "inicio": inicio[:5] if isinstance(inicio, str) else _formatear_hora(inicio)[:5],
+                    "fin": fin[:5] if isinstance(fin, str) else _formatear_hora(fin)[:5],
+                })
+
+        if not grupos:
+            return []
+
+        inscripciones = conn.execute(
+            text("""SELECT i.id_grupo, a.numero_control, a.nombres, a.apellido_paterno,
+                           a.apellido_materno,
+                           MAX(CASE WHEN c.periodo_evaluacion = 'Semana 5' THEN c.valor END) AS semana_5,
+                           MAX(CASE WHEN c.periodo_evaluacion = 'Semana 9' THEN c.valor END) AS semana_9,
+                           MAX(CASE WHEN c.periodo_evaluacion = 'Semana 13' THEN c.valor END) AS semana_13,
+                           MAX(CASE WHEN c.periodo_evaluacion = 'Final' THEN c.valor END) AS final
+                    FROM inscripciones_grupos i
+                    JOIN alumnos a ON a.numero_control = i.numero_control
+                    LEFT JOIN calificaciones c ON c.id_inscripcion = i.id_inscripcion
+                    WHERE i.id_grupo IN :grupos AND a.estatus = 'Activo' AND a.eliminado = FALSE
+                    GROUP BY i.id_grupo, a.numero_control, a.nombres,
+                             a.apellido_paterno, a.apellido_materno
+                    ORDER BY i.id_grupo, a.apellido_paterno, a.apellido_materno,
+                             a.nombres, a.numero_control""").bindparams(
+                bindparam("grupos", expanding=True)
+            ),
+            {"grupos": list(grupos)},
+        ).mappings().all()
+
+    for fila in inscripciones:
+        grupos[fila["id_grupo"]]["alumnos"].append({
+            "numero_control": fila["numero_control"],
+            "nombre_completo": " ".join(filter(None, (
+                fila["nombres"], fila["apellido_paterno"], fila["apellido_materno"],
+            ))),
+            "semana_5": fila["semana_5"],
+            "semana_9": fila["semana_9"],
+            "semana_13": fila["semana_13"],
+            "final": fila["final"],
+        })
+    return list(grupos.values())
 
 
 def actualizar_docente_grupo(id_grupo: int, id_docente: int | None) -> dict:

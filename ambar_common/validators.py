@@ -25,8 +25,9 @@ PATRON_INE = re.compile(r"[A-Z]{6}\d{8}[HM]\d{3}")
 PATRON_PROMEDIO = re.compile(r"\d{1,3}(?:[.,]\d{1,2})?")
 PUNTUACION_DESCRIPTIVA = " .,#°ºª'’()/&-;:+"
 
-EDAD_MINIMA = 16
-EDAD_MAXIMA = 70
+EDAD_MINIMA = 12
+EDAD_MAXIMA = 80
+DOMINIO_CORREO_INSTITUCIONAL = "@acapulco.tecnm.mx"
 NOMBRE_MIN, NOMBRE_MAX = 3, 50
 PROMEDIO_MIN, PROMEDIO_MAX = 7, 10
 MAX_PDF_MB = 500                    # límite por archivo (Algoritmo 3, paso 3)
@@ -102,11 +103,47 @@ def validar_fecha_nacimiento(valor: datetime.date | None,
     return None
 
 
+def es_mayor_de_18(fecha: datetime.date, hoy: datetime.date | None = None) -> bool:
+    """Indica si la persona ya cumplió 18 años."""
+    hoy = hoy or datetime.date.today()
+    edad = hoy.year - fecha.year - ((hoy.month, hoy.day) < (fecha.month, fecha.day))
+    return edad >= 18
+
+
 def _yymmdd(fecha: datetime.date) -> str:
     return fecha.strftime("%y%m%d")
 
 
-def validar_curp(valor: str, fecha: datetime.date | None = None) -> str | None:
+_PARTICULAS_APELLIDO = {"DE", "DEL", "LA", "LAS", "LOS", "Y"}
+
+
+def _normalizar_apellido_curp(valor: str) -> str:
+    texto = valor.strip().upper().replace("Ñ", "X")
+    texto = unicodedata.normalize("NFD", texto)
+    texto = "".join(caracter for caracter in texto if unicodedata.category(caracter) != "Mn")
+    palabras = re.findall(r"[A-Z]+", texto)
+    apellido = next(
+        (palabra for palabra in palabras if palabra not in _PARTICULAS_APELLIDO),
+        palabras[-1] if palabras else "",
+    )
+    return apellido
+
+
+def prefijo_curp_apellidos(apellido_paterno: str, apellido_materno: str) -> str:
+    paterno = _normalizar_apellido_curp(apellido_paterno)
+    materno = _normalizar_apellido_curp(apellido_materno)
+    inicial_paterno = paterno[:1] or "X"
+    vocal_interna = next((letra for letra in paterno[1:] if letra in "AEIOU"), "X")
+    inicial_materno = materno[:1] or "X"
+    return inicial_paterno + vocal_interna + inicial_materno
+
+
+def validar_curp(
+    valor: str,
+    fecha: datetime.date | None = None,
+    apellido_paterno: str | None = None,
+    apellido_materno: str | None = None,
+) -> str | None:
     v = valor.strip().upper()
     if len(v) != 18:
         return "La CURP debe tener 18 caracteres"
@@ -114,6 +151,10 @@ def validar_curp(valor: str, fecha: datetime.date | None = None) -> str | None:
         return "Formato de CURP inválido"
     if fecha is not None and v[4:10] != _yymmdd(fecha):
         return "La fecha de la CURP no coincide con la fecha de nacimiento"
+    if apellido_paterno and apellido_materno:
+        prefijo_esperado = prefijo_curp_apellidos(apellido_paterno, apellido_materno)
+        if v[:3] != prefijo_esperado:
+            return "La CURP no coincide con los apellidos ingresados"
     return None
 
 
@@ -149,6 +190,15 @@ def validar_correo(valor: str, maximo: int = 150) -> str | None:
         return f"El correo no puede exceder {maximo} caracteres"
     if not PATRON_EMAIL.fullmatch(v):
         return "Formato de correo electrónico inválido"
+    return None
+
+
+def validar_correo_institucional(valor: str) -> str | None:
+    error = validar_correo(valor)
+    if error:
+        return error
+    if not valor.strip().lower().endswith(DOMINIO_CORREO_INSTITUCIONAL):
+        return f"El correo debe terminar en {DOMINIO_CORREO_INSTITUCIONAL}"
     return None
 
 

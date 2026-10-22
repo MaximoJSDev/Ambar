@@ -4,11 +4,12 @@ from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
 from .. import reportes, servicios
-from ..constantes import ROL_SECRETARIA
+from ..constantes import ROL_DOCENTE, ROL_SECRETARIA
 from ..deps import requiere_roles
 
 router = APIRouter(prefix="/horarios", tags=["Horarios y grupos"])
 solo_secretaria = requiere_roles(ROL_SECRETARIA)
+solo_docente = requiere_roles(ROL_DOCENTE)
 
 
 class AsignarPaqueteIn(BaseModel):
@@ -138,6 +139,11 @@ def descargar_lista_grupo(id_paquete: int, _: dict = Depends(solo_secretaria)):
 @router.get("/docentes")
 def listar_docentes(_: dict = Depends(solo_secretaria)):
     return servicios.listar_docentes_activos()
+
+
+@router.get("/docente/grupos")
+def grupos_del_docente(usuario: dict = Depends(solo_docente)):
+    return servicios.listar_grupos_docente(usuario["id_usuario"])
 
 
 @router.put("/grupos/{id_grupo}/docente")

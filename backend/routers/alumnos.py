@@ -99,7 +99,7 @@ def actualizar_alumno(
     usuario: dict = Depends(secretaria_o_administrador),
 ):
     """Modifica datos personales y de contacto sin cambiar el historial académico."""
-    errores = servicios.validar_alta(datos)
+    errores = servicios.validar_alta(datos, exigir_identificacion_adulto=False)
     if errores:
         raise HTTPException(422, {"mensaje": "Revisa los datos capturados", "errores": errores})
     try:

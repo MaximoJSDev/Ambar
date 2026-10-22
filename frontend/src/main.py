@@ -70,6 +70,9 @@ ADMIN_NAV = [
     ("/administracion/secretarias", "Consulta de secretarias", ft.Icons.LIST_ALT),
     ("/bitacora", "Bitácora", ft.Icons.FORMAT_LIST_BULLETED),
 ]
+DOCENTE_NAV = [
+    ("/docente", "Mis grupos", ft.Icons.GROUP_OUTLINED),
+]
 RUTAS_ADMIN = {
     "/consultas",
     "/modificacion",
@@ -79,7 +82,7 @@ RUTAS_ADMIN = {
 }
 IMPLEMENTADAS = {
     "/secretaria", "/altas", "/altas-maestros", "/consulta-maestros",
-    "/grupos-horarios", "/modificacion", "/bajas",
+    "/grupos-horarios", "/modificacion", "/bajas", "/docente",
     *RUTAS_ADMIN,
 }
 
@@ -372,7 +375,7 @@ class Shell:
         elif usuario["rol"] == "Secretaría":
             nav = NAV
         else:
-            nav = [("/secretaria", "Inicio", ft.Icons.HOME_OUTLINED)]
+            nav = DOCENTE_NAV
         for destino, nombre, icono in nav:
             ico = ft.Icon(icono, size=18, color="#C9D3E3")
             txt = ft.Text(nombre, size=14, color="#E1E8F3")
@@ -620,27 +623,183 @@ def build_panel(page: ft.Page, navegar) -> ft.Control:
     ])
 
 
-def build_inicio_docente(usuario: dict) -> ft.Control:
-    return ft.Column(spacing=24, controls=[
+def build_inicio_docente(page: ft.Page, usuario: dict, navegar) -> ft.Control:
+    grupos: list[dict] = []
+    selector = ft.Dropdown(label="Grupo y materia", expand=True, options=[])
+    aviso = ft.Text("", size=13, color=WARN_FG, visible=False)
+    contenido = ft.Column(spacing=16)
+
+    def mostrar_grupo(id_grupo: int | None):
+        grupo = next((item for item in grupos if item["id_grupo"] == id_grupo), None)
+        if grupo is None:
+            contenido.controls = [
+                crear_tarjeta(ft.Text(
+                    "No tienes grupos asignados en el periodo actual.",
+                    size=14,
+                    color=MUTED,
+                ))
+            ]
+            page.update()
+            return
+
+        horarios = grupo["horarios"]
+        resumen_horario = [
+            ft.Container(
+                col={"xs": 6, "md": 4, "lg": 2},
+                content=crear_tarjeta(ft.Column(spacing=4, controls=[
+                    ft.Text(horario["dia"], size=12, weight=ft.FontWeight.BOLD, color=NAVY),
+                    ft.Text(f"{horario['inicio']} – {horario['fin']}", size=13, color=TEXT),
+                ]), padding=12),
+            )
+            for horario in horarios
+        ]
+        if not resumen_horario:
+            resumen_horario = [ft.Text("Este grupo no tiene horario publicado.", color=MUTED)]
+
+        encabezado_calificaciones = ft.ResponsiveRow(spacing=8, controls=[
+            ft.Container(col={"xs": 12, "md": 5}, content=ft.Text("Alumno", weight=ft.FontWeight.BOLD, color=NAVY)),
+            *[
+                ft.Container(col={"xs": 3, "md": 1}, content=ft.Text(etiqueta, size=12, weight=ft.FontWeight.BOLD, color=NAVY))
+                for etiqueta in ("Sem. 5", "Sem. 9", "Sem. 13", "Final")
+            ],
+        ])
+
+        filas_alumnos = []
+        for alumno in grupo["alumnos"]:
+            calificaciones = [
+                alumno[campo]
+                for campo in ("semana_5", "semana_9", "semana_13", "final")
+            ]
+            filas_alumnos.append(ft.Container(
+                padding=ft.Padding.symmetric(vertical=9),
+                border=ft.Border.only(bottom=ft.BorderSide(1, BORDER)),
+                content=ft.ResponsiveRow(spacing=8, run_spacing=4, controls=[
+                    ft.Container(
+                        col={"xs": 12, "md": 5},
+                        content=ft.Column(spacing=2, controls=[
+                            ft.Text(alumno["nombre_completo"], size=13, color=TEXT),
+                            ft.Text(alumno["numero_control"], size=11, color=MUTED),
+                        ]),
+                    ),
+                    *[
+                        ft.Container(
+                            col={"xs": 3, "md": 1},
+                            content=ft.Text(
+                                "—" if valor is None else f"{float(valor):.2f}".rstrip("0").rstrip("."),
+                                size=13,
+                                color=MUTED if valor is None else TEXT,
+                            ),
+                        )
+                        for valor in calificaciones
+                    ],
+                ]),
+            ))
+
+        if not filas_alumnos:
+            filas_alumnos = [ft.Text("Aún no hay alumnos inscritos en este grupo.", color=MUTED)]
+
+        contenido.controls = [
+            crear_tarjeta(ft.ResponsiveRow(spacing=16, run_spacing=12, controls=[
+                ft.Container(col={"xs": 6, "md": 3}, content=ft.Column(spacing=3, controls=[
+                    ft.Text("Grupo", size=12, color=MUTED),
+                    ft.Text(grupo["grupo"], size=15, weight=ft.FontWeight.BOLD, color=NAVY),
+                ])),
+                ft.Container(col={"xs": 6, "md": 5}, content=ft.Column(spacing=3, controls=[
+                    ft.Text("Materia", size=12, color=MUTED),
+                    ft.Text(grupo["nombre_materia"], size=15, weight=ft.FontWeight.BOLD, color=NAVY),
+                ])),
+                ft.Container(col={"xs": 6, "md": 2}, content=ft.Column(spacing=3, controls=[
+                    ft.Text("Aula", size=12, color=MUTED),
+                    ft.Text(grupo["aula"] or "Sin asignar", size=14, color=TEXT),
+                ])),
+                ft.Container(col={"xs": 6, "md": 2}, content=ft.Column(spacing=3, controls=[
+                    ft.Text("Turno", size=12, color=MUTED),
+                    ft.Text(grupo["turno"], size=14, color=TEXT),
+                ])),
+                ft.Container(col={"xs": 12}, content=ft.Text(
+                    f"Periodo: {grupo['periodo']} · {grupo['creditos']} créditos",
+                    size=12,
+                    color=MUTED,
+                )),
+            ]), padding=18),
+            ft.Text("Horario semanal", size=19, weight=ft.FontWeight.BOLD, color=NAVY),
+            ft.ResponsiveRow(spacing=10, run_spacing=10, controls=resumen_horario),
+            crear_tarjeta(ft.Column(spacing=12, controls=[
+                ft.Text(
+                    f"Lista de alumnos y calificaciones ({len(grupo['alumnos'])})",
+                    size=19,
+                    weight=ft.FontWeight.BOLD,
+                    color=NAVY,
+                ),
+                ft.Text(
+                    "Las calificaciones muestran los registros disponibles en el sistema.",
+                    size=12,
+                    color=MUTED,
+                ),
+                encabezado_calificaciones,
+                ft.Column(spacing=0, controls=filas_alumnos),
+            ]), padding=18),
+        ]
+        page.update()
+
+    def seleccionar_grupo(e):
+        try:
+            mostrar_grupo(int(e.control.value) if e.control.value else None)
+        except ValueError:
+            selector.error_text = "Selecciona un grupo válido"
+            page.update()
+
+    def cargar(_=None):
+        nonlocal grupos
+        aviso.visible = False
+        try:
+            grupos = api.grupos_docente()
+        except ApiError as ex:
+            if ex.status == 401:
+                navegar("/")
+                return
+            aviso.value = ex.mensaje
+            aviso.visible = True
+            contenido.controls = []
+            page.update()
+            return
+
+        selector.options = [
+            ft.DropdownOption(
+                key=str(grupo["id_grupo"]),
+                text=f"{grupo['grupo']} · {grupo['nombre_materia']}",
+            )
+            for grupo in grupos
+        ]
+        grupo_inicial = grupos[0]["id_grupo"] if grupos else None
+        selector.value = str(grupo_inicial) if grupo_inicial is not None else None
+        mostrar_grupo(grupo_inicial)
+
+    selector.on_select = seleccionar_grupo
+    cargar()
+    return ft.Column(expand=True, scroll=ft.ScrollMode.AUTO, spacing=20, controls=[
         titulo_pagina(
             f"Bienvenido, {usuario['nombre']}",
-            "Tu cuenta de maestro está activa.",
+            "Consulta los horarios y las listas de calificaciones de tus grupos.",
         ),
-        crear_tarjeta(ft.Row(spacing=16, controls=[
-            ft.Icon(ft.Icons.INFO_OUTLINE, color=NAVY, size=24),
-            ft.Text(
-                "Las funciones para docentes todavía no están disponibles.",
-                size=14,
-                color=TEXT,
+        ft.Row(spacing=12, controls=[
+            ft.Container(expand=True, content=selector),
+            ft.OutlinedButton(
+                "Actualizar",
+                icon=ft.Icons.REFRESH,
+                style=estilo_boton_secundario(),
+                on_click=cargar,
             ),
-        ])),
+        ]),
+        aviso,
+        contenido,
     ])
 
 
 def build_alta_secretaria(page: ft.Page, navegar) -> ft.Control:
     nombres = crear_campo_texto("Nombre(s)", max_length=50)
     apellidos = crear_campo_texto("Apellidos", max_length=50)
-    correo = crear_campo_texto("correo@institucion.edu.mx", keyboard_type=ft.KeyboardType.EMAIL)
+    correo = crear_campo_texto("usuario@acapulco.tecnm.mx", keyboard_type=ft.KeyboardType.EMAIL)
     password = crear_campo_texto("Contraseña (mínimo 10 caracteres)", password=True, can_reveal_password=True)
     confirmar = crear_campo_texto("Confirma la contraseña", password=True, can_reveal_password=True)
     aviso = ft.Text("", size=13, color=WARN_FG, visible=False)
@@ -659,7 +818,7 @@ def build_alta_secretaria(page: ft.Page, navegar) -> ft.Control:
         if error_apellidos:
             apellidos.error = error_apellidos
             errores.append(True)
-        error_correo = v.validar_correo(correo.value or "")
+        error_correo = v.validar_correo_institucional(correo.value or "")
         if error_correo:
             correo.error = error_correo
             errores.append(True)
@@ -719,7 +878,7 @@ def build_alta_secretaria(page: ft.Page, navegar) -> ft.Control:
 def build_alta_maestro(page: ft.Page, navegar) -> ft.Control:
     nombres = crear_campo_texto("Nombre(s)", max_length=50)
     apellidos = crear_campo_texto("Apellidos", max_length=50)
-    correo = crear_campo_texto("correo@institucion.edu.mx", keyboard_type=ft.KeyboardType.EMAIL)
+    correo = crear_campo_texto("usuario@acapulco.tecnm.mx", keyboard_type=ft.KeyboardType.EMAIL)
     password = crear_campo_texto("Contraseña (mínimo 10 caracteres)", password=True, can_reveal_password=True)
     confirmar = crear_campo_texto("Confirma la contraseña", password=True, can_reveal_password=True)
     aviso = ft.Text("", size=13, color=WARN_FG, visible=False)
@@ -738,7 +897,7 @@ def build_alta_maestro(page: ft.Page, navegar) -> ft.Control:
         if error_apellidos:
             apellidos.error = error_apellidos
             errores.append(True)
-        error_correo = v.validar_correo(correo.value or "")
+        error_correo = v.validar_correo_institucional(correo.value or "")
         if error_correo:
             correo.error = error_correo
             errores.append(True)
@@ -1416,7 +1575,7 @@ class FormAltas:
         self.fecha = valor.date() if isinstance(valor, datetime.datetime) else valor
         self.txt_fecha.value = self.fecha.strftime("%d/%m/%Y")
         self.txt_fecha.error = None
-        self.page.update()
+        self._pintar()
 
     def _genero_elegido(self, e):
         self.genero.error_text = None
@@ -1518,11 +1677,28 @@ class FormAltas:
             paso_valido &= fecha_valida
             fecha_referencia = self.fecha if fecha_valida else None
 
-            paso_valido &= self._requerido(self.curp, v.validar_curp, fecha=fecha_referencia)
-            self.rfc.error = v.validar_rfc(self._texto_campo(self.rfc), fecha=fecha_referencia)
+            paso_valido &= self._requerido(
+                self.curp,
+                v.validar_curp,
+                fecha=fecha_referencia,
+                apellido_paterno=self._texto_campo(self.ap_paterno),
+                apellido_materno=self._texto_campo(self.ap_materno),
+            )
+            mayor_de_18 = (
+                self.fecha is not None
+                and fecha_valida
+                and v.es_mayor_de_18(self.fecha)
+            )
+            if mayor_de_18:
+                paso_valido &= self._requerido(self.rfc, v.validar_rfc, fecha=fecha_referencia)
+            else:
+                self.rfc.error = v.validar_rfc(self._texto_campo(self.rfc), fecha=fecha_referencia)
             paso_valido &= self.rfc.error is None
             paso_valido &= self._requerido(self.nss, v.validar_nss)
-            self.ine.error = v.validar_ine(self._texto_campo(self.ine), fecha=fecha_referencia)
+            if mayor_de_18:
+                paso_valido &= self._requerido(self.ine, v.validar_ine, fecha=fecha_referencia)
+            else:
+                self.ine.error = v.validar_ine(self._texto_campo(self.ine), fecha=fecha_referencia)
             paso_valido &= self.ine.error is None
             self.genero.error_text = v.validar_genero(self.genero.value)
             paso_valido &= self.genero.error_text is None
@@ -1766,8 +1942,8 @@ class FormAltas:
                 crear_fila(crear_campo_etiquetado("Número de ficha", self.ficha), crear_campo_etiquetado("Nombre(s)", self.nombre)),
                 crear_fila(crear_campo_etiquetado("Apellido paterno", self.ap_paterno), crear_campo_etiquetado("Apellido materno", self.ap_materno)),
                 crear_fila(crear_campo_etiquetado("Fecha de nacimiento", self.txt_fecha), crear_campo_etiquetado("CURP", self.curp)),
-                crear_fila(crear_campo_etiquetado("RFC (opcional)", self.rfc), crear_campo_etiquetado("Número de seguro social", self.nss)),
-                crear_fila(crear_campo_etiquetado("INE (opcional)", self.ine), crear_campo_etiquetado("Género", ft.Row([self.genero]))),
+                crear_fila(crear_campo_etiquetado(self._etiqueta_rfc_ine("RFC"), self.rfc), crear_campo_etiquetado("Número de seguro social", self.nss)),
+                crear_fila(crear_campo_etiquetado(self._etiqueta_rfc_ine("INE"), self.ine), crear_campo_etiquetado("Género", ft.Row([self.genero]))),
                 crear_fila(crear_campo_etiquetado("Teléfono celular", self.celular), crear_campo_etiquetado("Correo personal", self.correo)),
                 crear_fila(crear_campo_etiquetado("Domicilio", self.domicilio)),
             ]
@@ -1795,6 +1971,12 @@ class FormAltas:
                 ft.Text("Revisa la información antes de inscribir al alumno.", size=13, color=MUTED),
                 self._resumen_final(),
             ]
+
+    def _etiqueta_rfc_ine(self, campo: str) -> str:
+        if self.fecha is None:
+            return f"{campo} (obligatorio para mayores de edad)"
+        requisito = "obligatorio" if v.es_mayor_de_18(self.fecha) else "opcional"
+        return f"{campo} ({requisito})"
 
     def _resumen_final(self) -> ft.Control:
         texto_campo = self._texto_campo
@@ -2849,7 +3031,11 @@ def main(page: ft.Page):
 
     def entrar(usuario: dict):
         sesion["usuario"] = usuario
-        navegar("/consultas" if usuario["rol"] == "Administrador" else "/secretaria")
+        ruta_inicial = {
+            "Administrador": "/consultas",
+            "Docente": "/docente",
+        }.get(usuario["rol"], "/secretaria")
+        navegar(ruta_inicial)
 
     def cerrar_sesion():
         try:
@@ -2867,8 +3053,8 @@ def main(page: ft.Page):
             log.warning("No se pudo registrar la salida de sesión al cerrar la aplicación: %s", ex.mensaje)
 
     def contenido_para(ruta: str, usuario: dict) -> ft.Control:
-        if ruta == "/secretaria" and usuario["rol"] == "Docente":
-            return build_inicio_docente(usuario)
+        if ruta == "/docente" and usuario["rol"] == "Docente":
+            return build_inicio_docente(page, usuario, navegar)
         if ruta == "/altas":
             return build_altas(page, selector_archivos, usuario, navegar)
         if ruta == "/altas-maestros":
@@ -2907,6 +3093,9 @@ def main(page: ft.Page):
         # La interfaz no permite navegar a contenido privado sin una sesión autenticada.
         if usuario is None:
             ruta = "/"
+        elif usuario["rol"] == "Docente":
+            if ruta != "/docente":
+                ruta = "/docente"
         elif usuario["rol"] not in {"Administrador", "Secretaría"}:
             ruta = "/secretaria"
         elif usuario["rol"] == "Administrador" and ruta not in RUTAS_ADMIN:
