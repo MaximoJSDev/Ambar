@@ -59,6 +59,9 @@ class ModificarAlumnoTests(unittest.TestCase):
     def test_rechaza_datos_invalidos_sin_modificar_el_registro(self):
         casos_invalidos = (
             {"nombre": "...."},
+            {"nombre": "A" * 51},
+            {"ap_paterno": "A" * 51},
+            {"ap_materno": "A" * 51},
             {"curp": "!" * 18},
             {"nss": "." * 11},
             {"correo": "....@....com"},

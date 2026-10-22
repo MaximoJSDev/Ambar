@@ -638,8 +638,8 @@ def build_inicio_docente(usuario: dict) -> ft.Control:
 
 
 def build_alta_secretaria(page: ft.Page, navegar) -> ft.Control:
-    nombres = crear_campo_texto("Nombre(s)")
-    apellidos = crear_campo_texto("Apellidos")
+    nombres = crear_campo_texto("Nombre(s)", max_length=50)
+    apellidos = crear_campo_texto("Apellidos", max_length=50)
     correo = crear_campo_texto("correo@institucion.edu.mx", keyboard_type=ft.KeyboardType.EMAIL)
     password = crear_campo_texto("Contraseña (mínimo 10 caracteres)", password=True, can_reveal_password=True)
     confirmar = crear_campo_texto("Confirma la contraseña", password=True, can_reveal_password=True)
@@ -717,8 +717,8 @@ def build_alta_secretaria(page: ft.Page, navegar) -> ft.Control:
 
 
 def build_alta_maestro(page: ft.Page, navegar) -> ft.Control:
-    nombres = crear_campo_texto("Nombre(s)")
-    apellidos = crear_campo_texto("Apellidos")
+    nombres = crear_campo_texto("Nombre(s)", max_length=50)
+    apellidos = crear_campo_texto("Apellidos", max_length=50)
     correo = crear_campo_texto("correo@institucion.edu.mx", keyboard_type=ft.KeyboardType.EMAIL)
     password = crear_campo_texto("Contraseña (mínimo 10 caracteres)", password=True, can_reveal_password=True)
     confirmar = crear_campo_texto("Confirma la contraseña", password=True, can_reveal_password=True)
@@ -1287,9 +1287,9 @@ class FormAltas:
         # ---- Paso 1
         self.ficha = crear_campo_texto("Ej. 2026-00123", autofocus=True,
                         input_filter=ft.InputFilter(regex_string=r"^[0-9\-]*$", allow=True, replacement_string=""))
-        self.nombre = crear_campo_texto("Ingresa el nombre o nombres", input_filter=letras, capitalization=palabras)
-        self.ap_paterno = crear_campo_texto("Ingresa el apellido paterno", input_filter=letras, capitalization=palabras)
-        self.ap_materno = crear_campo_texto("Ingresa el apellido materno", input_filter=letras, capitalization=palabras)
+        self.nombre = crear_campo_texto("Ingresa el nombre o nombres", max_length=50, input_filter=letras, capitalization=palabras)
+        self.ap_paterno = crear_campo_texto("Ingresa el apellido paterno", max_length=50, input_filter=letras, capitalization=palabras)
+        self.ap_materno = crear_campo_texto("Ingresa el apellido materno", max_length=50, input_filter=letras, capitalization=palabras)
         self.date_picker = ft.DatePicker(
             first_date=datetime.datetime.combine(v.hace_anios(v.EDAD_MAXIMA), datetime.time()),
             last_date=datetime.datetime.combine(v.hace_anios(v.EDAD_MINIMA), datetime.time()),
@@ -2510,9 +2510,13 @@ class ConsultaExpediente:
         genero = next((key for key, valor in v.GENEROS.items() if valor == p["genero"]), "no_especifica")
         campos = {
             "ficha": crear_campo_texto(value=a["numero_ficha"], label="Número de ficha"),
-            "nombre": crear_campo_texto(value=p["nombres"], label="Nombre(s)"),
-            "ap_paterno": crear_campo_texto(value=p["apellido_paterno"], label="Apellido paterno"),
-            "ap_materno": crear_campo_texto(value=p["apellido_materno"], label="Apellido materno"),
+            "nombre": crear_campo_texto(value=p["nombres"], label="Nombre(s)", max_length=50),
+            "ap_paterno": crear_campo_texto(
+                value=p["apellido_paterno"], label="Apellido paterno", max_length=50,
+            ),
+            "ap_materno": crear_campo_texto(
+                value=p["apellido_materno"], label="Apellido materno", max_length=50,
+            ),
             "fecha_nacimiento": crear_campo_texto(
                 value=datetime.datetime.strptime(p["fecha_nacimiento"], "%d/%m/%Y").date().isoformat(),
                 label="Fecha de nacimiento (AAAA-MM-DD)",
