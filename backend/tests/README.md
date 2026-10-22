@@ -54,7 +54,7 @@ general.
 | `test_personal.py` | Consulta y baja de docentes y migración de cuentas antiguas |
 | `test_secretarias_admin.py` | Consulta de secretarías, bitácora y baja |
 | `test_alumnos_admin.py` | Documentos, bajas e historial de expedientes |
-| `test_horarios.py` | Asignaciones y consultas de horarios |
+| `test_horarios.py` | Asignaciones, horarios docentes y consultas de grupos y calificaciones |
 | `test_reportes.py` | Generación y entrega de PDF |
 
 ## 4. Escribir una prueba nueva

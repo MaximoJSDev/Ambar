@@ -21,14 +21,14 @@ class AltaSecretariasTests(unittest.TestCase):
         return {
             "nombres": "Ana",
             "apellidos": "López",
-            "correo": "ana@example.com",
+            "correo": "ana@acapulco.tecnm.mx",
             "password": "contraseña-segura",
         } | cambios
 
     def test_administrador_crea_secretaria_sin_exponer_password(self):
         secretaria = {
             "id_usuario": 8,
-            "correo": "ana@example.com",
+            "correo": "ana@acapulco.tecnm.mx",
             "estatus": "Activo",
             "nombres": "Ana",
             "apellidos": "López",
@@ -39,14 +39,14 @@ class AltaSecretariasTests(unittest.TestCase):
         ) as crear:
             respuesta = self.client.post(
                 "/administracion/secretarias",
-                json=self.payload(correo="ANA@example.com"),
+                json=self.payload(correo="ANA@ACAPULCO.TECNM.MX"),
             )
 
         self.assertEqual(respuesta.status_code, 201)
         self.assertEqual(respuesta.json(), secretaria)
         self.assertNotIn("password", respuesta.json())
         crear.assert_called_once()
-        self.assertEqual(crear.call_args.args[0].correo, "ana@example.com")
+        self.assertEqual(crear.call_args.args[0].correo, "ana@acapulco.tecnm.mx")
 
     def test_alta_requiere_rol_administrador(self):
         self.usuario["rol"] = "Secretaría"
@@ -70,6 +70,7 @@ class AltaSecretariasTests(unittest.TestCase):
             {"apellidos": "!!!"},
             {"correo": "....@....com"},
             {"correo": "ana@example..com"},
+            {"correo": "ana@example.com"},
             {"password": "corta"},
             {"password": "          "},
         )
@@ -87,7 +88,7 @@ class AltaSecretariasTests(unittest.TestCase):
         datos = self.payload(nombres="A" * 50, apellidos="B" * 50)
         with patch(
             "backend.routers.admin.servicios.crear_secretaria",
-            return_value={"id_usuario": 8, "correo": "ana@example.com"},
+            return_value={"id_usuario": 8, "correo": "ana@acapulco.tecnm.mx"},
         ) as crear:
             respuesta = self.client.post("/administracion/secretarias", json=datos)
 

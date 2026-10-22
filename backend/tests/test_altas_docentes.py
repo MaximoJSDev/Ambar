@@ -21,14 +21,14 @@ class AltaDocentesTests(unittest.TestCase):
         return {
             "nombres": "María",
             "apellidos": "López",
-            "correo": "maria@example.com",
+            "correo": "maria@acapulco.tecnm.mx",
             "password": "contraseña-segura",
         } | cambios
 
     def test_secretaria_crea_docente_y_no_expone_password(self):
         docente = {
             "id_usuario": 8,
-            "correo": "maria@example.com",
+            "correo": "maria@acapulco.tecnm.mx",
             "estatus": "Activo",
             "nombres": "María",
             "apellidos": "López",
@@ -39,14 +39,14 @@ class AltaDocentesTests(unittest.TestCase):
         ) as crear:
             respuesta = self.client.post(
                 "/personal/docentes",
-                json=self.payload(correo="MARIA@example.com"),
+                json=self.payload(correo="MARIA@ACAPULCO.TECNM.MX"),
             )
 
         self.assertEqual(respuesta.status_code, 201)
         self.assertEqual(respuesta.json(), docente)
         self.assertNotIn("password", respuesta.json())
         crear.assert_called_once()
-        self.assertEqual(crear.call_args.args[0].correo, "maria@example.com")
+        self.assertEqual(crear.call_args.args[0].correo, "maria@acapulco.tecnm.mx")
 
     def test_alta_requiere_rol_secretaria(self):
         self.usuario["rol"] = "Administrador"
@@ -67,6 +67,7 @@ class AltaDocentesTests(unittest.TestCase):
             {"apellidos": "!!!"},
             {"correo": "ana@example..com"},
             {"correo": "no-es-correo"},
+            {"correo": "maria@example.com"},
             {"password": "corta"},
             {"password": "          "},
         )
@@ -84,7 +85,7 @@ class AltaDocentesTests(unittest.TestCase):
         datos = self.payload(nombres="A" * 50, apellidos="B" * 50)
         with patch(
             "backend.routers.personal.servicios.crear_docente",
-            return_value={"id_usuario": 8, "correo": "maria@example.com"},
+            return_value={"id_usuario": 8, "correo": "maria@acapulco.tecnm.mx"},
         ) as crear:
             respuesta = self.client.post("/personal/docentes", json=datos)
 
