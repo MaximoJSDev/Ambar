@@ -263,6 +263,30 @@ class ApiClient:
     def grupos_docente(self) -> list[dict]:
         return self._request("GET", "/horarios/docente/grupos")
 
+    def descargar_grupos_docente(self) -> bytes:
+        return self._descargar_pdf("/horarios/docente/grupos/pdf")
+
+    def descargar_lista_alumnos_docente(self, id_grupo: int) -> bytes:
+        return self._descargar_pdf(f"/horarios/docente/grupos/{id_grupo}/alumnos/pdf")
+
+    def descargar_calificaciones_docente(self, id_grupo: int) -> bytes:
+        return self._descargar_pdf(f"/horarios/docente/grupos/{id_grupo}/calificaciones/pdf")
+
+    def guardar_calificacion_docente(
+        self, id_grupo: int, numero_control: str, periodo: str, valor: int,
+    ) -> dict:
+        return self._request(
+            "PUT",
+            f"/horarios/docente/grupos/{id_grupo}/alumnos/{numero_control}/calificaciones/{periodo}",
+            json={"valor": valor},
+        )
+
+    def confirmar_calificacion_final(self, id_grupo: int, numero_control: str) -> dict:
+        return self._request(
+            "POST",
+            f"/horarios/docente/grupos/{id_grupo}/alumnos/{numero_control}/calificaciones/final",
+        )
+
     def asignar_docente_grupo(self, id_grupo: int, id_docente: int | None) -> dict:
         return self._request(
             "PUT",
@@ -293,6 +317,25 @@ class ApiClient:
 
     def bitacora(self) -> list[dict]:
         return self._request("GET", "/administracion/bitacora")
+
+    def periodos_escolares(self) -> list[dict]:
+        return self._request("GET", "/administracion/periodos")
+
+    def guardar_periodo_escolar(
+        self,
+        periodo: str,
+        fecha_inicio: str,
+        periodo_anterior: str | None = None,
+    ) -> dict:
+        return self._request(
+            "PUT",
+            "/administracion/periodos",
+            json={
+                "periodo": periodo,
+                "fecha_inicio": fecha_inicio,
+                "periodo_anterior": periodo_anterior,
+            },
+        )
 
     def registrar_alta(self, registro: dict) -> dict:
         """Envía el registro de FormAltas.registro(): datos en JSON y los PDF en multipart

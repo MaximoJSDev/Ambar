@@ -50,7 +50,6 @@ source venv/bin/activate
 **4. Instalar las dependencias**
 Instala las dependencias de cada aplicación desde su carpeta para que también se resuelva el paquete compartido local:
 ```bash
-cd backend
 pip install -r requirements.txt
 
 cd ../frontend
@@ -116,12 +115,34 @@ asignación inscribe al alumno en todas las materias de esa sección y respeta l
 cupos. Desde **Consultas** también se descarga el horario individual con
 membrete. Desde **Grupos y horarios** se revisan las listas por sección, se
 descargan con membrete y se vinculan las cuentas de maestros a las materias.
+La asignación de docente se realiza por grupo y materia en **Grupos y horarios**.
+En **Mis grupos**, cada maestro consulta solo sus asignaciones y puede descargar
+con membrete su horario consolidado, la lista de alumnos de cada materia y su
+lista de calificaciones.
+Las listas de alumnos en pantalla y en PDF se ordenan alfabéticamente por
+apellido paterno, apellido materno y nombre(s).
+En el panel de Secretaría, la actividad muestra el número de control, se
+recorre en páginas de 10 alumnos y permite abrir directamente cada expediente
+en **Consultas**. El panel ya no muestra la sección de pendientes.
 Los alumnos que ya estaban inscritos en `1A` o `1B` pueden migrarse desde
 **Consultas**: Secretaría elige manualmente su sección oficial. La migración
 conserva calificaciones y asistencias en materias coincidentes; si hay datos
 históricos en una materia sin equivalente, la operación se cancela para no
 perderlos.
 Los horarios de otros semestres se incorporarán con el módulo de reinscripción.
+
+Administración configura en **Periodos escolares** la fecha de inicio de la
+semana 1 para cada periodo; el sistema habilita la captura al comenzar las
+semanas 5, 9, 13 y 17. Los maestros pueden registrar calificaciones enteras:
+0 o de 70 a 100 en sus grupos asignados, y modificar los tres periodos mientras
+no se haya confirmado la final. En la semana 17, la final se calcula con el
+promedio de los tres periodos, redondeado al entero más cercano; si el promedio
+es menor a 70 se registra 0. La confirmación final requiere aceptación explícita
+y bloquea tanto la final como sus periodos base.
+Administración puede seleccionar un periodo registrado para corregir su nombre
+o fecha de inicio desde el calendario. Al renombrarlo, también se actualiza el
+periodo de sus grupos. Corregir la fecha conserva las calificaciones existentes
+y recalcula automáticamente qué semanas están habilitadas.
 
 ### Ejecutar el Backend (FastAPI)
 Desde la raíz del repositorio y con el entorno virtual del backend activado:

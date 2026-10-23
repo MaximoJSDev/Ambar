@@ -39,6 +39,39 @@ async def lifespan(_: FastAPI):
             FOREIGN KEY (id_usuario) REFERENCES usuarios(id_usuario),
             INDEX idx_historial_alumno_fecha (numero_control, fecha)
         )"""))
+        conn.execute(text("""CREATE TABLE IF NOT EXISTS periodos_escolares (
+            periodo VARCHAR(20) PRIMARY KEY,
+            fecha_inicio DATE NOT NULL,
+            actualizado_por INT NOT NULL,
+            actualizado_en TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                ON UPDATE CURRENT_TIMESTAMP,
+            FOREIGN KEY (actualizado_por) REFERENCES usuarios(id_usuario)
+        )"""))
+        if conn.execute(text("SHOW COLUMNS FROM calificaciones LIKE 'confirmada'")).first() is None:
+            conn.execute(text(
+                "ALTER TABLE calificaciones ADD COLUMN confirmada BOOLEAN NOT NULL DEFAULT FALSE"
+            ))
+            conn.execute(text("""UPDATE calificaciones
+                                 SET confirmada = TRUE
+                                 WHERE periodo_evaluacion = 'Final' AND valor IS NOT NULL"""))
+        if conn.execute(text("""SELECT COUNT(*) FROM calificaciones
+                                WHERE valor IS NOT NULL
+                                  AND (valor <> FLOOR(valor)
+                                       OR (valor <> 0 AND (valor < 70 OR valor > 100)))""")).scalar_one():
+            raise RuntimeError(
+                "Hay calificaciones existentes que no son 0 ni un entero de 70 a 100; "
+                "corrígelas antes de iniciar para activar la validación entera."
+            )
+        if conn.execute(text("""SELECT COUNT(*) FROM information_schema.TABLE_CONSTRAINTS
+                                WHERE TABLE_SCHEMA = DATABASE()
+                                  AND TABLE_NAME = 'calificaciones'
+                                  AND CONSTRAINT_NAME = 'chk_calificacion_entera'
+                                  AND CONSTRAINT_TYPE = 'CHECK'""")).scalar_one() == 0:
+            conn.execute(text("""ALTER TABLE calificaciones
+                                 ADD CONSTRAINT chk_calificacion_entera
+                                 CHECK (valor IS NULL OR
+                                        (valor = FLOOR(valor) AND
+                                         (valor = 0 OR (valor >= 70 AND valor <= 100))))"""))
         servicios.migrar_docente_sin_asignar(conn)
         servicios.migrar_horarios(conn)
         servicios.cargar_catalogo_1isc(conn)

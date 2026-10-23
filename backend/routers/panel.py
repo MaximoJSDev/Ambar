@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import bindparam, text
 
 from ..config import settings
-from ..constantes import DOCUMENTOS, ROL_SECRETARIA, SEMESTRE_INGRESO, TIPOS_REQUERIDOS
+from ..constantes import ROL_SECRETARIA, SEMESTRE_INGRESO, TIPOS_REQUERIDOS
 from ..config import engine
 from ..deps import requiere_roles
 
@@ -25,40 +25,21 @@ def resumen(_: dict = Depends(requiere_roles(ROL_SECRETARIA))):
             {"p": settings.periodo},
         ).scalar_one()
 
-        # Expediente pendiente = alumno activo sin alguno de los documentos requeridos
-        pendientes = conn.execute(
-            text("""SELECT COUNT(*) FROM alumnos a
-                    WHERE a.estatus = 'Activo' AND a.eliminado = FALSE AND (
-                        SELECT COUNT(*) FROM expedientes_digitales e
-                        WHERE e.numero_control = a.numero_control
-                          AND e.tipo_documento IN :tipos) < :n""").bindparams(en_tipos),
-            {"tipos": TIPOS_REQUERIDOS, "n": len(TIPOS_REQUERIDOS)},
-        ).scalar_one()
-
-        faltantes = []
-        for visible, tipo_bd in DOCUMENTOS.values():
-            cantidad = conn.execute(
-                text("""SELECT COUNT(*) FROM alumnos a
-                        WHERE a.estatus = 'Activo' AND a.eliminado = FALSE AND NOT EXISTS (
-                            SELECT 1 FROM expedientes_digitales e
-                            WHERE e.numero_control = a.numero_control AND e.tipo_documento = :t)"""),
-                {"t": tipo_bd},
-            ).scalar_one()
-            if cantidad:
-                faltantes.append({"documento": visible, "cantidad": cantidad})
-        faltantes.sort(key=lambda f: -f["cantidad"])
-
         recientes = conn.execute(
-            text("""SELECT CONCAT_WS(' ', a.nombres, a.apellido_paterno, a.apellido_materno) AS alumno,
+            text("""SELECT a.numero_control,
+                           CONCAT_WS(
+                               ' ', a.apellido_paterno, a.apellido_materno, a.nombres
+                           ) AS alumno,
+                           a.apellido_paterno, a.apellido_materno, a.nombres,
                            (SELECT COUNT(*) FROM expedientes_digitales e
                             WHERE e.numero_control = a.numero_control
                               AND e.tipo_documento IN :tipos) AS docs
                     FROM alumnos a
                     WHERE a.eliminado = FALSE
-                    ORDER BY (SELECT MAX(i.id_inscripcion) FROM inscripciones_grupos i
-                              WHERE i.numero_control = a.numero_control) DESC,
-                             a.numero_control DESC
-                    LIMIT 6""").bindparams(en_tipos),
+                    ORDER BY a.apellido_paterno, a.apellido_materno, a.nombres,
+                             a.numero_control""").bindparams(
+                en_tipos
+            ),
             {"tipos": TIPOS_REQUERIDOS},
         ).mappings().all()
 
@@ -66,11 +47,10 @@ def resumen(_: dict = Depends(requiere_roles(ROL_SECRETARIA))):
     return {
         "alumnos_nuevo_ingreso": nuevos,
         "grupos": grupos,
-        "expedientes_pendientes": pendientes,
         "reinscripciones_hoy": 0,       # aún no existe tabla/módulo de reinscripciones
-        "pendientes": faltantes,
         "actividad": [
-            {"alumno": f["alumno"],
+            {"numero_control": f["numero_control"],
+             "alumno": f["alumno"],
              "tramite": "Alta" if f["docs"] >= completo else "Documentos",
              "estado": "Completada" if f["docs"] >= completo else "Pendiente"}
             for f in recientes

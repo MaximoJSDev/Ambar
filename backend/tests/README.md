@@ -36,6 +36,7 @@ python -m unittest backend.tests.test_altas_alumnos -v
 python -m unittest backend.tests.test_altas_docentes -v
 python -m unittest backend.tests.test_altas_secretarias -v
 python -m unittest backend.tests.test_modificar_alumnos -v
+python -m unittest backend.tests.test_calificaciones -v
 ```
 
 Las validaciones compartidas entre frontend y backend están en
@@ -52,9 +53,11 @@ general.
 | `test_altas_secretarias.py` | Alta de secretarías, nombres/apellidos de 2–50 caracteres, permisos y correo duplicado |
 | `test_modificar_alumnos.py` | Reglas de validación y permisos al modificar un alumno |
 | `test_personal.py` | Consulta y baja de docentes y migración de cuentas antiguas |
-| `test_secretarias_admin.py` | Consulta de secretarías, bitácora y baja |
+| `test_secretarias_admin.py` | Periodos escolares, consulta de secretarías, bitácora y baja |
+| `test_panel.py` | Actividad del panel y números de control |
 | `test_alumnos_admin.py` | Documentos, bajas e historial de expedientes |
 | `test_horarios.py` | Asignaciones, horarios docentes y consultas de grupos y calificaciones |
+| `test_calificaciones.py` | Calificaciones, apertura semanal, edición de periodo y confirmación de la final |
 | `test_reportes.py` | Generación y entrega de PDF |
 
 ## 4. Escribir una prueba nueva

@@ -63,6 +63,25 @@ class LoginOut(BaseModel):
     usuario: UsuarioOut
 
 
+class PeriodoEscolarIn(BaseModel):
+    periodo: str = Field(min_length=9, max_length=20, pattern=r"^(ENE-JUN|AGO-DIC) \d{4}$")
+    fecha_inicio: datetime.date
+    periodo_anterior: str | None = Field(
+        default=None, min_length=9, max_length=20, pattern=r"^(ENE-JUN|AGO-DIC) \d{4}$",
+    )
+
+
+class CalificacionIn(BaseModel):
+    valor: int = Field(ge=0, le=100)
+
+    @field_validator("valor")
+    @classmethod
+    def _calificacion_aprobatoria_o_cero(cls, valor: int) -> int:
+        if valor != 0 and valor < 70:
+            raise ValueError("La calificación debe ser 0 o estar entre 70 y 100")
+        return valor
+
+
 class AltaIn(BaseModel):
     """Datos del alumno de nuevo ingreso (los PDF viajan aparte, en multipart)."""
     model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")

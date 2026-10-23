@@ -9,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
 
 import flet as ft
@@ -66,6 +67,7 @@ NAV = [
 ADMIN_NAV = [
     ("/consultas", "Historial de alumnos", ft.Icons.HISTORY),
     ("/modificacion", "Modificación", ft.Icons.EDIT_OUTLINED),
+    ("/administracion/periodos", "Periodos escolares", ft.Icons.CALENDAR_MONTH),
     ("/administracion/secretarias/alta", "Alta de secretaria", ft.Icons.PERSON_ADD_ALT_1),
     ("/administracion/secretarias", "Consulta de secretarias", ft.Icons.LIST_ALT),
     ("/bitacora", "Bitácora", ft.Icons.FORMAT_LIST_BULLETED),
@@ -76,6 +78,7 @@ DOCENTE_NAV = [
 RUTAS_ADMIN = {
     "/consultas",
     "/modificacion",
+    "/administracion/periodos",
     "/administracion/secretarias/alta",
     "/administracion/secretarias",
     "/bitacora",
@@ -509,10 +512,10 @@ def chip_estado(estado: str) -> ft.Container:
     )
 
 
-def build_panel(page: ft.Page, navegar) -> ft.Control:
+def build_panel(page: ft.Page, navegar, consultar_alumno=None) -> ft.Control:
     def estadistica(numero, texto):
         return ft.Container(
-            col={"xs": 12, "sm": 6, "lg": 3},
+            col={"xs": 12, "sm": 6, "lg": 4},
             content=crear_tarjeta(ft.Column(spacing=8, controls=[
                 ft.Text(str(numero), size=34, weight=ft.FontWeight.BOLD, color=NAVY),
                 ft.Text(texto, size=13, color=MUTED),
@@ -545,17 +548,11 @@ def build_panel(page: ft.Page, navegar) -> ft.Control:
         resumen = api.resumen_panel()
     except ApiError as ex:
         error_panel = ex.mensaje
-        resumen = {"alumnos_nuevo_ingreso": 0, "grupos": 0, "expedientes_pendientes": 0,
-                   "reinscripciones_hoy": 0, "pendientes": [], "actividad": []}
-    filas_datos = [(a["alumno"], a["tramite"], a["estado"]) for a in resumen["actividad"]]
-
-    lineas_pendientes: list[ft.Control] = []
-    for p in resumen["pendientes"]:
-        if lineas_pendientes:
-            lineas_pendientes.append(ft.Divider(height=1, color=BORDER))
-        lineas_pendientes.append(ft.Text(f"{p['cantidad']} · {p['documento']}", size=14, color=TEXT))
-    if not lineas_pendientes:
-        lineas_pendientes.append(ft.Text("Sin documentos pendientes", size=14, color=MUTED))
+        resumen = {"alumnos_nuevo_ingreso": 0, "grupos": 0,
+                   "reinscripciones_hoy": 0, "actividad": []}
+    alumnos_actividad = resumen["actividad"]
+    pagina_actual = 0
+    tamano_pagina = 10
 
     aviso_error = ft.Container(
         bgcolor=WARN_BG, border_radius=8, padding=12,
@@ -572,37 +569,69 @@ def build_panel(page: ft.Page, navegar) -> ft.Control:
         padding=ft.Padding.symmetric(horizontal=12, vertical=10),
         content=ft.Row(controls=[
             celda(ft.Text("Alumno", size=13, weight=ft.FontWeight.BOLD, color=TEXT), 4),
+            celda(ft.Text("Número de control", size=13, weight=ft.FontWeight.BOLD, color=TEXT), 2),
             celda(ft.Text("Trámite", size=13, weight=ft.FontWeight.BOLD, color=TEXT), 3),
             celda(ft.Text("Estado", size=13, weight=ft.FontWeight.BOLD, color=TEXT), 3),
         ]),
     )
-    filas = [cabecera]
-    for alumno, tramite, estado in filas_datos:
-        filas.append(ft.Container(
-            padding=ft.Padding.symmetric(horizontal=12, vertical=10),
-            border=ft.Border.only(bottom=ft.BorderSide(1, BORDER)),
-            content=ft.Row(vertical_alignment=ft.CrossAxisAlignment.CENTER, controls=[
-                celda(alumno, 4), celda(tramite, 3),
-                ft.Container(expand=3, content=ft.Row([chip_estado(estado)])),
-            ]),
-        ))
+    lista_actividad = ft.Column(spacing=0)
+    indicador_pagina = ft.Text("", size=12, color=MUTED)
+    boton_anterior = ft.TextButton("Anterior")
+    boton_siguiente = ft.TextButton("Siguiente")
 
-    actividad = crear_tarjeta(ft.Column(spacing=12, controls=[
-        ft.Text("Actividad reciente", size=19, weight=ft.FontWeight.BOLD, color=NAVY),
-        ft.Column(spacing=0, controls=filas),
-    ]), col={"xs": 12, "lg": 8})
+    def abrir_expediente(numero_control: str):
+        if consultar_alumno is not None:
+            consultar_alumno(numero_control)
+        else:
+            navegar("/consultas")
 
-    pendientes = crear_tarjeta(ft.Column(spacing=14, controls=[
-        ft.Text("Pendientes", size=19, weight=ft.FontWeight.BOLD, color=NAVY),
-        ft.Container(height=4),
-        *lineas_pendientes,
-        ft.Container(height=20),
-        ft.OutlinedButton(
-            "Revisar expedientes",
-            style=estilo_boton_secundario(),
-            on_click=lambda e: navegar("/consultas"),
-        ),
-    ]), col={"xs": 12, "lg": 4})
+    def actualizar_pagina(evento=None):
+        nonlocal pagina_actual
+        total_paginas = max(1, (len(alumnos_actividad) + tamano_pagina - 1) // tamano_pagina)
+        pagina_actual = min(max(0, pagina_actual), total_paginas - 1)
+        inicio = pagina_actual * tamano_pagina
+        visibles = alumnos_actividad[inicio:inicio + tamano_pagina]
+        lista_actividad.controls = [
+            ft.Container(
+                ink=True,
+                border=ft.Border.only(bottom=ft.BorderSide(1, BORDER)),
+                padding=ft.Padding.symmetric(horizontal=12, vertical=10),
+                on_click=lambda _, numero=alumno["numero_control"]: abrir_expediente(numero),
+                content=ft.Row(vertical_alignment=ft.CrossAxisAlignment.CENTER, controls=[
+                    celda(alumno["alumno"], 4),
+                    celda(alumno["numero_control"], 2),
+                    celda(alumno["tramite"], 3),
+                    ft.Container(expand=3, content=ft.Row([chip_estado(alumno["estado"])])),
+                ]),
+            )
+            for alumno in visibles
+        ] or [ft.Text("No hay alumnos para mostrar.", size=13, color=MUTED)]
+        indicador_pagina.value = f"Página {pagina_actual + 1} de {total_paginas}"
+        boton_anterior.disabled = pagina_actual == 0
+        boton_siguiente.disabled = pagina_actual >= total_paginas - 1
+        if evento is not False:
+            page.update()
+
+    def cambiar_pagina(delta: int):
+        nonlocal pagina_actual
+        pagina_actual += delta
+        actualizar_pagina()
+
+    boton_anterior.on_click = lambda _: cambiar_pagina(-1)
+    boton_siguiente.on_click = lambda _: cambiar_pagina(1)
+    actualizar_pagina(False)
+
+    actividad = crear_tarjeta(ft.ExpansionTile(
+        title=ft.Text("Actividad reciente", size=19, weight=ft.FontWeight.BOLD, color=NAVY),
+        controls=[
+            cabecera,
+            lista_actividad,
+            ft.Row(
+                alignment=ft.MainAxisAlignment.CENTER,
+                controls=[boton_anterior, indicador_pagina, boton_siguiente],
+            ),
+        ],
+    ), col={"xs": 12, "lg": 8})
 
     return ft.Column(expand=True, scroll=ft.ScrollMode.AUTO, spacing=24, controls=[
         titulo_pagina("Panel de Secretaría", "Gestiona alumnos, expedientes y procesos escolares."),
@@ -610,7 +639,6 @@ def build_panel(page: ft.Page, navegar) -> ft.Control:
         ft.ResponsiveRow(spacing=20, run_spacing=20, controls=[
             estadistica(resumen["alumnos_nuevo_ingreso"], "Alumnos de nuevo ingreso"),
             estadistica(resumen["grupos"], "Grupos registrados"),
-            estadistica(resumen["expedientes_pendientes"], "Expedientes pendientes"),
             estadistica(resumen["reinscripciones_hoy"], "Reinscripciones del día"),
         ]),
         ft.Text("Accesos rápidos", size=19, weight=ft.FontWeight.BOLD, color=NAVY),
@@ -619,7 +647,134 @@ def build_panel(page: ft.Page, navegar) -> ft.Control:
             acceso("Consultar expediente", "Consulta datos y documentos.", "/consultas", "Consultas"),
             acceso("Reinscribir alumno", "Asigna grupo y horario.", "/reinscripcion", "Reinscripción"),
         ]),
-        ft.ResponsiveRow(spacing=20, run_spacing=20, controls=[actividad, pendientes]),
+        actividad,
+    ])
+
+
+def build_periodos_escolares(page: ft.Page) -> ft.Control:
+    periodo = ft.TextField(label="Periodo (ej. AGO-DIC 2026)", max_length=20, expand=True)
+    fecha_inicio = ft.TextField(
+        label="Fecha de inicio de la semana 1",
+        read_only=True,
+        expand=True,
+        suffix_icon=ft.Icons.CALENDAR_MONTH,
+        on_click=lambda _: page.show_dialog(selector_fecha),
+    )
+    hoy = datetime.date.today()
+    selector_fecha = ft.DatePicker(
+        first_date=datetime.datetime(2000, 1, 1),
+        last_date=datetime.datetime(2100, 12, 31),
+        current_date=datetime.datetime.combine(hoy, datetime.time()),
+        on_change=lambda e: fecha_elegida(e),
+    )
+    aviso = ft.Text("", size=13, color=WARN_FG, visible=False)
+    listado = ft.Column(spacing=8)
+    periodo_original: str | None = None
+    boton_guardar = ft.FilledButton(
+        "Guardar periodo",
+        icon=ft.Icons.SAVE_OUTLINED,
+    )
+
+    def fecha_elegida(e):
+        valor = e.control.value
+        if valor is not None:
+            fecha = valor.date() if isinstance(valor, datetime.datetime) else valor
+            fecha_inicio.value = fecha.isoformat()
+            page.update()
+
+    def cargar():
+        try:
+            periodos = api.periodos_escolares()
+        except ApiError as ex:
+            aviso.value = ex.mensaje
+            aviso.visible = True
+            page.update()
+            return
+        listado.controls = [
+            ft.Container(
+                padding=12,
+                border=ft.Border.all(1, BORDER),
+                border_radius=8,
+                ink=True,
+                on_click=lambda e, p=item: seleccionar(p),
+                content=ft.Row(controls=[
+                    ft.Text(item["periodo"], weight=ft.FontWeight.BOLD, color=NAVY, expand=True),
+                    ft.Text(str(item["fecha_inicio"]), color=TEXT),
+                    ft.Text("Seleccionar para editar", size=11, color=MUTED),
+                ]),
+            )
+            for item in periodos
+        ] or [ft.Text("Aún no hay periodos configurados.", color=MUTED)]
+        page.update()
+
+    def seleccionar(item: dict):
+        nonlocal periodo_original
+        periodo_original = item["periodo"]
+        periodo.value = item["periodo"]
+        fecha_inicio.value = str(item["fecha_inicio"])
+        fecha = datetime.date.fromisoformat(fecha_inicio.value)
+        selector_fecha.current_date = datetime.datetime.combine(fecha, datetime.time())
+        boton_guardar.text = "Guardar cambios"
+        aviso.visible = False
+        page.update()
+
+    def guardar(_):
+        nonlocal periodo_original
+        aviso.visible = False
+        nombre_periodo = (periodo.value or "").strip()
+        try:
+            fecha = datetime.date.fromisoformat((fecha_inicio.value or "").strip())
+            api.guardar_periodo_escolar(nombre_periodo, fecha.isoformat(), periodo_original)
+        except ValueError:
+            aviso.value = "Selecciona una fecha válida con el calendario."
+            aviso.visible = True
+            page.update()
+            return
+        except ApiError as ex:
+            aviso.value = ex.mensaje
+            aviso.visible = True
+            page.update()
+            return
+        snackbar(page, "Periodo escolar guardado.")
+        periodo_original = nombre_periodo
+        boton_guardar.text = "Guardar cambios"
+        cargar()
+
+    def limpiar():
+        nonlocal periodo_original
+        periodo_original = None
+        periodo.value = ""
+        fecha_inicio.value = ""
+        boton_guardar.text = "Guardar periodo"
+        aviso.visible = False
+        page.update()
+
+    boton_guardar.on_click = guardar
+    cargar()
+    return ft.Column(expand=True, scroll=ft.ScrollMode.AUTO, spacing=18, controls=[
+        titulo_pagina("Periodos escolares", "Configura el inicio de semana 1 para habilitar las evaluaciones."),
+        crear_tarjeta(ft.Column(spacing=12, controls=[
+            ft.Text("Configuración del periodo", size=18, weight=ft.FontWeight.BOLD, color=NAVY),
+            ft.Text(
+                "La semana indicada cuenta como semana 1. Las capturas se habilitan al comenzar "
+                "las semanas 5, 9, 13 y 17. Puedes corregir el nombre y la fecha; las calificaciones "
+                "registradas se conservan y el calendario se recalcula.",
+                size=13, color=MUTED,
+            ),
+            ft.ResponsiveRow(controls=[
+                ft.Container(col={"xs": 12, "md": 7}, content=periodo),
+                ft.Container(col={"xs": 12, "md": 5}, content=fecha_inicio),
+            ]),
+            aviso,
+            ft.Row(controls=[
+                boton_guardar,
+                ft.TextButton("Limpiar", on_click=lambda _: limpiar()),
+            ]),
+        ]), padding=18),
+        crear_tarjeta(ft.Column(spacing=10, controls=[
+            ft.Text("Periodos registrados", size=18, weight=ft.FontWeight.BOLD, color=NAVY),
+            listado,
+        ]), padding=18),
     ])
 
 
@@ -628,6 +783,20 @@ def build_inicio_docente(page: ft.Page, usuario: dict, navegar) -> ft.Control:
     selector = ft.Dropdown(label="Grupo y materia", expand=True, options=[])
     aviso = ft.Text("", size=13, color=WARN_FG, visible=False)
     contenido = ft.Column(spacing=16)
+
+    def descargar_pdf_docente(descargar, nombre: str):
+        try:
+            contenido_pdf = descargar()
+            destino = _carpeta_pdf_temporal() / nombre
+            destino.write_bytes(contenido_pdf)
+            abrir_archivo(destino)
+        except ApiError as ex:
+            if ex.status == 401:
+                navegar("/")
+            else:
+                snackbar(page, ex.mensaje)
+        except OSError as ex:
+            snackbar(page, f"No se pudo guardar el PDF: {ex}")
 
     def mostrar_grupo(id_grupo: int | None):
         grupo = next((item for item in grupos if item["id_grupo"] == id_grupo), None)
@@ -656,42 +825,169 @@ def build_inicio_docente(page: ft.Page, usuario: dict, navegar) -> ft.Control:
         if not resumen_horario:
             resumen_horario = [ft.Text("Este grupo no tiene horario publicado.", color=MUTED)]
 
+        periodos_calificacion = (
+            ("Semana 5", "semana_5"),
+            ("Semana 9", "semana_9"),
+            ("Semana 13", "semana_13"),
+        )
+        disponibles = set(grupo.get("evaluaciones_disponibles", []))
+
+        def formato_calificacion(valor):
+            return "—" if valor is None else f"{float(valor):.2f}".rstrip("0").rstrip(".")
+
+        def guardar_calificacion(alumno, periodo, campo, entrada, aviso_error):
+            entrada.error_text = None
+            aviso_error.value = ""
+            try:
+                texto = (entrada.value or "").strip().replace(",", ".")
+                valor = Decimal(texto)
+                if (
+                    not valor.is_finite()
+                    or valor != valor.to_integral_value()
+                    or (valor != 0 and not Decimal(70) <= valor <= Decimal(100))
+                ):
+                    raise ValueError
+            except (InvalidOperation, ValueError):
+                entrada.error_text = "Ingresa un entero: 0 o de 70 a 100."
+                aviso_error.value = entrada.error_text
+                page.update()
+                return
+            try:
+                resultado = api.guardar_calificacion_docente(
+                    grupo["id_grupo"], alumno["numero_control"], periodo, int(valor),
+                )
+            except ApiError as ex:
+                if ex.status == 401:
+                    navegar("/")
+                    return
+                entrada.error_text = ex.mensaje
+                aviso_error.value = ex.mensaje
+                page.update()
+                return
+            alumno[campo] = resultado["valor"]
+            snackbar(page, f"{periodo} guardada para {alumno['nombre_completo']}.")
+            mostrar_grupo(grupo["id_grupo"])
+
+        def confirmar_final(alumno, promedio, valor_final):
+            def guardar(_):
+                page.pop_dialog()
+                try:
+                    resultado = api.confirmar_calificacion_final(
+                        grupo["id_grupo"], alumno["numero_control"],
+                    )
+                except ApiError as ex:
+                    snackbar(page, ex.mensaje)
+                    return
+                alumno["final"] = resultado["valor"]
+                alumno["final_confirmada"] = True
+                snackbar(page, "Calificación final confirmada; ya no se puede modificar.")
+                mostrar_grupo(grupo["id_grupo"])
+
+            page.show_dialog(ft.AlertDialog(
+                title=ft.Text("Confirmar calificación final"),
+                content=ft.Text(
+                    f"El promedio redondeado de los tres periodos es {promedio:.0f}. "
+                    f"Se registrará {valor_final:.0f}"
+                    f"{' porque el promedio exacto es menor a 70' if valor_final == 0 else ''}. "
+                    "Después de confirmar, la calificación final no se podrá modificar. ¿Continuar?"
+                ),
+                actions=[
+                    ft.TextButton("Cancelar", on_click=lambda _: page.pop_dialog()),
+                    ft.FilledButton("Confirmar final", on_click=guardar),
+                ],
+            ))
+
         encabezado_calificaciones = ft.ResponsiveRow(spacing=8, controls=[
-            ft.Container(col={"xs": 12, "md": 5}, content=ft.Text("Alumno", weight=ft.FontWeight.BOLD, color=NAVY)),
+            ft.Container(col={"xs": 12, "md": 4}, content=ft.Text("Alumno", weight=ft.FontWeight.BOLD, color=NAVY)),
             *[
-                ft.Container(col={"xs": 3, "md": 1}, content=ft.Text(etiqueta, size=12, weight=ft.FontWeight.BOLD, color=NAVY))
-                for etiqueta in ("Sem. 5", "Sem. 9", "Sem. 13", "Final")
+                ft.Container(
+                    col={"xs": 4, "md": 2},
+                    content=ft.Text(etiqueta, size=12, weight=ft.FontWeight.BOLD, color=NAVY),
+                )
+                for etiqueta in ("Semana 5", "Semana 9", "Semana 13", "Final")
             ],
         ])
 
         filas_alumnos = []
         for alumno in grupo["alumnos"]:
-            calificaciones = [
-                alumno[campo]
-                for campo in ("semana_5", "semana_9", "semana_13", "final")
-            ]
+            celdas = []
+            for periodo, campo in periodos_calificacion:
+                valor = alumno[campo]
+                if periodo in disponibles:
+                    entrada = ft.TextField(
+                        value="" if valor is None else formato_calificacion(valor),
+                        hint_text="0 o 70–100",
+                        width=88,
+                        dense=True,
+                        text_size=12,
+                        keyboard_type=ft.KeyboardType.NUMBER,
+                        input_filter=ft.InputFilter(
+                            regex_string=r"^[0-9]*$", allow=True, replacement_string="",
+                        ),
+                    )
+                    aviso_error = ft.Text("", size=10, color=WARN_FG)
+                    celda = ft.Column(spacing=2, controls=[
+                        ft.Row(spacing=0, controls=[
+                            entrada,
+                            ft.IconButton(
+                                icon=ft.Icons.SAVE_OUTLINED,
+                                tooltip=f"Guardar {periodo}",
+                                on_click=lambda e, a=alumno, p=periodo, c=campo,
+                                    i=entrada, aviso=aviso_error:
+                                    guardar_calificacion(a, p, c, i, aviso),
+                            ),
+                        ]),
+                        aviso_error,
+                    ])
+                else:
+                    celda = ft.Text(formato_calificacion(valor), size=13, color=MUTED if valor is None else TEXT)
+                celdas.append(ft.Container(col={"xs": 4, "md": 2}, content=celda))
+
+            valor_final = alumno["final"]
+            if alumno.get("final_confirmada"):
+                celda_final = ft.Row(spacing=3, controls=[
+                    ft.Text(formato_calificacion(valor_final), size=13, color=TEXT),
+                    ft.Icon(ft.Icons.LOCK_OUTLINE, size=14, color=MUTED),
+                ])
+            elif "Final" in disponibles:
+                valores_periodos = [alumno[campo] for _, campo in periodos_calificacion]
+                if all(valor is not None for valor in valores_periodos):
+                    promedio_exacto = sum(
+                        Decimal(str(valor)) for valor in valores_periodos
+                    ) / Decimal(3)
+                    promedio = promedio_exacto.quantize(
+                        Decimal("1"), rounding=ROUND_HALF_UP,
+                    )
+                    final_calculada = (
+                        promedio if promedio_exacto >= 70 else Decimal("0")
+                    )
+                    celda_final = ft.Column(spacing=2, controls=[
+                        ft.Text(f"Promedio final: {promedio:.0f}", size=11, color=MUTED),
+                        ft.TextButton(
+                            "Confirmar",
+                            icon=ft.Icons.LOCK_OUTLINE,
+                            on_click=lambda e, a=alumno, p=promedio, f=final_calculada:
+                                confirmar_final(a, p, f),
+                        ),
+                    ])
+                else:
+                    celda_final = ft.Text("Faltan periodos", size=11, color=MUTED)
+            else:
+                celda_final = ft.Text(formato_calificacion(valor_final), size=13, color=MUTED if valor_final is None else TEXT)
+            celdas.append(ft.Container(col={"xs": 4, "md": 2}, content=celda_final))
+
             filas_alumnos.append(ft.Container(
                 padding=ft.Padding.symmetric(vertical=9),
                 border=ft.Border.only(bottom=ft.BorderSide(1, BORDER)),
                 content=ft.ResponsiveRow(spacing=8, run_spacing=4, controls=[
                     ft.Container(
-                        col={"xs": 12, "md": 5},
+                        col={"xs": 12, "md": 4},
                         content=ft.Column(spacing=2, controls=[
                             ft.Text(alumno["nombre_completo"], size=13, color=TEXT),
                             ft.Text(alumno["numero_control"], size=11, color=MUTED),
                         ]),
                     ),
-                    *[
-                        ft.Container(
-                            col={"xs": 3, "md": 1},
-                            content=ft.Text(
-                                "—" if valor is None else f"{float(valor):.2f}".rstrip("0").rstrip("."),
-                                size=13,
-                                color=MUTED if valor is None else TEXT,
-                            ),
-                        )
-                        for valor in calificaciones
-                    ],
+                    *celdas,
                 ]),
             ))
 
@@ -726,18 +1022,54 @@ def build_inicio_docente(page: ft.Page, usuario: dict, navegar) -> ft.Control:
             ft.ResponsiveRow(spacing=10, run_spacing=10, controls=resumen_horario),
             crear_tarjeta(ft.Column(spacing=12, controls=[
                 ft.Text(
-                    f"Lista de alumnos y calificaciones ({len(grupo['alumnos'])})",
-                    size=19,
-                    weight=ft.FontWeight.BOLD,
-                    color=NAVY,
-                ),
-                ft.Text(
-                    "Las calificaciones muestran los registros disponibles en el sistema.",
+                    (
+                        "Captura una calificación entera: 0 o de 70 a 100. Las evaluaciones se habilitan "
+                        "al inicio de las semanas 5, 9, 13 y 17."
+                    ),
                     size=12,
                     color=MUTED,
                 ),
-                encabezado_calificaciones,
-                ft.Column(spacing=0, controls=filas_alumnos),
+                ft.Text(
+                    (
+                        f"Semana actual: {grupo['semana_actual']}."
+                        if grupo.get("semana_actual") is not None
+                        else "El administrador aún no configuró la fecha de inicio del periodo."
+                    ),
+                    size=12,
+                    color=MUTED,
+                ),
+                ft.Row(wrap=True, controls=[
+                    ft.OutlinedButton(
+                        "Descargar lista de alumnos",
+                        icon=ft.Icons.GROUP_OUTLINED,
+                        on_click=lambda _, gid=grupo["id_grupo"]:
+                            descargar_pdf_docente(
+                                lambda: api.descargar_lista_alumnos_docente(gid),
+                                f"alumnos_{gid}.pdf",
+                            ),
+                    ),
+                    ft.OutlinedButton(
+                        "Descargar lista de calificaciones",
+                        icon=ft.Icons.DOWNLOAD_OUTLINED,
+                        on_click=lambda _, gid=grupo["id_grupo"]:
+                            descargar_pdf_docente(
+                                lambda: api.descargar_calificaciones_docente(gid),
+                                f"calificaciones_{gid}.pdf",
+                            ),
+                    ),
+                ]),
+                ft.ExpansionTile(
+                    title=ft.Text(
+                        "Lista de alumnos y calificaciones",
+                        size=19,
+                        weight=ft.FontWeight.BOLD,
+                        color=NAVY,
+                    ),
+                    controls=[
+                        encabezado_calificaciones,
+                        ft.Column(spacing=0, controls=filas_alumnos),
+                    ],
+                ),
             ]), padding=18),
         ]
         page.update()
@@ -780,16 +1112,23 @@ def build_inicio_docente(page: ft.Page, usuario: dict, navegar) -> ft.Control:
     return ft.Column(expand=True, scroll=ft.ScrollMode.AUTO, spacing=20, controls=[
         titulo_pagina(
             f"Bienvenido, {usuario['nombre']}",
-            "Consulta los horarios y las listas de calificaciones de tus grupos.",
+            "Consulta tus grupos y horarios, y captura las calificaciones disponibles.",
         ),
-        ft.Row(spacing=12, controls=[
-            ft.Container(expand=True, content=selector),
-            ft.OutlinedButton(
+        ft.ResponsiveRow(spacing=12, run_spacing=8, controls=[
+            ft.Container(col={"xs": 12, "md": 6}, content=selector),
+            ft.Container(col={"xs": 6, "md": 3}, content=ft.OutlinedButton(
+                "Descargar grupos y horarios",
+                icon=ft.Icons.DOWNLOAD_OUTLINED,
+                on_click=lambda _: descargar_pdf_docente(
+                    api.descargar_grupos_docente, "mis_grupos_horarios.pdf",
+                ),
+            )),
+            ft.Container(col={"xs": 6, "md": 3}, content=ft.OutlinedButton(
                 "Actualizar",
                 icon=ft.Icons.REFRESH,
                 style=estilo_boton_secundario(),
                 on_click=cargar,
-            ),
+            )),
         ]),
         aviso,
         contenido,
@@ -1131,6 +1470,7 @@ def build_grupos_horarios(page: ft.Page, navegar) -> ft.Control:
     panel_grupo = ft.Column(spacing=16)
     aviso = ft.Text("", size=13, color=WARN_FG, visible=False)
     selector = ft.Dropdown(label="Paquete / grupo", width=300, options=[])
+    vista: ft.Column | None = None
 
     def mostrar_error(ex: ApiError):
         if ex.status == 401:
@@ -1152,7 +1492,14 @@ def build_grupos_horarios(page: ft.Page, navegar) -> ft.Control:
             cargar_paquete()
             snackbar(page, "Asignación docente actualizada.")
         except ApiError as ex:
-            mostrar_error(ex)
+            if ex.status == 401:
+                navegar("/secretaria")
+                return
+            aviso.value = ex.mensaje
+            aviso.visible = True
+            page.update()
+            if vista is not None:
+                page.run_task(vista.scroll_to, offset=0, duration=300)
         except ValueError:
             snackbar(page, "Selecciona una cuenta de maestro válida.")
 
@@ -1281,12 +1628,6 @@ def build_grupos_horarios(page: ft.Page, navegar) -> ft.Control:
             *[_materia_control(materia) for materia in materias],
             crear_tarjeta(ft.Column(spacing=12, controls=[
                 ft.Row(alignment=ft.MainAxisAlignment.SPACE_BETWEEN, controls=[
-                    ft.Text(
-                        "Alumnos del grupo",
-                        size=19,
-                        weight=ft.FontWeight.BOLD,
-                        color=NAVY,
-                    ),
                     ft.OutlinedButton(
                         "Descargar lista PDF",
                         icon=ft.Icons.DOWNLOAD_OUTLINED,
@@ -1294,7 +1635,15 @@ def build_grupos_horarios(page: ft.Page, navegar) -> ft.Control:
                         on_click=descargar_lista,
                     ),
                 ]),
-                ft.Column(spacing=0, controls=filas_alumnos),
+                ft.ExpansionTile(
+                    title=ft.Text(
+                        "Alumnos del grupo",
+                        size=19,
+                        weight=ft.FontWeight.BOLD,
+                        color=NAVY,
+                    ),
+                    controls=[ft.Column(spacing=0, controls=filas_alumnos)],
+                ),
             ]), padding=18),
         ]
         page.update()
@@ -1340,8 +1689,7 @@ def build_grupos_horarios(page: ft.Page, navegar) -> ft.Control:
             page.update()
 
     selector.on_select = cambiar_paquete
-    cargar()
-    return ft.Column(expand=True, scroll=ft.ScrollMode.AUTO, spacing=20, controls=[
+    vista = ft.Column(expand=True, scroll=ft.ScrollMode.AUTO, spacing=20, controls=[
         titulo_pagina(
             "Grupos y horarios",
             "Consulta las listas por sección y vincula las cuentas de maestros con el horario.",
@@ -1358,6 +1706,8 @@ def build_grupos_horarios(page: ft.Page, navegar) -> ft.Control:
         aviso,
         panel_grupo,
     ])
+    cargar()
+    return vista
 
 
 def build_bitacora_admin(page: ft.Page, navegar) -> ft.Control:
@@ -2191,6 +2541,7 @@ class ConsultaExpediente:
         navegar,
         modo_modificacion: bool = False,
         modo_bajas: bool = False,
+        numero_control_inicial: str | None = None,
     ):
         self.page = page
         self.picker = picker
@@ -2253,8 +2604,14 @@ class ConsultaExpediente:
             buscador,
             self.resultado,
         ])
+        if numero_control_inicial:
+            self.entrada.value = numero_control_inicial
+            self.page.run_task(self._buscar_inicial)
 
     # --- acciones -------------------------------------------------------
+    async def _buscar_inicial(self):
+        self.buscar()
+
     def buscar(self, e=None):
         q = (self.entrada.value or "").strip()
         self.entrada.error = None
@@ -2992,8 +3349,16 @@ class ConsultaExpediente:
         ])
 
 
-def build_consultas(page: ft.Page, picker: ft.FilePicker, usuario: dict, navegar) -> ft.Control:
-    return ConsultaExpediente(page, picker, usuario, navegar).vista
+def build_consultas(
+    page: ft.Page,
+    picker: ft.FilePicker,
+    usuario: dict,
+    navegar,
+    numero_control: str | None = None,
+) -> ft.Control:
+    return ConsultaExpediente(
+        page, picker, usuario, navegar, numero_control_inicial=numero_control,
+    ).vista
 
 
 def build_modificacion(page: ft.Page, picker: ft.FilePicker, usuario: dict, navegar) -> ft.Control:
@@ -3018,7 +3383,11 @@ def main(page: ft.Page):
     page.theme_mode = ft.ThemeMode.LIGHT
     page.theme = ft.Theme(color_scheme_seed="#000000")
 
-    sesion: dict = {"usuario": None, "shell": None}
+    sesion: dict = {
+        "usuario": None,
+        "shell": None,
+        "consulta_numero_control": None,
+    }
 
     # FilePicker pertenece a la página y se reutiliza al cambiar de vista.
     selector_archivos = ft.FilePicker()
@@ -3036,6 +3405,10 @@ def main(page: ft.Page):
             "Docente": "/docente",
         }.get(usuario["rol"], "/secretaria")
         navegar(ruta_inicial)
+
+    def consultar_alumno(numero_control: str):
+        sesion["consulta_numero_control"] = numero_control
+        navegar("/consultas")
 
     def cerrar_sesion():
         try:
@@ -3064,18 +3437,23 @@ def main(page: ft.Page):
         if ruta == "/grupos-horarios":
             return build_grupos_horarios(page, navegar)
         if ruta == "/consultas":
-            return build_consultas(page, selector_archivos, usuario, navegar)
+            numero_control = sesion.pop("consulta_numero_control", None)
+            return build_consultas(
+                page, selector_archivos, usuario, navegar, numero_control,
+            )
         if ruta == "/modificacion":
             return build_modificacion(page, selector_archivos, usuario, navegar)
         if ruta == "/bajas":
             return build_bajas(page, selector_archivos, usuario, navegar)
         if ruta == "/administracion/secretarias/alta":
             return build_alta_secretaria(page, navegar)
+        if ruta == "/administracion/periodos":
+            return build_periodos_escolares(page)
         if ruta == "/administracion/secretarias":
             return build_consulta_secretarias(page, navegar)
         if ruta == "/bitacora":
             return build_bitacora_admin(page, navegar)
-        return build_panel(page, navegar)
+        return build_panel(page, navegar, consultar_alumno)
 
     def route_change(e=None):
         # Un token rechazado invalida la sesión local para cerrar el acceso a rutas protegidas.
