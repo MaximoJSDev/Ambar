@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 from .. import reportes, servicios
 from ..constantes import ROL_DOCENTE, ROL_SECRETARIA
 from ..deps import requiere_roles
+from ..esquemas import CalificacionIn
 
 router = APIRouter(prefix="/horarios", tags=["Horarios y grupos"])
 solo_secretaria = requiere_roles(ROL_SECRETARIA)
@@ -144,6 +145,98 @@ def listar_docentes(_: dict = Depends(solo_secretaria)):
 @router.get("/docente/grupos")
 def grupos_del_docente(usuario: dict = Depends(solo_docente)):
     return servicios.listar_grupos_docente(usuario["id_usuario"])
+
+
+def _grupo_docente(usuario: dict, id_grupo: int) -> dict:
+    grupos = servicios.listar_grupos_docente(usuario["id_usuario"])
+    grupo = next((item for item in grupos if item["id_grupo"] == id_grupo), None)
+    if grupo is None:
+        raise HTTPException(404, {"mensaje": "No se encontró el grupo asignado al docente"})
+    return grupo
+
+
+@router.get("/docente/grupos/pdf")
+def descargar_grupos_docente(usuario: dict = Depends(solo_docente)):
+    grupos = servicios.listar_grupos_docente(usuario["id_usuario"])
+    if not grupos:
+        raise HTTPException(409, {"mensaje": "No tienes grupos asignados en el periodo actual"})
+    docente = grupos[0]["docente"]
+    contenido = reportes.generar_grupos_docente_pdf({
+        "docente": docente,
+        "grupos": grupos,
+    })
+    return Response(
+        content=contenido,
+        media_type="application/pdf",
+        headers={"Content-Disposition": 'attachment; filename="mis_grupos_horarios.pdf"'},
+    )
+
+
+@router.get("/docente/grupos/{id_grupo}/alumnos/pdf")
+def descargar_lista_alumnos_docente(
+    id_grupo: int,
+    usuario: dict = Depends(solo_docente),
+):
+    grupo = _grupo_docente(usuario, id_grupo)
+    contenido = reportes.generar_lista_docente_pdf(grupo)
+    return Response(
+        content=contenido,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="alumnos_{id_grupo}.pdf"',
+        },
+    )
+
+
+@router.get("/docente/grupos/{id_grupo}/calificaciones/pdf")
+def descargar_calificaciones_docente(
+    id_grupo: int,
+    usuario: dict = Depends(solo_docente),
+):
+    grupo = _grupo_docente(usuario, id_grupo)
+    contenido = reportes.generar_lista_docente_pdf(grupo, incluir_calificaciones=True)
+    return Response(
+        content=contenido,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="calificaciones_{id_grupo}.pdf"',
+        },
+    )
+
+
+@router.put("/docente/grupos/{id_grupo}/alumnos/{numero_control}/calificaciones/{periodo_evaluacion}")
+def guardar_calificacion(
+    id_grupo: int,
+    numero_control: str,
+    periodo_evaluacion: str,
+    datos: CalificacionIn,
+    usuario: dict = Depends(solo_docente),
+):
+    try:
+        return servicios.guardar_calificacion_docente(
+            usuario["id_usuario"], id_grupo, numero_control,
+            periodo_evaluacion, datos.valor,
+        )
+    except servicios.NoEncontrado:
+        _not_found()
+    except servicios.Conflicto as ex:
+        raise HTTPException(409, {"mensaje": ex.mensaje})
+
+
+@router.post("/docente/grupos/{id_grupo}/alumnos/{numero_control}/calificaciones/final")
+def confirmar_calificacion_final(
+    id_grupo: int,
+    numero_control: str,
+    usuario: dict = Depends(solo_docente),
+):
+    try:
+        return servicios.confirmar_calificacion_final_docente(
+            usuario["id_usuario"], id_grupo, numero_control,
+        )
+    except servicios.NoEncontrado:
+        _not_found()
+    except servicios.Conflicto as ex:
+        raise HTTPException(409, {"mensaje": ex.mensaje})
 
 
 @router.put("/grupos/{id_grupo}/docente")

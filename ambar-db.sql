@@ -172,9 +172,24 @@ CREATE TABLE calificaciones (
     id_inscripcion INT NOT NULL,
     periodo_evaluacion ENUM('Semana 5', 'Semana 9', 'Semana 13', 'Final') NOT NULL,
     valor DECIMAL(5,2),
+    confirmada BOOLEAN NOT NULL DEFAULT FALSE,
     FOREIGN KEY (id_inscripcion) REFERENCES inscripciones_grupos(id_inscripcion),
     UNIQUE (id_inscripcion, periodo_evaluacion),
-    CONSTRAINT chk_calificacion CHECK (valor IS NULL OR (valor >= 0 AND valor <= 100))
+    CONSTRAINT chk_calificacion CHECK (
+        valor IS NULL OR (
+            valor = FLOOR(valor)
+            AND (valor = 0 OR (valor >= 70 AND valor <= 100))
+        )
+    )
+);
+
+CREATE TABLE periodos_escolares (
+    periodo VARCHAR(20) PRIMARY KEY,
+    fecha_inicio DATE NOT NULL,
+    actualizado_por INT NOT NULL,
+    actualizado_en TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+        ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (actualizado_por) REFERENCES usuarios(id_usuario)
 );
 
 CREATE TABLE registro_asistencia (

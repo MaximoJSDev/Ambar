@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from .. import servicios
 from ..constantes import ROL_ADMINISTRADOR
 from ..deps import requiere_roles
-from ..esquemas import SecretariaCreate
+from ..esquemas import PeriodoEscolarIn, SecretariaCreate
 
 router = APIRouter(prefix="/administracion", tags=["Administración"])
 solo_administrador = requiere_roles(ROL_ADMINISTRADOR)
@@ -18,6 +18,24 @@ def listar_secretarias(_: dict = Depends(solo_administrador)):
 @router.get("/bitacora")
 def listar_bitacora(_: dict = Depends(solo_administrador)):
     return servicios.listar_bitacora_accesos()
+
+
+@router.get("/periodos")
+def listar_periodos(_: dict = Depends(solo_administrador)):
+    return servicios.listar_periodos_escolares()
+
+
+@router.put("/periodos")
+def guardar_periodo(
+    datos: PeriodoEscolarIn,
+    usuario: dict = Depends(solo_administrador),
+):
+    try:
+        return servicios.guardar_periodo_escolar(
+            datos.periodo, datos.fecha_inicio, usuario["id_usuario"], datos.periodo_anterior,
+        )
+    except servicios.Conflicto as ex:
+        raise HTTPException(409, {"mensaje": ex.mensaje})
 
 
 @router.post("/secretarias", status_code=status.HTTP_201_CREATED)

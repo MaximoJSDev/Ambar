@@ -2,6 +2,7 @@
 from datetime import date
 from io import BytesIO
 from pathlib import Path
+import unicodedata
 from xml.sax.saxutils import escape
 
 from reportlab.lib import colors
@@ -31,6 +32,29 @@ MEMBRETE = Path(__file__).resolve().parent / "assets" / "membrete_institucional.
 def _texto(valor: object) -> str:
     texto = "—" if valor is None or str(valor).strip() == "" else str(valor)
     return escape(texto).replace("\n", "<br/>")
+
+
+def _clave_orden_alumno(alumno: dict) -> tuple[str, str, str, str]:
+    def normalizar(valor: object) -> str:
+        texto = unicodedata.normalize("NFKD", str(valor or "").casefold())
+        return "".join(caracter for caracter in texto if not unicodedata.combining(caracter))
+
+    nombre = alumno.get("nombre_completo", "")
+    return (
+        normalizar(alumno.get("apellido_paterno") or nombre),
+        normalizar(alumno.get("apellido_materno")),
+        normalizar(alumno.get("nombres")),
+        normalizar(alumno.get("numero_control")),
+    )
+
+
+def _nombre_alumno(alumno: dict) -> str:
+    apellidos_y_nombres = (
+        alumno.get("apellido_paterno"),
+        alumno.get("apellido_materno"),
+        alumno.get("nombres"),
+    )
+    return " ".join(filter(None, apellidos_y_nombres)) or alumno.get("nombre_completo", "")
 
 
 def _crear_estilos():
@@ -443,7 +467,8 @@ def generar_lista_grupo_pdf(datos: dict) -> bytes:
         Paragraph('<font color="#FFFFFF"><b>Apellidos y nombre(s)</b></font>', estilo_tabla),
         Paragraph('<font color="#FFFFFF"><b>Correo institucional</b></font>', estilo_tabla),
     ]]
-    for indice, alumno in enumerate(datos["alumnos"], 1):
+    alumnos = sorted(datos["alumnos"], key=_clave_orden_alumno)
+    for indice, alumno in enumerate(alumnos, 1):
         nombre = " ".join(
             parte for parte in (
                 alumno["apellido_paterno"], alumno["apellido_materno"], alumno["nombres"],
@@ -482,6 +507,136 @@ def generar_lista_grupo_pdf(datos: dict) -> bytes:
         ),
         Paragraph(
             f"Alumnos inscritos: <b>{len(datos['alumnos'])}</b>",
+            estilos["ReportSubtitle"],
+        ),
+        Spacer(1, 4 * mm),
+        tabla,
+    ]
+    documento.build(elementos, onFirstPage=_dibujar_membrete, onLaterPages=_dibujar_membrete)
+    return buffer.getvalue()
+
+
+def generar_grupos_docente_pdf(datos: dict) -> bytes:
+    """Genera el horario de los grupos asignados a un docente."""
+    buffer = BytesIO()
+    docente = datos["docente"]
+    documento = _documento_horario(
+        buffer,
+        f"Grupos y horarios {docente}",
+        "Sistema Integral de Gestión Escolar",
+    )
+    estilos = _crear_estilos()
+    estilo = _estilo_tabla_horario()
+    filas = [[
+        Paragraph(f'<font color="#FFFFFF"><b>{_texto(titulo)}</b></font>', estilo)
+        for titulo in ("Grupo", "Materia", "Horario", "Aula", "Turno", "Periodo")
+    ]]
+    for grupo in datos["grupos"]:
+        horarios = "<br/>".join(
+            f"{_texto(item['dia'])}: {_texto(item['inicio'])}–{_texto(item['fin'])}"
+            for item in grupo["horarios"]
+        ) or "Sin horario publicado"
+        filas.append([
+            Paragraph(_texto(grupo["grupo"]), estilo),
+            Paragraph(_texto(grupo["nombre_materia"]), estilo),
+            Paragraph(horarios, estilo),
+            Paragraph(_texto(grupo["aula"]), estilo),
+            Paragraph(_texto(grupo["turno"]), estilo),
+            Paragraph(_texto(grupo["periodo"]), estilo),
+        ])
+
+    tabla = Table(
+        filas,
+        colWidths=[26 * mm, 65 * mm, 75 * mm, 25 * mm, 28 * mm, 34 * mm],
+        repeatRows=1,
+        hAlign="LEFT",
+    )
+    tabla.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), NAVY),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("GRID", (0, 0), (-1, -1), 0.4, LINE),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 5),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+    ]))
+    elementos = [
+        Paragraph("GRUPOS Y HORARIOS DEL DOCENTE", estilos["ReportTitle"]),
+        Paragraph(
+            f"Docente: <b>{_texto(docente)}</b> · "
+            f"Grupos asignados: <b>{len(datos['grupos'])}</b>",
+            estilos["ReportSubtitle"],
+        ),
+        Spacer(1, 4 * mm),
+        tabla,
+    ]
+    documento.build(elementos, onFirstPage=_dibujar_membrete, onLaterPages=_dibujar_membrete)
+    return buffer.getvalue()
+
+
+def generar_lista_docente_pdf(datos: dict, incluir_calificaciones: bool = False) -> bytes:
+    """Genera una lista membretada de alumnos o de calificaciones de un grupo docente."""
+    buffer = BytesIO()
+    grupo = datos
+    docente = grupo["docente"]
+    documento = _documento_horario(
+        buffer,
+        f"Lista {grupo['grupo']} {grupo['nombre_materia']}",
+        "Sistema Integral de Gestión Escolar",
+    )
+    estilos = _crear_estilos()
+    estilo = _estilo_tabla_horario()
+    encabezados = ["No.", "Número de control", "Alumno"]
+    anchos = [15 * mm, 40 * mm, 105 * mm]
+    if incluir_calificaciones:
+        encabezados.extend(("Sem. 5", "Sem. 9", "Sem. 13", "Final"))
+        anchos.extend([23 * mm] * 4)
+    filas = [[
+        Paragraph(f'<font color="#FFFFFF"><b>{_texto(titulo)}</b></font>', estilo)
+        for titulo in encabezados
+    ]]
+    alumnos = sorted(grupo["alumnos"], key=_clave_orden_alumno)
+    for indice, alumno in enumerate(alumnos, 1):
+        fila = [
+            Paragraph(str(indice), estilo),
+            Paragraph(_texto(alumno["numero_control"]), estilo),
+            Paragraph(_texto(_nombre_alumno(alumno)), estilo),
+        ]
+        if incluir_calificaciones:
+            fila.extend(
+                Paragraph(
+                    "—" if alumno[campo] is None else _texto(int(alumno[campo])),
+                    estilo,
+                )
+                for campo in ("semana_5", "semana_9", "semana_13", "final")
+            )
+        filas.append(fila)
+
+    tabla = Table(filas, colWidths=anchos, repeatRows=1, hAlign="LEFT")
+    tabla.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), NAVY),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("GRID", (0, 0), (-1, -1), 0.4, LINE),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 5),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+    ]))
+    elementos = [
+        Paragraph(
+            "LISTA DE CALIFICACIONES" if incluir_calificaciones else "LISTA DE ALUMNOS",
+            estilos["ReportTitle"],
+        ),
+        Paragraph(
+            f"Docente: <b>{_texto(docente)}</b> · Grupo: <b>{_texto(grupo['grupo'])}</b> · "
+            f"Materia: <b>{_texto(grupo['nombre_materia'])}</b>",
+            estilos["ReportSubtitle"],
+        ),
+        Paragraph(
+            f"Periodo: <b>{_texto(grupo['periodo'])}</b> · "
+            f"Alumnos: <b>{len(alumnos)}</b>",
             estilos["ReportSubtitle"],
         ),
         Spacer(1, 4 * mm),

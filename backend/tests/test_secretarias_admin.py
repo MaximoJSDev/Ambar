@@ -1,4 +1,5 @@
 import unittest
+import datetime
 from datetime import timedelta
 from unittest.mock import patch
 
@@ -27,6 +28,69 @@ class GestionSecretariasAdminTests(unittest.TestCase):
         self.usuario["rol"] = "Secretaría"
         respuesta = self.client.get("/administracion/bitacora")
         self.assertEqual(respuesta.status_code, 403)
+
+    def test_configurar_periodo_requiere_administrador(self):
+        self.usuario["rol"] = "Secretaría"
+        with patch("backend.routers.admin.servicios.guardar_periodo_escolar") as guardar:
+            respuesta = self.client.put(
+                "/administracion/periodos",
+                json={"periodo": "AGO-DIC 2026", "fecha_inicio": "2026-08-24"},
+            )
+
+        self.assertEqual(respuesta.status_code, 403)
+        guardar.assert_not_called()
+
+    def test_administrador_configura_fecha_de_inicio_del_periodo(self):
+        periodo = {
+            "periodo": "AGO-DIC 2026",
+            "fecha_inicio": "2026-08-24",
+            "actualizado_en": "2026-08-20T10:00:00",
+        }
+        with patch(
+            "backend.routers.admin.servicios.guardar_periodo_escolar",
+            return_value=periodo,
+        ) as guardar:
+            respuesta = self.client.put(
+                "/administracion/periodos",
+                json={"periodo": "AGO-DIC 2026", "fecha_inicio": "2026-08-24"},
+            )
+
+        self.assertEqual(respuesta.status_code, 200)
+        guardar.assert_called_once_with(
+            "AGO-DIC 2026", datetime.date(2026, 8, 24), 1,
+            None,
+        )
+
+    def test_administrador_renombra_periodo_y_actualiza_sus_grupos(self):
+        with patch(
+            "backend.routers.admin.servicios.guardar_periodo_escolar",
+            return_value={"periodo": "AGO-DIC 2026", "fecha_inicio": "2026-08-24"},
+        ) as guardar:
+            respuesta = self.client.put(
+                "/administracion/periodos",
+                json={
+                    "periodo": "AGO-DIC 2026",
+                    "periodo_anterior": "ENE-JUN 2026",
+                    "fecha_inicio": "2026-08-24",
+                },
+            )
+
+        self.assertEqual(respuesta.status_code, 200)
+        guardar.assert_called_once_with(
+            "AGO-DIC 2026", datetime.date(2026, 8, 24), 1, "ENE-JUN 2026",
+        )
+
+    def test_periodo_anterior_debe_cumplir_el_formato_escolar(self):
+        respuesta = self.client.put(
+            "/administracion/periodos",
+            json={
+                "periodo": "AGO-DIC 2026",
+                "periodo_anterior": "Periodo incorrecto",
+                "fecha_inicio": "2026-08-24",
+            },
+        )
+
+        self.assertEqual(respuesta.status_code, 422)
 
     def test_administrador_puede_consultar_bitacora(self):
         registros = [{

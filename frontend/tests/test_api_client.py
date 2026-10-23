@@ -139,6 +139,80 @@ class ApiClientTests(unittest.TestCase):
             ("DELETE", "/administracion/secretarias/12"),
         ])
 
+    def test_calificaciones_y_fechas_de_periodos_usan_sus_endpoints(self):
+        solicitudes = []
+
+        def responder(request: httpx.Request) -> httpx.Response:
+            solicitudes.append((request.method, request.url.path, request.read()))
+            return httpx.Response(200, json={"valor": 85})
+
+        cliente = ApiClient()
+        cliente._http.close()
+        cliente._http = httpx.Client(
+            base_url="http://test",
+            transport=httpx.MockTransport(responder),
+        )
+        try:
+            cliente.guardar_calificacion_docente(7, "26320700", "Semana 5", 85)
+            cliente.confirmar_calificacion_final(7, "26320700")
+            cliente.guardar_periodo_escolar("AGO-DIC 2026", "2026-08-24")
+            cliente.guardar_periodo_escolar(
+                "AGO-DIC 2026", "2026-08-24", "ENE-JUN 2026",
+            )
+        finally:
+            cliente._http.close()
+
+        self.assertEqual(
+            [(metodo, ruta) for metodo, ruta, _ in solicitudes],
+            [
+                ("PUT", "/horarios/docente/grupos/7/alumnos/26320700/calificaciones/Semana 5"),
+                ("POST", "/horarios/docente/grupos/7/alumnos/26320700/calificaciones/final"),
+                ("PUT", "/administracion/periodos"),
+                ("PUT", "/administracion/periodos"),
+            ],
+        )
+        self.assertEqual(json.loads(solicitudes[0][2]), {"valor": 85})
+        self.assertEqual(json.loads(solicitudes[2][2]), {
+            "periodo": "AGO-DIC 2026",
+            "fecha_inicio": "2026-08-24",
+            "periodo_anterior": None,
+        })
+        self.assertEqual(json.loads(solicitudes[3][2]), {
+            "periodo": "AGO-DIC 2026",
+            "fecha_inicio": "2026-08-24",
+            "periodo_anterior": "ENE-JUN 2026",
+        })
+
+    def test_descargas_docentes_usan_endpoints_de_grupos_listas_y_calificaciones(self):
+        solicitudes = []
+
+        def responder(request: httpx.Request) -> httpx.Response:
+            solicitudes.append(request.url.path)
+            return httpx.Response(
+                200,
+                content=b"%PDF-test",
+                headers={"content-type": "application/pdf"},
+            )
+
+        cliente = ApiClient()
+        cliente._http.close()
+        cliente._http = httpx.Client(
+            base_url="http://test",
+            transport=httpx.MockTransport(responder),
+        )
+        try:
+            self.assertEqual(cliente.descargar_grupos_docente(), b"%PDF-test")
+            self.assertEqual(cliente.descargar_lista_alumnos_docente(7), b"%PDF-test")
+            self.assertEqual(cliente.descargar_calificaciones_docente(7), b"%PDF-test")
+        finally:
+            cliente._http.close()
+
+        self.assertEqual(solicitudes, [
+            "/horarios/docente/grupos/pdf",
+            "/horarios/docente/grupos/7/alumnos/pdf",
+            "/horarios/docente/grupos/7/calificaciones/pdf",
+        ])
+
     def test_bitacora_usa_endpoint_admin(self):
         def responder(request: httpx.Request) -> httpx.Response:
             self.assertEqual(request.method, "GET")

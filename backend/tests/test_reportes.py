@@ -1,12 +1,41 @@
 import unittest
 from unittest.mock import patch
 
-from backend.reportes import generar_expediente_pdf
+from backend.reportes import _clave_orden_alumno, generar_expediente_pdf
 from backend.routers.alumnos import descargar_expediente_pdf
 from backend.main import app
 
 
 class ReporteExpedienteTests(unittest.TestCase):
+    def test_clave_de_lista_ordena_primero_por_apellido_sin_distinguir_acentos(self):
+        alumnos = [
+            {
+                "apellido_paterno": "Zúñiga",
+                "apellido_materno": "López",
+                "nombres": "Ana",
+                "numero_control": "3",
+            },
+            {
+                "apellido_paterno": "Álvarez",
+                "apellido_materno": "Pérez",
+                "nombres": "Luis",
+                "numero_control": "2",
+            },
+            {
+                "apellido_paterno": "Alvarez",
+                "apellido_materno": "García",
+                "nombres": "Ana",
+                "numero_control": "1",
+            },
+        ]
+
+        ordenados = sorted(alumnos, key=_clave_orden_alumno)
+
+        self.assertEqual(
+            [alumno["numero_control"] for alumno in ordenados],
+            ["1", "2", "3"],
+        )
+
     def setUp(self):
         self.datos = {
             "numero_control": "26320700",
