@@ -113,7 +113,7 @@ class ValidacionAltaAntesDePersistirTests(unittest.TestCase):
             "correo": "." * 20,
             "domicilio": "." * 20,
             "preparatoria": "." * 20,
-            "promedio": 6.99,
+            "promedio": 5.99,
             "celular_emergencia": "." * 10,
             "correo_emergencia": "." * 20,
             "alergias": "...!!!",
