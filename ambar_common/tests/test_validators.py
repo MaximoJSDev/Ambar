@@ -172,6 +172,12 @@ class ValidacionesAltasTests(unittest.TestCase):
         self.assertIsNotNone(v.validar_correo(f"{'a' * 91}@example.com", maximo=100))
         self.assertIsNone(v.validar_correo(f"{'a' * 135}@example.com"))
 
+    def test_correo_con_dominio_publico_se_valida_sin_red(self):
+        self.assertIsNone(v.validar_correo_con_dominio("alumno@gmail.com"))
+        self.assertIsNone(v.validar_correo_con_dominio("alumno@dominio.example"))
+        self.assertIn("gmail.com", v.DOMINIOS_CORREO_PUBLICOS)
+        self.assertIn("outlook.com", v.DOMINIOS_CORREO_PUBLICOS)
+
     def test_domicilio_rechaza_simbolos_y_limita_el_tamano_de_base_de_datos(self):
         self.assertIsNone(v.validar_domicilio("Calle 1, Colonia Centro, Acapulco"))
         self.assertIsNotNone(v.validar_domicilio("." * 20))
@@ -210,10 +216,14 @@ class ValidacionesAltasTests(unittest.TestCase):
         self.assertIsNone(v.validar_celular_emergencia("781-123-4567", "7441234567"))
         self.assertIsNotNone(v.validar_celular_emergencia("744 123 4567", "7441234567"))
         self.assertIsNone(
-            v.validar_correo_emergencia("contacto@example.com", "alumno@example.com", 100)
+            v.validar_correo_emergencia(
+                "contacto@gmail.com", "alumno@outlook.com", 100
+            )
         )
         self.assertIsNotNone(
-            v.validar_correo_emergencia("ALUMNO@example.com", "alumno@example.com", 100)
+            v.validar_correo_emergencia(
+                "ALUMNO@GMAIL.COM", "alumno@gmail.com", 100
+            )
         )
         self.assertIsNotNone(
             v.validar_correo_emergencia(f"{'a' * 91}@example.com", maximo=100)

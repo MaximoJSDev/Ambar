@@ -2067,7 +2067,7 @@ class FormAltas:
             self.genero.error_text = v.validar_genero(self.genero.value)
             paso_valido &= self.genero.error_text is None
             paso_valido &= self._requerido(self.celular, v.validar_celular)
-            paso_valido &= self._requerido(self.correo, v.validar_correo, maximo=100)
+            paso_valido &= self._requerido(self.correo, v.validar_correo_con_dominio, maximo=100)
             paso_valido &= self._requerido(self.domicilio, v.validar_domicilio)
             if self.ficha.error is None and self.curp.error is None:
                 paso_valido &= self._no_duplicado()

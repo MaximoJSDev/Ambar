@@ -1,7 +1,7 @@
-"""Validaciones puras (sin dependencia de Flet) para el sistema SIGE.
+"""Validaciones compartidas (sin dependencia de Flet) para el sistema SIGE.
 
 Cada validador recibe el texto del campo y devuelve un mensaje de error
-(str) o None si el valor es válido. Así se pueden probar sin abrir la app.
+(str) o None si el valor es válido.
 """
 import datetime
 import os
@@ -28,6 +28,16 @@ PUNTUACION_DESCRIPTIVA = " .,#°ºª'’()/&-;:+"
 EDAD_MINIMA = 12
 EDAD_MAXIMA = 80
 DOMINIO_CORREO_INSTITUCIONAL = "@acapulco.tecnm.mx"
+DOMINIOS_CORREO_PUBLICOS = frozenset({
+    "gmail.com", "googlemail.com",
+    "hotmail.com", "hotmail.com.mx", "hotmail.es",
+    "outlook.com", "outlook.com.mx", "outlook.es",
+    "live.com", "live.com.mx", "msn.com",
+    "yahoo.com", "yahoo.com.mx", "yahoo.es", "ymail.com",
+    "icloud.com", "me.com", "mac.com",
+    "aol.com", "proton.me", "protonmail.com", "pm.me",
+    "gmx.com", "gmx.net", "zoho.com", "yandex.com",
+})
 NOMBRE_MIN, NOMBRE_MAX = 3, 50
 PROMEDIO_MIN, PROMEDIO_MAX = 7, 10
 MAX_PDF_MB = 500                    # límite por archivo (Algoritmo 3, paso 3)
@@ -202,6 +212,18 @@ def validar_correo(valor: str, maximo: int = 150) -> str | None:
     return None
 
 
+def validar_correo_con_dominio(valor: str, maximo: int = 150) -> str | None:
+    error = validar_correo(valor, maximo)
+    if error:
+        return error
+    dominio = valor.strip().rsplit("@", 1)[1].lower()
+    if dominio not in DOMINIOS_CORREO_PUBLICOS:
+        # Los dominios personalizados se aceptan por formato, sin comprobarlos.
+        return None
+    # Los proveedores públicos de esta lista se consideran conocidos sin red.
+    return None
+
+
 def validar_correo_institucional(valor: str) -> str | None:
     error = validar_correo(valor)
     if error:
@@ -286,7 +308,7 @@ def validar_correo_emergencia(
     correo_alumno: str = "",
     maximo: int = 150,
 ) -> str | None:
-    err = validar_correo(valor, maximo)
+    err = validar_correo_con_dominio(valor, maximo)
     if err:
         return err
     if correo_alumno and valor.strip().lower() == correo_alumno.strip().lower():
