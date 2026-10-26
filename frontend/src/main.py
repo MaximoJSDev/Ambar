@@ -1999,19 +1999,32 @@ class FormAltas:
         return True
 
     def _no_duplicado(self) -> bool:
-        """Pregunta al servidor si la ficha o la CURP ya están registradas."""
+        """Pregunta al servidor si algún identificador ya está registrado."""
         try:
-            duplicados = api.verificar(self._texto_campo(self.ficha), self._texto_campo(self.curp).upper())
+            duplicados = api.verificar(
+                ficha=self._texto_campo(self.ficha),
+                curp=self._texto_campo(self.curp).upper(),
+                nss=self._texto_campo(self.nss),
+                rfc=self._texto_campo(self.rfc).upper(),
+                ine=self._texto_campo(self.ine).upper(),
+                correo=self._texto_campo(self.correo),
+            )
         except ApiError:
             # La consulta es preventiva; el servidor valida de nuevo al guardar el alta.
             return True
+        campos = {
+            "ficha": (self.ficha, "Esta ficha ya está registrada"),
+            "curp": (self.curp, "Esta CURP ya está registrada"),
+            "nss": (self.nss, "Este NSS ya está registrado"),
+            "rfc": (self.rfc, "Este RFC ya está registrado"),
+            "ine": (self.ine, "Esta INE ya está registrada"),
+            "correo": (self.correo, "Este correo personal ya está registrado"),
+        }
         sin_duplicados = True
-        if duplicados.get("ficha"):
-            self.ficha.error = "Esta ficha ya está registrada"
-            sin_duplicados = False
-        if duplicados.get("curp"):
-            self.curp.error = "Esta CURP ya está registrada"
-            sin_duplicados = False
+        for clave, (campo, mensaje) in campos.items():
+            if duplicados.get(clave):
+                campo.error = mensaje
+                sin_duplicados = False
         return sin_duplicados
 
     def validar_paso(self, paso: int) -> bool:
@@ -2033,6 +2046,7 @@ class FormAltas:
                 fecha=fecha_referencia,
                 apellido_paterno=self._texto_campo(self.ap_paterno),
                 apellido_materno=self._texto_campo(self.ap_materno),
+                genero=self.genero.value,
             )
             mayor_de_18 = (
                 self.fecha is not None
@@ -3046,7 +3060,7 @@ class ConsultaExpediente:
     def _editar_alumno(self, e=None):
         d = self.datos
         p, c, a = d["personales"], d["contacto"], d["academicos"]
-        genero = next((key for key, valor in v.GENEROS.items() if valor == p["genero"]), "no_especifica")
+        genero = next((key for key, valor in v.GENEROS.items() if valor == p["genero"]), None)
         campos = {
             "ficha": crear_campo_texto(value=a["numero_ficha"], label="Número de ficha"),
             "nombre": crear_campo_texto(value=p["nombres"], label="Nombre(s)", max_length=50),

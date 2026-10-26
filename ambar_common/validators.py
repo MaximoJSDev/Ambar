@@ -38,7 +38,12 @@ GENEROS = {
     "hombre": "Hombre",
     "mujer": "Mujer",
     "no_binario": "No binario",
-    "no_especifica": "Prefiero no especificar",
+}
+
+SEXO_CURP_POR_GENERO = {
+    "hombre": "H",
+    "mujer": "M",
+    "no_binario": "X",
 }
 
 
@@ -143,6 +148,7 @@ def validar_curp(
     fecha: datetime.date | None = None,
     apellido_paterno: str | None = None,
     apellido_materno: str | None = None,
+    genero: str | None = None,
 ) -> str | None:
     v = valor.strip().upper()
     if len(v) != 18:
@@ -155,6 +161,9 @@ def validar_curp(
         prefijo_esperado = prefijo_curp_apellidos(apellido_paterno, apellido_materno)
         if v[:3] != prefijo_esperado:
             return "La CURP no coincide con los apellidos ingresados"
+    sexo_esperado = SEXO_CURP_POR_GENERO.get(genero)
+    if sexo_esperado and v[10] != sexo_esperado:
+        return "El género no coincide con el carácter de sexo de la CURP"
     return None
 
 

@@ -135,6 +135,22 @@ class ValidacionesAltasTests(unittest.TestCase):
         )
         self.assertEqual(v.prefijo_curp_apellidos("De la Cruz", "Ñúñez"), "CUX")
 
+    def test_curp_debe_coincidir_con_el_genero(self):
+        curp_hombre = "CAJG050302HGRSSLA4"
+        curp_mujer = "CAJG050302MGRSSLA4"
+        curp_no_binario = "CAJG050302XGRSSLA4"
+
+        self.assertIsNone(v.validar_curp(curp_hombre, genero="hombre"))
+        self.assertIsNone(v.validar_curp(curp_mujer, genero="mujer"))
+        self.assertIsNone(v.validar_curp(curp_no_binario, genero="no_binario"))
+        self.assertIsNotNone(v.validar_curp(curp_mujer, genero="hombre"))
+        self.assertIsNotNone(v.validar_curp(curp_hombre, genero="mujer"))
+        self.assertIsNotNone(v.validar_curp(curp_hombre, genero="no_binario"))
+
+    def test_opciones_de_genero_no_incluyen_prefiero_no_especificar(self):
+        self.assertNotIn("no_especifica", v.GENEROS)
+        self.assertIsNotNone(v.validar_genero("no_especifica"))
+
     def test_correo_institucional_requiere_dominio_tecnm(self):
         self.assertIsNone(v.validar_correo_institucional("persona@acapulco.tecnm.mx"))
         self.assertIsNone(v.validar_correo_institucional("PERSONA@ACAPULCO.TECNM.MX"))

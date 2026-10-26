@@ -67,6 +67,36 @@ class ValidacionAltaAntesDePersistirTests(unittest.TestCase):
 
         self.assertEqual(validar_alta(datos), {})
 
+    def test_consulta_preventiva_detecta_duplicados_de_identificadores(self):
+        duplicados = {
+            "nss": True,
+            "rfc": True,
+            "ine": True,
+            "correo": True,
+        }
+        with patch(
+            "backend.routers.alumnos.servicios.verificar_duplicados",
+            return_value=duplicados,
+        ) as verificar:
+            respuesta = self.client.get(
+                "/alumnos/verificar",
+                params={
+                    "ficha": "2026123456",
+                    "curp": "CAJG050302HGRSSLA4",
+                    "nss": "12345678901",
+                    "rfc": "CAJG050302AB1",
+                    "ine": "CASTAN05030212H100",
+                    "correo": "alumno@example.com",
+                },
+            )
+
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertEqual(respuesta.json(), duplicados)
+        verificar.assert_called_once_with(
+            "2026123456", "CAJG050302HGRSSLA4", "12345678901",
+            "CAJG050302AB1", "CASTAN05030212H100", "alumno@example.com",
+        )
+
     def test_rechaza_campos_invalidos_sin_llamar_a_persistencia(self):
         casos_invalidos = {
             "ficha": "." * 10,
@@ -177,6 +207,7 @@ class ValidacionAltaAntesDePersistirTests(unittest.TestCase):
     def test_curp_debe_coincidir_con_apellidos_y_adultos_requieren_rfc_e_ine(self):
         casos_invalidos = (
             ({"ap_paterno": "Lopez"}, "curp"),
+            ({"genero": "hombre", "curp": "CAJG050302MGRSSLA4"}, "curp"),
             ({"rfc": None}, "rfc"),
             ({"ine": None}, "ine"),
         )
