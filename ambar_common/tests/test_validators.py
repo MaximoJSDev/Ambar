@@ -151,6 +151,15 @@ class ValidacionesAltasTests(unittest.TestCase):
         self.assertNotIn("no_especifica", v.GENEROS)
         self.assertIsNotNone(v.validar_genero("no_especifica"))
 
+    def test_tipo_sangre_solo_acepta_las_opciones_disponibles(self):
+        for tipo in v.TIPOS_SANGRE:
+            with self.subTest(tipo=tipo):
+                self.assertIsNone(v.validar_tipo_sangre(tipo))
+
+        for tipo in (None, "", "C+", "o+"):
+            with self.subTest(tipo=tipo):
+                self.assertIsNotNone(v.validar_tipo_sangre(tipo))
+
     def test_correo_institucional_requiere_dominio_tecnm(self):
         self.assertIsNone(v.validar_correo_institucional("persona@acapulco.tecnm.mx"))
         self.assertIsNone(v.validar_correo_institucional("PERSONA@ACAPULCO.TECNM.MX"))

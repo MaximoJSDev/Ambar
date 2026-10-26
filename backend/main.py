@@ -26,6 +26,11 @@ async def lifespan(_: FastAPI):
             conn.execute(text(
                 "ALTER TABLE alumnos ADD COLUMN eliminado BOOLEAN NOT NULL DEFAULT FALSE"
             ))
+        if conn.execute(text("SHOW COLUMNS FROM alumnos LIKE 'tipo_sangre'")).first() is None:
+            conn.execute(text(
+                "ALTER TABLE alumnos ADD COLUMN tipo_sangre "
+                "ENUM('O+', 'O-', 'A+', 'A-', 'B+', 'B-', 'AB+', 'AB-') NULL"
+            ))
         conn.execute(text("""CREATE TABLE IF NOT EXISTS historial_alumnos (
             id_historial INT AUTO_INCREMENT PRIMARY KEY,
             numero_control VARCHAR(20) NOT NULL,

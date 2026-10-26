@@ -103,6 +103,7 @@ class AltaIn(BaseModel):
     promedio: float = Field(allow_inf_nan=False)
     celular_emergencia: str
     correo_emergencia: str
+    tipo_sangre: str
     alergias: str = "Ninguna"
 
     @field_validator("curp", "rfc", "ine")

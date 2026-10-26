@@ -244,6 +244,7 @@ def generar_expediente_pdf(datos: dict) -> bytes:
         ("Correo institucional", contacto.get("correo_institucional")),
         ("Teléfono de emergencia", contacto.get("celular_emergencia")),
         ("Correo de emergencia", contacto.get("correo_emergencia")),
+        ("Tipo de sangre", contacto.get("tipo_sangre")),
         ("Alergias o información de salud", contacto.get("alergias")),
     ], ancho_contenido, estilos))
 
