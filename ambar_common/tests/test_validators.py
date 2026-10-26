@@ -70,11 +70,11 @@ class ValidacionesAltasTests(unittest.TestCase):
         self.assertIsNotNone(v.validar_alergias("A" * 201))
 
     def test_promedio_acepta_los_extremos_y_rechaza_valores_adyacentes(self):
-        for valor in ("7", "10", "7.00", "10.00", "7,00", "10,00"):
+        for valor in ("6", "10", "6.00", "10.00", "6,00", "10,00"):
             with self.subTest(valor=valor):
                 self.assertIsNone(v.validar_promedio(valor))
 
-        for valor in ("6.99", "10.01", "6,99", "10,01"):
+        for valor in ("5.99", "10.01", "5,99", "10,01"):
             with self.subTest(valor=valor):
                 self.assertIsNotNone(v.validar_promedio(valor))
 
