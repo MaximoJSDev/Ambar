@@ -106,6 +106,7 @@ _CAMPOS_HISTORIAL = {
     "correo_personal": ("Contacto", "Correo personal"),
     "correo_emergencia": ("Contacto", "Correo de emergencia"),
     "correo_institucional": ("Contacto", "Correo institucional"),
+    "tipo_sangre": ("Contacto y salud", "Tipo de sangre"),
     "alergias": ("Contacto y salud", "Alergias"),
     "preparatoria_procedencia": ("Trayectoria académica", "Preparatoria de procedencia"),
     "promedio_preparatoria": ("Trayectoria académica", "Promedio de preparatoria"),
@@ -1835,6 +1836,15 @@ class FormAltas:
         self.cel_emerg = crear_campo_texto("Número de 10 dígitos", keyboard_type=ft.KeyboardType.PHONE,
                             input_filter=ft.NumbersOnlyInputFilter())
         self.correo_emerg = crear_campo_texto("Correo del contacto de emergencia", keyboard_type=ft.KeyboardType.EMAIL)
+        self.tipo_sangre = ft.Dropdown(
+            hint_text="Selecciona",
+            text_size=13,
+            border_radius=6,
+            border_color=BORDER,
+            expand=True,
+            options=[ft.DropdownOption(key=tipo, text=tipo) for tipo in v.TIPOS_SANGRE],
+            on_select=self._tipo_sangre_elegido,
+        )
         self.alergias = crear_campo_texto("Escribe las alergias o deja vacío si no tiene")
         self._primer_campo_por_paso = {
             0: self.ficha,
@@ -1929,6 +1939,10 @@ class FormAltas:
 
     def _genero_elegido(self, e):
         self.genero.error_text = None
+        self.page.update()
+
+    def _tipo_sangre_elegido(self, e):
+        self.tipo_sangre.error_text = None
         self.page.update()
 
     def _promedio_cambiado(self, e):
@@ -2078,6 +2092,8 @@ class FormAltas:
                                   celular_alumno=self._texto_campo(self.celular))
             paso_valido &= self._requerido(self.correo_emerg, v.validar_correo_emergencia,
                                   correo_alumno=self._texto_campo(self.correo), maximo=100)
+            self.tipo_sangre.error_text = v.validar_tipo_sangre(self.tipo_sangre.value)
+            paso_valido &= self.tipo_sangre.error_text is None
             self.alergias.error = v.validar_alergias(self._texto_campo(self.alergias))
             paso_valido &= self.alergias.error is None
         elif paso == 2:
@@ -2129,6 +2145,7 @@ class FormAltas:
                   self.nss, self.ine, self.celular, self.correo, self.domicilio, self.prepa,
                   self.promedio, self.cel_emerg, self.correo_emerg, self.alergias]
         return (any(self._texto_campo(campo) for campo in campos) or self.fecha is not None
+                or self.tipo_sangre.value is not None
                 or self.genero.value is not None or bool(self.archivos))
 
     def cancelar(self, e=None):
@@ -2193,6 +2210,9 @@ class FormAltas:
             elif campo == "genero":
                 self.genero.error_text = mensaje_error
                 pasos_con_error.append(0)
+            elif campo == "tipo_sangre":
+                self.tipo_sangre.error_text = mensaje_error
+                pasos_con_error.append(1)
             elif campo == "documentos":
                 self.aviso_docs.value = mensaje_error
                 self.aviso_docs.visible = True
@@ -2230,6 +2250,7 @@ class FormAltas:
             "promedio": float(texto_campo(self.promedio).replace(",", ".")),
             "celular_emergencia": texto_campo(self.cel_emerg),
             "correo_emergencia": texto_campo(self.correo_emerg),
+            "tipo_sangre": self.tipo_sangre.value,
             "alergias": texto_campo(self.alergias) or "Ninguna",
             "documentos": {
                 documento: archivo["path"]
@@ -2319,7 +2340,8 @@ class FormAltas:
                 ft.Text("Contacto de emergencia y salud", size=16, weight=ft.FontWeight.BOLD, color=NAVY),
                 crear_fila(crear_campo_etiquetado("Celular de emergencia", self.cel_emerg),
                   crear_campo_etiquetado("Correo electrónico de emergencia", self.correo_emerg)),
-                crear_fila(crear_campo_etiquetado("Alergias (opcional)", self.alergias)),
+                crear_fila(crear_campo_etiquetado("Tipo de sangre", self.tipo_sangre),
+                  crear_campo_etiquetado("Alergias (opcional)", self.alergias)),
             ]
         elif self.paso == 2:
             self.titulo_card.value = "Documentos"
@@ -2361,6 +2383,7 @@ class FormAltas:
             ("Domicilio", texto_campo(self.domicilio)),
             ("Preparatoria", texto_campo(self.prepa)), ("Promedio", promedio_texto), ("Turno", turno),
             ("Contacto de emergencia", f"{texto_campo(self.cel_emerg)} · {texto_campo(self.correo_emerg)}"),
+            ("Tipo de sangre", self.tipo_sangre.value or "—"),
             ("Alergias", texto_campo(self.alergias) or "Ninguna"),
             ("Documentos PDF", f"{len(self.archivos)} de {len(DOCUMENTOS)} cargados"),
         ]
@@ -2536,6 +2559,7 @@ class ConsultaExpediente:
             ("domicilio", "Domicilio"), ("celular", "Celular"),
             ("correo_personal", "Correo personal"), ("correo_institucional", "Correo institucional"),
             ("celular_emergencia", "Celular de emergencia"), ("correo_emergencia", "Correo de emergencia"),
+            ("tipo_sangre", "Tipo de sangre"),
             ("alergias", "Alergias"),
         ],
         "academicos": [
@@ -3090,6 +3114,11 @@ class ConsultaExpediente:
             "promedio": crear_campo_texto(value=a["promedio"], label="Promedio"),
             "celular_emergencia": crear_campo_texto(value=c["celular_emergencia"], label="Celular de emergencia"),
             "correo_emergencia": crear_campo_texto(value=c["correo_emergencia"], label="Correo de emergencia"),
+            "tipo_sangre": ft.Dropdown(
+                label="Tipo de sangre",
+                value=None if c["tipo_sangre"] == "—" else c["tipo_sangre"],
+                options=[ft.DropdownOption(key=tipo, text=tipo) for tipo in v.TIPOS_SANGRE],
+            ),
             "alergias": crear_campo_texto(value=c["alergias"], label="Alergias"),
         }
         contenido = ft.ResponsiveRow(

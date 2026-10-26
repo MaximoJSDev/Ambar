@@ -152,6 +152,7 @@ def validar_alta(d: AltaIn, exigir_identificacion_adulto: bool = True) -> dict[s
         "correo_emergencia",
         v.validar_correo_emergencia(d.correo_emergencia, d.correo, maximo=100),
     )
+    revisar("tipo_sangre", v.validar_tipo_sangre(d.tipo_sangre))
     revisar("alergias", v.validar_alergias(d.alergias))
     return errores
 
@@ -343,6 +344,7 @@ def buscar_expediente(q: str, incluir_bajas: bool = False) -> dict:
             "correo_institucional": a["correo_institucional"] or "—",
             "celular_emergencia": a["celular_emergencia"],
             "correo_emergencia": a["correo_emergencia"] or "—",
+            "tipo_sangre": a["tipo_sangre"] or "—",
             "alergias": a["alergias"] or "Ninguna",
         },
         "academicos": {
@@ -450,7 +452,8 @@ def actualizar_alumno(numero_control: str, datos: AltaIn, id_usuario: int) -> No
                             rfc = :rfc, ine = :ine, nss = :nss, domicilio = :domicilio,
                             celular = :celular, celular_emergencia = :celular_emergencia,
                             correo_personal = :correo, correo_emergencia = :correo_emergencia,
-                            alergias = :alergias, preparatoria_procedencia = :preparatoria,
+                            tipo_sangre = :tipo_sangre, alergias = :alergias,
+                            preparatoria_procedencia = :preparatoria,
                             promedio_preparatoria = :promedio
                         WHERE numero_control = :numero"""),
                 {
@@ -461,7 +464,8 @@ def actualizar_alumno(numero_control: str, datos: AltaIn, id_usuario: int) -> No
                     "domicilio": datos.domicilio, "celular": re.sub(r"[\s-]", "", datos.celular),
                     "celular_emergencia": re.sub(r"[\s-]", "", datos.celular_emergencia),
                     "correo": datos.correo, "correo_emergencia": datos.correo_emergencia,
-                    "alergias": datos.alergias, "preparatoria": datos.preparatoria,
+                    "tipo_sangre": datos.tipo_sangre, "alergias": datos.alergias,
+                    "preparatoria": datos.preparatoria,
                     "promedio": datos.promedio,
                 },
             )
@@ -1772,13 +1776,13 @@ def registrar_alta(d: AltaIn, pdfs: dict[str, str], usuario: dict) -> dict:
                         numero_control, numero_ficha, nombres, apellido_paterno, apellido_materno,
                         fecha_nacimiento, genero, curp, rfc, ine, nss, domicilio, celular,
                         celular_emergencia, correo_personal,
-                        correo_emergencia, correo_institucional, alergias,
+                        correo_emergencia, correo_institucional, tipo_sangre, alergias,
                         preparatoria_procedencia, promedio_preparatoria, turno, semestre_actual,
                         estatus
                     ) VALUES (
                         :numero, :ficha, :nombres, :ap_p, :ap_m, :nacimiento, :genero, :curp, :rfc,
                         :ine, :nss, :domicilio, :celular, :cel_emerg, :correo,
-                        :correo_emerg, :correo_inst, :alergias, :prepa, :promedio, :turno, :sem,
+                        :correo_emerg, :correo_inst, :tipo_sangre, :alergias, :prepa, :promedio, :turno, :sem,
                         'Activo'
                     )"""), {
                     "numero": numero, "ficha": d.ficha, "nombres": d.nombre,
@@ -1788,7 +1792,8 @@ def registrar_alta(d: AltaIn, pdfs: dict[str, str], usuario: dict) -> dict:
                     "cel_emerg": re.sub(r"[\s-]", "", d.celular_emergencia),
                     "correo": d.correo,
                     "correo_emerg": d.correo_emergencia, "correo_inst": correo_inst,
-                    "alergias": d.alergias, "prepa": d.preparatoria, "promedio": d.promedio,
+                    "tipo_sangre": d.tipo_sangre, "alergias": d.alergias,
+                    "prepa": d.preparatoria, "promedio": d.promedio,
                     "turno": turno, "sem": SEMESTRE_INGRESO,
                 })
 

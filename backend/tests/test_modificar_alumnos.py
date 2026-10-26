@@ -26,6 +26,7 @@ def datos_alumno(**cambios) -> dict:
         "promedio": 9.5,
         "celular_emergencia": "7447654321",
         "correo_emergencia": "contacto@example.com",
+        "tipo_sangre": "O+",
         "alergias": "Ninguna",
     } | cambios
 
@@ -66,6 +67,7 @@ class ModificarAlumnoTests(unittest.TestCase):
             {"nss": "." * 11},
             {"correo": "....@....com"},
             {"correo": f"{'a' * 91}@example.com"},
+            {"tipo_sangre": "C+"},
             {"domicilio": "." * 20},
             {"preparatoria": "!!!"},
             {"promedio": 10.01},

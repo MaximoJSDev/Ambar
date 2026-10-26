@@ -60,6 +60,7 @@ class ReporteExpedienteTests(unittest.TestCase):
                 "correo_institucional": "al26320700@example.com",
                 "celular_emergencia": "7447654321",
                 "correo_emergencia": "contacto@example.com",
+                "tipo_sangre": "O+",
                 "alergias": "Ninguna",
             },
             "academicos": {

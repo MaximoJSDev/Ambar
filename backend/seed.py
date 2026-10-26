@@ -82,6 +82,7 @@ def _datos_alumno_demo(indice: int) -> AltaIn:
         promedio=9.2 if indice % 2 else 8.4,
         celular_emergencia=f"781{indice:07d}",
         correo_emergencia=f"contacto.demo{indice:05d}@example.test",
+        tipo_sangre="O+",
         alergias="Ninguna",
     )
 

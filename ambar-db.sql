@@ -59,6 +59,7 @@ CREATE TABLE alumnos (
     correo_personal VARCHAR(100) NOT NULL,
     correo_emergencia VARCHAR(100),
     correo_institucional VARCHAR(100) UNIQUE,
+    tipo_sangre ENUM('O+', 'O-', 'A+', 'A-', 'B+', 'B-', 'AB+', 'AB-') NOT NULL,
     alergias TEXT,
     preparatoria_procedencia VARCHAR(100) NOT NULL,
     promedio_preparatoria DECIMAL(4,2) NOT NULL,
@@ -68,7 +69,7 @@ CREATE TABLE alumnos (
     motivo_baja VARCHAR(255),
     eliminado BOOLEAN NOT NULL DEFAULT FALSE,
     FOREIGN KEY (id_usuario) REFERENCES usuarios(id_usuario),
-    CONSTRAINT chk_promedio_prepa CHECK (promedio_preparatoria BETWEEN 7 AND 10),
+    CONSTRAINT chk_promedio_prepa CHECK (promedio_preparatoria BETWEEN 6 AND 10),
     CONSTRAINT chk_semestre_actual CHECK (semestre_actual >= 1),
     INDEX idx_alumnos_estatus (estatus)
 );

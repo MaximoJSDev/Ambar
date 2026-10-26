@@ -38,6 +38,7 @@ DOMINIOS_CORREO_PUBLICOS = frozenset({
     "aol.com", "proton.me", "protonmail.com", "pm.me",
     "gmx.com", "gmx.net", "zoho.com", "yandex.com",
 })
+TIPOS_SANGRE = ("O+", "O-", "A+", "A-", "B+", "B-", "AB+", "AB-")
 NOMBRE_MIN, NOMBRE_MAX = 3, 50
 PROMEDIO_MIN, PROMEDIO_MAX = 6, 10
 MAX_PDF_MB = 500                    # límite por archivo (Algoritmo 3, paso 3)
@@ -290,6 +291,12 @@ def validar_ine(valor: str | None, fecha: datetime.date | None = None) -> str | 
 def validar_genero(valor: str | None) -> str | None:
     if valor not in GENEROS:
         return "Selecciona un género"
+    return None
+
+
+def validar_tipo_sangre(valor: str | None) -> str | None:
+    if valor not in TIPOS_SANGRE:
+        return "Selecciona un tipo de sangre válido"
     return None
 
 

@@ -31,6 +31,7 @@ def datos_validos() -> dict:
         "promedio": 9.5,
         "celular_emergencia": "7447654321",
         "correo_emergencia": "contacto@example.com",
+        "tipo_sangre": "O+",
         "alergias": "Ninguna",
     }
 
@@ -116,6 +117,7 @@ class ValidacionAltaAntesDePersistirTests(unittest.TestCase):
             "promedio": 5.99,
             "celular_emergencia": "." * 10,
             "correo_emergencia": "." * 20,
+            "tipo_sangre": "C+",
             "alergias": "...!!!",
         }
 
@@ -326,6 +328,18 @@ class ValidacionAltaAntesDePersistirTests(unittest.TestCase):
         self.assertEqual(respuesta.json()["documentos"], resultado_esperado["documentos"])
         persistir.assert_called_once()
         self.assertEqual(persistir.call_args.args[0].curp, payload["curp"])
+        self.assertEqual(persistir.call_args.args[0].tipo_sangre, "O+")
+
+    def test_tipo_sangre_es_obligatorio_en_el_alta(self):
+        payload = datos_validos()
+        del payload["tipo_sangre"]
+
+        with patch("backend.routers.alumnos.servicios.registrar_alta") as persistir:
+            respuesta = self.post_alta(payload)
+
+        self.assertEqual(respuesta.status_code, 422)
+        self.assertIn("tipo_sangre", respuesta.json()["detail"]["errores"])
+        persistir.assert_not_called()
 
 
 if __name__ == "__main__":
