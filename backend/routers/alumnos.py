@@ -30,9 +30,17 @@ def cupo_ingreso(_: dict = Depends(solo_secretaria)):
 
 
 @router.get("/verificar")
-def verificar(ficha: str = Query(""), curp: str = Query(""), _: dict = Depends(solo_secretaria)):
-    """Indica si la ficha o la CURP ya están registradas (para avisar antes del alta)."""
-    return servicios.verificar_duplicados(ficha, curp)
+def verificar(
+    ficha: str = Query(""),
+    curp: str = Query(""),
+    nss: str = Query(""),
+    rfc: str = Query(""),
+    ine: str = Query(""),
+    correo: str = Query(""),
+    _: dict = Depends(solo_secretaria),
+):
+    """Indica si algún dato único ya está registrado (para avisar antes del alta)."""
+    return servicios.verificar_duplicados(ficha, curp, nss, rfc, ine, correo)
 
 
 # --- Consultas -------------------------------------------------------------

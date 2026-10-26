@@ -131,7 +131,7 @@ def validar_alta(d: AltaIn, exigir_identificacion_adulto: bool = True) -> dict[s
     ref = None if err_fecha else d.fecha_nacimiento
     revisar(
         "curp",
-        v.validar_curp(d.curp, ref, d.ap_paterno, d.ap_materno),
+        v.validar_curp(d.curp, ref, d.ap_paterno, d.ap_materno, d.genero),
     )
     mayor_de_18 = not err_fecha and v.es_mayor_de_18(d.fecha_nacimiento)
     if exigir_identificacion_adulto and mayor_de_18 and not d.rfc:
@@ -204,20 +204,71 @@ def cupo_ingreso() -> dict:
 # --------------------------------------------------------------------------
 # Consultas auxiliares
 # --------------------------------------------------------------------------
-def duplicados(conn, ficha: str, curp: str) -> dict[str, bool]:
-    filas = conn.execute(
-        text("SELECT numero_ficha, curp FROM alumnos WHERE numero_ficha = :f OR curp = :c"),
-        {"f": ficha, "c": curp},
-    ).mappings().all()
+def duplicados(
+    conn,
+    ficha: str,
+    curp: str,
+    nss: str = "",
+    rfc: str = "",
+    ine: str = "",
+    correo: str = "",
+    excluir_numero_control: str | None = None,
+) -> dict[str, bool]:
+    valores = {
+        "ficha": ficha.strip(),
+        "curp": curp.strip().upper(),
+        "nss": nss.strip(),
+        "rfc": rfc.strip().upper(),
+        "ine": ine.strip().upper(),
+        "correo": correo.strip().lower(),
+    }
+    condiciones = []
+    parametros = {}
+    condiciones_por_campo = {
+        "ficha": "numero_ficha = :ficha",
+        "curp": "UPPER(curp) = :curp",
+        "nss": "nss = :nss",
+        "rfc": "UPPER(rfc) = :rfc",
+        "ine": "UPPER(ine) = :ine",
+        "correo": "LOWER(TRIM(correo_personal)) = :correo",
+    }
+    for campo, condicion in condiciones_por_campo.items():
+        if valores[campo]:
+            condiciones.append(condicion)
+            parametros[campo] = valores[campo]
+    if not condiciones:
+        return {campo: False for campo in condiciones_por_campo}
+
+    consulta = (
+        "SELECT numero_ficha, curp, nss, rfc, ine, correo_personal FROM alumnos "
+        f"WHERE ({' OR '.join(condiciones)})"
+    )
+    if excluir_numero_control is not None:
+        consulta += " AND numero_control != :excluir_numero_control"
+        parametros["excluir_numero_control"] = excluir_numero_control
+    filas = conn.execute(text(consulta), parametros).mappings().all()
     return {
-        "ficha": bool(ficha) and any(f["numero_ficha"] == ficha for f in filas),
-        "curp": bool(curp) and any(f["curp"].upper() == curp for f in filas),
+        "ficha": bool(valores["ficha"]) and any(f["numero_ficha"] == valores["ficha"] for f in filas),
+        "curp": bool(valores["curp"]) and any(f["curp"].upper() == valores["curp"] for f in filas),
+        "nss": bool(valores["nss"]) and any(f["nss"] == valores["nss"] for f in filas),
+        "rfc": bool(valores["rfc"]) and any(f["rfc"] and f["rfc"].upper() == valores["rfc"] for f in filas),
+        "ine": bool(valores["ine"]) and any(f["ine"] and f["ine"].upper() == valores["ine"] for f in filas),
+        "correo": bool(valores["correo"]) and any(
+            f["correo_personal"].strip().lower() == valores["correo"] for f in filas
+        ),
     }
 
 
-def verificar_duplicados(ficha: str, curp: str) -> dict[str, bool]:
+def verificar_duplicados(
+    ficha: str = "",
+    curp: str = "",
+    nss: str = "",
+    rfc: str = "",
+    ine: str = "",
+    correo: str = "",
+) -> dict[str, bool]:
     with engine.connect() as conn:
-        return duplicados(conn, ficha.strip(), curp.strip().upper())
+        return duplicados(conn, ficha, curp, nss, rfc, ine, correo)
 
 
 def _ultimo_sufijo_control(conn, prefijo: str) -> int | None:
@@ -372,17 +423,22 @@ def actualizar_alumno(numero_control: str, datos: AltaIn, id_usuario: int) -> No
             if anterior is None or anterior["eliminado"]:
                 raise NoEncontrado()
 
-            duplicados = conn.execute(
-                text("""SELECT numero_ficha, curp FROM alumnos
-                        WHERE numero_control != :numero
-                          AND (numero_ficha = :ficha OR curp = :curp)"""),
-                {"numero": numero_control, "ficha": datos.ficha, "curp": datos.curp},
-            ).mappings().all()
-            errores_duplicados = {}
-            if any(f["numero_ficha"] == datos.ficha for f in duplicados):
-                errores_duplicados["ficha"] = "Esta ficha ya está registrada"
-            if any(f["curp"] == datos.curp for f in duplicados):
-                errores_duplicados["curp"] = "Esta CURP ya está registrada"
+            duplicados_alumno = duplicados(
+                conn, datos.ficha, datos.curp, datos.nss, datos.rfc or "", datos.ine or "",
+                datos.correo, excluir_numero_control=numero_control,
+            )
+            errores_duplicados = {
+                "ficha": "Esta ficha ya está registrada",
+                "curp": "Esta CURP ya está registrada",
+                "nss": "Este NSS ya está registrado",
+                "rfc": "Este RFC ya está registrado",
+                "ine": "Esta INE ya está registrada",
+                "correo": "Este correo personal ya está registrado",
+            }
+            errores_duplicados = {
+                campo: mensaje for campo, mensaje in errores_duplicados.items()
+                if duplicados_alumno[campo]
+            }
             if errores_duplicados:
                 raise Conflicto("Los datos ya están registrados para otro alumno", errores_duplicados)
 
@@ -417,7 +473,7 @@ def actualizar_alumno(numero_control: str, datos: AltaIn, id_usuario: int) -> No
                 conn, numero_control, "MODIFICACION", dict(anterior), dict(nuevo), id_usuario,
             )
     except IntegrityError as exc:
-        raise Conflicto("La ficha, CURP o correo ya está registrado.") from exc
+        raise Conflicto("Uno o más datos identificadores ya están registrados.") from exc
 
 
 def actualizar_documentos(numero_control: str, pdfs: dict[str, str]) -> None:
@@ -1662,12 +1718,22 @@ def registrar_alta(d: AltaIn, pdfs: dict[str, str], usuario: dict) -> dict:
         carpeta: Path | None = None
         try:
             with engine.begin() as conn:
-                dup = duplicados(conn, d.ficha, d.curp)
+                dup = duplicados(
+                    conn, d.ficha, d.curp, d.nss, d.rfc or "", d.ine or "", d.correo,
+                )
                 errores = {}
                 if dup["ficha"]:
                     errores["ficha"] = "Esta ficha ya está registrada"
                 if dup["curp"]:
                     errores["curp"] = "Esta CURP ya está registrada"
+                if dup["nss"]:
+                    errores["nss"] = "Este NSS ya está registrado"
+                if dup["rfc"]:
+                    errores["rfc"] = "Este RFC ya está registrado"
+                if dup["ine"]:
+                    errores["ine"] = "Esta INE ya está registrada"
+                if dup["correo"]:
+                    errores["correo"] = "Este correo personal ya está registrado"
                 if errores:
                     raise Conflicto("El alumno ya está registrado", errores)
 

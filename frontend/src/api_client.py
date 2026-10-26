@@ -124,9 +124,24 @@ class ApiClient:
         """{"periodo", "turnos": {"Matutino": n, "Vespertino": n}, "total"}"""
         return self._request("GET", "/alumnos/cupo-ingreso")
 
-    def verificar(self, ficha: str, curp: str) -> dict:
-        """{"ficha": bool, "curp": bool} (True = ya registrada)"""
-        return self._request("GET", "/alumnos/verificar", params={"ficha": ficha, "curp": curp})
+    def verificar(
+        self,
+        ficha: str = "",
+        curp: str = "",
+        nss: str = "",
+        rfc: str = "",
+        ine: str = "",
+        correo: str = "",
+    ) -> dict:
+        """Indica si los datos identificadores ya están registrados."""
+        return self._request(
+            "GET",
+            "/alumnos/verificar",
+            params={
+                "ficha": ficha, "curp": curp, "nss": nss,
+                "rfc": rfc, "ine": ine, "correo": correo,
+            },
+        )
 
     def resumen_panel(self) -> dict:
         return self._request("GET", "/panel/resumen")

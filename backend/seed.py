@@ -90,8 +90,10 @@ def crear_alumnos_demo(cantidad: int, id_usuario: int) -> None:
     creados = 0
     for indice in range(1, cantidad + 1):
         datos = _datos_alumno_demo(indice)
-        existentes = servicios.verificar_duplicados(datos.ficha, datos.curp)
-        if existentes["ficha"] or existentes["curp"]:
+        existentes = servicios.verificar_duplicados(
+            datos.ficha, datos.curp, datos.nss, datos.rfc or "", datos.ine or "", datos.correo,
+        )
+        if any(existentes.values()):
             print(f"Alumno demo ya registrado; se omite ficha {datos.ficha}.")
             continue
         resultado = servicios.registrar_alta(datos, {}, {"id_usuario": id_usuario})
