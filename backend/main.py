@@ -31,6 +31,33 @@ async def lifespan(_: FastAPI):
                 "ALTER TABLE alumnos ADD COLUMN tipo_sangre "
                 "ENUM('O+', 'O-', 'A+', 'A-', 'B+', 'B-', 'AB+', 'AB-') NULL"
             ))
+        conn.execute(text("""CREATE TABLE IF NOT EXISTS catalogo_codigos_postales (
+            codigo_postal CHAR(5) NOT NULL,
+            estado VARCHAR(100) NOT NULL,
+            municipio VARCHAR(100) NOT NULL,
+            colonia VARCHAR(150) NOT NULL,
+            PRIMARY KEY (codigo_postal, estado, municipio, colonia),
+            INDEX idx_catalogo_cp_estado (codigo_postal, estado),
+            INDEX idx_catalogo_cp_municipio (codigo_postal, municipio)
+        ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"""))
+        conn.execute(text("""CREATE TABLE IF NOT EXISTS domicilios (
+            id_domicilio INT AUTO_INCREMENT PRIMARY KEY,
+            numero_control VARCHAR(20) NOT NULL UNIQUE,
+            codigo_postal CHAR(5),
+            estado VARCHAR(100),
+            municipio VARCHAR(100),
+            colonia VARCHAR(150),
+            calle VARCHAR(255) NOT NULL,
+            numero_exterior VARCHAR(20),
+            FOREIGN KEY (numero_control) REFERENCES alumnos(numero_control)
+                ON UPDATE CASCADE ON DELETE CASCADE
+        ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"""))
+        conn.execute(text("""INSERT INTO domicilios
+                                (numero_control, calle)
+                             SELECT a.numero_control, a.domicilio
+                             FROM alumnos a
+                             LEFT JOIN domicilios d ON d.numero_control = a.numero_control
+                             WHERE d.numero_control IS NULL"""))
         conn.execute(text("""CREATE TABLE IF NOT EXISTS historial_alumnos (
             id_historial INT AUTO_INCREMENT PRIMARY KEY,
             numero_control VARCHAR(20) NOT NULL,

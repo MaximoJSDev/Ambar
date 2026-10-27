@@ -22,7 +22,12 @@ def datos_alumno(**cambios) -> dict:
         "genero": "hombre",
         "celular": "7441234567",
         "correo": "alumno@example.com",
-        "domicilio": "Calle 1, Colonia Centro, Acapulco",
+        "codigo_postal": "39000",
+        "estado": "Guerrero",
+        "municipio": "Acapulco de Juárez",
+        "colonia": "Centro",
+        "calle": "Calle 1",
+        "numero_exterior": "12",
         "preparatoria": "Preparatoria de prueba",
         "promedio": 9.5,
         "celular_emergencia": "7447654321",
@@ -38,6 +43,12 @@ class ModificarAlumnoTests(unittest.TestCase):
         app.dependency_overrides[usuario_actual] = lambda: self.usuario
         self.client = TestClient(app)
         self.addCleanup(app.dependency_overrides.clear)
+        parche_catalogo = patch(
+            "backend.routers.alumnos.servicios.validar_domicilio_catalogo",
+            return_value={},
+        )
+        parche_catalogo.start()
+        self.addCleanup(parche_catalogo.stop)
 
     def test_actualizacion_valida_persiste_datos_y_registra_actor(self):
         with patch("backend.routers.alumnos.servicios.actualizar_alumno") as actualizar:
@@ -69,7 +80,9 @@ class ModificarAlumnoTests(unittest.TestCase):
             {"correo": "....@....com"},
             {"correo": f"{'a' * 91}@example.com"},
             {"tipo_sangre": "C+"},
-            {"domicilio": "." * 20},
+            {"calle": "!!!"},
+            {"calle": "nose"},
+            {"numero_exterior": "Manzana B"},
             {"preparatoria": "!!!"},
             {"promedio": 10.01},
             {"alergias": "!!!"},

@@ -75,6 +75,21 @@ puedes crear o actualizar el usuario ejecutando
 `python -m backend.seed --correo TU_CORREO --nombres TU_NOMBRE --apellidos TUS_APELLIDOS`
 desde la carpeta del proyecto.
 
+Para habilitar los selectores de domicilio, inicia el backend al menos una vez
+para que cree las tablas y luego descarga el catálogo nacional en formato TXT
+desde el [portal de Correos de México](https://www.correosdemexico.gob.mx/SSLServicios/ConsultaCP/CodigoPostal_Exportar.aspx).
+Desde la raíz del proyecto, impórtalo con:
+
+```bash
+python -m backend.importar_catalogo_cp RUTA_AL_ARCHIVO_TXT
+```
+
+La aplicación consulta ese catálogo en la base de datos local y no necesita
+internet para buscar códigos postales. La importación conserva las combinaciones
+ya existentes y agrega las nuevas. El catálogo es gratuito; revisa las
+condiciones de SEPOMEX antes de redistribuirlo o comercializarlo. Importa el
+catálogo antes de generar alumnos demo con `--alumnos-demo`.
+
 Para crear una cuenta independiente de Administración, ejecuta
 `python -m backend.seed --admin-correo CORREO_ADMINISTRADOR`; se solicitará su
 contraseña de forma interactiva. Ese comando también prepara los roles y grupos,

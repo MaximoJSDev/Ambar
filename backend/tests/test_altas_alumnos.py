@@ -26,7 +26,12 @@ def datos_validos() -> dict:
         "genero": "hombre",
         "celular": "7441234567",
         "correo": "alumno@example.com",
-        "domicilio": "Calle 1, Colonia Centro, Acapulco",
+        "codigo_postal": "39000",
+        "estado": "Guerrero",
+        "municipio": "Acapulco de Juárez",
+        "colonia": "Centro",
+        "calle": "Calle 1",
+        "numero_exterior": "12",
         "preparatoria": "Preparatoria de prueba",
         "promedio": 9.5,
         "celular_emergencia": "7447654321",
@@ -44,6 +49,12 @@ class ValidacionAltaAntesDePersistirTests(unittest.TestCase):
         }
         self.client = TestClient(app)
         self.addCleanup(app.dependency_overrides.clear)
+        parche_catalogo = patch(
+            "backend.routers.alumnos.servicios.validar_domicilio_catalogo",
+            return_value={},
+        )
+        parche_catalogo.start()
+        self.addCleanup(parche_catalogo.stop)
 
     def post_alta(self, payload: dict, incluir_documentos: bool = False):
         files = {
@@ -67,6 +78,79 @@ class ValidacionAltaAntesDePersistirTests(unittest.TestCase):
         datos = AltaIn.model_validate(datos_validos())
 
         self.assertEqual(validar_alta(datos), {})
+
+    def test_domicilio_estructurado_valida_cp_y_campos_requeridos(self):
+        payload = datos_validos()
+        payload.update({"calle": "Avenida Costera", "numero_exterior": "123"})
+
+        self.assertEqual(validar_alta(AltaIn.model_validate(payload)), {})
+
+        payload["codigo_postal"] = "3900"
+        with self.assertRaises(ValueError):
+            AltaIn.model_validate(payload)
+
+    def test_calle_y_numero_exterior_usan_reglas_flexibles_controladas(self):
+        payload = datos_validos() | {
+            "calle": "Av. Costera",
+            "numero_exterior": "Manzana 4, Lote 12",
+        }
+        self.assertEqual(validar_alta(AltaIn.model_validate(payload)), {})
+
+        for campo, valor in (
+            ("calle", "AB"),
+            ("calle", "nose"),
+            ("calle", "asdfg"),
+            ("calle", "ninguna"),
+            ("calle", "aaaaaaaa"),
+            ("numero_exterior", "Manzana B"),
+            ("numero_exterior", "12@"),
+        ):
+            with self.subTest(campo=campo, valor=valor):
+                errores = validar_alta(AltaIn.model_validate(datos_validos() | {campo: valor}))
+                self.assertIn(campo, errores)
+
+        payload = datos_validos()
+        del payload["colonia"]
+        with self.assertRaises(ValueError):
+            AltaIn.model_validate(payload)
+
+    def test_rechaza_combinacion_de_domicilio_que_no_existe_en_catalogo(self):
+        error = "La colonia no corresponde al código postal seleccionado"
+        with (
+            patch(
+                "backend.routers.alumnos.servicios.validar_domicilio_catalogo",
+                return_value={"colonia": error},
+            ),
+            patch("backend.routers.alumnos.servicios.registrar_alta") as persistir,
+        ):
+            respuesta = self.post_alta(datos_validos())
+
+        self.assertEqual(respuesta.status_code, 422)
+        self.assertEqual(respuesta.json()["detail"]["errores"]["colonia"], error)
+        persistir.assert_not_called()
+
+    def test_consulta_cp_usa_el_catalogo_local(self):
+        catalogo = {
+            "codigo_postal": "39000",
+            "estados": [{
+                "estado": "Guerrero",
+                "municipios": [{
+                    "municipio": "Acapulco de Juárez",
+                    "colonias": ["Centro"],
+                }],
+            }],
+        }
+        with patch(
+            "backend.routers.alumnos.servicios.opciones_domicilio",
+            return_value=catalogo,
+        ) as consultar:
+            respuesta = self.client.get("/alumnos/domicilios/39000")
+            invalida = self.client.get("/alumnos/domicilios/3900")
+
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertEqual(respuesta.json(), catalogo)
+        self.assertEqual(invalida.status_code, 422)
+        consultar.assert_called_once_with("39000")
 
     def test_consulta_preventiva_detecta_duplicados_de_identificadores(self):
         duplicados = {
@@ -175,7 +259,7 @@ class ValidacionAltaAntesDePersistirTests(unittest.TestCase):
             "curp": "BXCA050302HGRSSLA4",
             "correo": f"{'a' * 88}@example.com",
             "correo_emergencia": f"{'b' * 88}@example.com",
-            "domicilio": "Calle " + "D" * 249,
+            "calle": "AB" * 75,
             "preparatoria": "E" * 100,
             "promedio": 7,
             "alergias": "F" * 200,
