@@ -22,7 +22,7 @@ def datos_validos() -> dict:
         "curp": "CAJG050302HGRSSLA4",
         "rfc": "CAJG050302AB1",
         "nss": "12345678901",
-        "ine": "CASTAN05030212H100",
+        "ine": "1234567890123",
         "genero": "hombre",
         "celular": "7441234567",
         "correo": "alumno@example.com",
@@ -86,7 +86,7 @@ class ValidacionAltaAntesDePersistirTests(unittest.TestCase):
                     "curp": "CAJG050302HGRSSLA4",
                     "nss": "12345678901",
                     "rfc": "CAJG050302AB1",
-                    "ine": "CASTAN05030212H100",
+                    "ine": "1234 5678 90123",
                     "correo": "alumno@example.com",
                 },
             )
@@ -95,7 +95,7 @@ class ValidacionAltaAntesDePersistirTests(unittest.TestCase):
         self.assertEqual(respuesta.json(), duplicados)
         verificar.assert_called_once_with(
             "2026123456", "CAJG050302HGRSSLA4", "12345678901",
-            "CAJG050302AB1", "CASTAN05030212H100", "alumno@example.com",
+            "CAJG050302AB1", "1234567890123", "alumno@example.com",
         )
 
     def test_rechaza_campos_invalidos_sin_llamar_a_persistencia(self):
@@ -108,7 +108,7 @@ class ValidacionAltaAntesDePersistirTests(unittest.TestCase):
             "curp": "!" * 18,
             "rfc": "." * 13,
             "nss": "." * 11,
-            "ine": "." * 18,
+            "ine": "123456789012a",
             "genero": "...",
             "celular": "." * 10,
             "correo": "." * 20,
@@ -147,6 +147,7 @@ class ValidacionAltaAntesDePersistirTests(unittest.TestCase):
     def test_rechaza_campos_faltantes_tipos_incorrectos_y_fechas_imposibles(self):
         casos_invalidos = (
             ("nombre", lambda datos: datos.pop("nombre")),
+            ("ine", lambda datos: datos.pop("ine")),
             ("ficha", lambda datos: datos.update(ficha=2026123456)),
             ("fecha_nacimiento", lambda datos: datos.update(fecha_nacimiento="2005-02-30")),
             ("fecha_nacimiento", lambda datos: datos.update(fecha_nacimiento=[])),
@@ -206,12 +207,11 @@ class ValidacionAltaAntesDePersistirTests(unittest.TestCase):
                     self.assertIn(campo, respuesta.json()["detail"]["errores"])
             persistir.assert_not_called()
 
-    def test_curp_debe_coincidir_con_apellidos_y_adultos_requieren_rfc_e_ine(self):
+    def test_curp_coincide_con_apellidos_y_requiere_rfc_en_adultos(self):
         casos_invalidos = (
             ({"ap_paterno": "Lopez"}, "curp"),
             ({"genero": "hombre", "curp": "CAJG050302MGRSSLA4"}, "curp"),
             ({"rfc": None}, "rfc"),
-            ({"ine": None}, "ine"),
         )
         with patch("backend.routers.alumnos.servicios.registrar_alta") as persistir:
             for cambios, campo_esperado in casos_invalidos:
@@ -221,16 +221,33 @@ class ValidacionAltaAntesDePersistirTests(unittest.TestCase):
                     self.assertIn(campo_esperado, respuesta.json()["detail"]["errores"])
             persistir.assert_not_called()
 
-    def test_menor_de_edad_puede_omitir_rfc_e_ine(self):
+    def test_menor_de_edad_puede_omitir_rfc_e_ine_ocr(self):
         fecha = datetime.date.today().replace(year=datetime.date.today().year - 16)
         payload = datos_validos() | {
             "fecha_nacimiento": fecha.isoformat(),
             "curp": f"CAJG{fecha:%y%m%d}HGRSSLA4",
             "rfc": None,
-            "ine": None,
+            "ine": "",
         }
         datos = AltaIn.model_validate(payload)
 
+        self.assertIsNone(datos.ine)
+        self.assertEqual(validar_alta(datos), {})
+
+    def test_alta_adulta_requiere_ine_ocr_de_13_digitos(self):
+        payload = datos_validos() | {"ine": None}
+
+        with patch("backend.routers.alumnos.servicios.registrar_alta") as persistir:
+            respuesta = self.post_alta(payload)
+
+        self.assertEqual(respuesta.status_code, 422)
+        self.assertIn("ine", respuesta.json()["detail"]["errores"])
+        persistir.assert_not_called()
+
+    def test_alta_normaliza_espacios_del_ocr_antes_de_validar_y_guardar(self):
+        payload = datos_validos() | {"ine": "1234 5678 90123"}
+        datos = AltaIn.model_validate(payload)
+        self.assertEqual(datos.ine, "1234567890123")
         self.assertEqual(validar_alta(datos), {})
 
     def test_rechaza_alta_con_excepcion_de_conflicto_del_servicio(self):
@@ -309,7 +326,7 @@ class ValidacionAltaAntesDePersistirTests(unittest.TestCase):
                 persistir.assert_not_called()
 
     def test_alta_valida_llama_a_persistencia_con_los_datos_normalizados(self):
-        payload = datos_validos()
+        payload = datos_validos() | {"ine": "1234 5678 90123"}
         resultado_esperado = {
             "numero_control": "26320700",
             "correo_institucional": "al26320700@example.com",
@@ -328,6 +345,7 @@ class ValidacionAltaAntesDePersistirTests(unittest.TestCase):
         self.assertEqual(respuesta.json()["documentos"], resultado_esperado["documentos"])
         persistir.assert_called_once()
         self.assertEqual(persistir.call_args.args[0].curp, payload["curp"])
+        self.assertEqual(persistir.call_args.args[0].ine, "1234567890123")
         self.assertEqual(persistir.call_args.args[0].tipo_sangre, "O+")
 
     def test_tipo_sangre_es_obligatorio_en_el_alta(self):

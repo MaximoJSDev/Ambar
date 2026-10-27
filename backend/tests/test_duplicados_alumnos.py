@@ -12,7 +12,7 @@ class DuplicadosAlumnoTests(unittest.TestCase):
             "curp": "CAJG050302HGRSSLA4",
             "nss": "12345678901",
             "rfc": "CAJG050302AB1",
-            "ine": "CASTAN05030212H100",
+            "ine": "1234 5678 90123",
             "correo_personal": "Alumno@Example.com",
         }
         resultado = Mock()
@@ -26,7 +26,7 @@ class DuplicadosAlumnoTests(unittest.TestCase):
             "cajg050302hgrssla4",
             "12345678901",
             "cajg050302ab1",
-            "castan05030212h100",
+            "1234 5678 90123",
             "alumno@example.com",
         )
 
@@ -43,6 +43,8 @@ class DuplicadosAlumnoTests(unittest.TestCase):
         )
         parametros = conn.execute.call_args.args[1]
         self.assertEqual(parametros["correo"], "alumno@example.com")
+        self.assertEqual(parametros["ine"], "1234567890123")
+        self.assertIn("REPLACE(UPPER(ine), ' ', '')", str(conn.execute.call_args.args[0]))
 
     def test_no_consulta_si_no_se_envian_identificadores(self):
         conn = Mock()
@@ -63,6 +65,24 @@ class DuplicadosAlumnoTests(unittest.TestCase):
         consulta, parametros = conn.execute.call_args.args
         self.assertIn("numero_control != :excluir_numero_control", str(consulta))
         self.assertEqual(parametros["excluir_numero_control"], "26320700")
+
+    def test_detecta_ine_al_normalizar_espacios_de_la_base(self):
+        fila = {
+            "numero_ficha": "",
+            "curp": "",
+            "nss": "",
+            "rfc": "",
+            "ine": "1234 5678 90123",
+            "correo_personal": "",
+        }
+        resultado = Mock()
+        resultado.mappings.return_value.all.return_value = [fila]
+        conn = Mock()
+        conn.execute.return_value = resultado
+
+        duplicados_encontrados = duplicados(conn, "", "", ine="1234567890123")
+
+        self.assertTrue(duplicados_encontrados["ine"])
 
 
 if __name__ == "__main__":

@@ -40,7 +40,9 @@ def verificar(
     _: dict = Depends(solo_secretaria),
 ):
     """Indica si algún dato único ya está registrado (para avisar antes del alta)."""
-    return servicios.verificar_duplicados(ficha, curp, nss, rfc, ine, correo)
+    return servicios.verificar_duplicados(
+        ficha, curp, nss, rfc, v.normalizar_ine(ine), correo,
+    )
 
 
 # --- Consultas -------------------------------------------------------------
