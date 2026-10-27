@@ -1775,6 +1775,11 @@ def build_bitacora_admin(page: ft.Page, navegar) -> ft.Control:
 # =====================================================================
 # 3. FORMULARIO DE ALTAS (4 pasos) — según Algoritmo 3 del documento de contexto
 # =====================================================================
+def formatear_ficha(valor: str) -> str:
+    digitos = re.sub(r"\D", "", valor)[:10]
+    return f"{digitos[:4]}-{digitos[4:]}" if len(digitos) > 4 else digitos
+
+
 class DomicilioCampos:
     """Campos dependientes de un catálogo postal local."""
 
@@ -1996,6 +2001,7 @@ class FormAltas:
         # ---- Paso 1
         self.ficha = crear_campo_texto("Ej. 2026-00123", autofocus=True,
                         input_filter=ft.InputFilter(regex_string=r"^[0-9\-]*$", allow=True, replacement_string=""))
+        self.ficha.on_change = self._ficha_cambiada
         self.nombre = crear_campo_texto("Ingresa el nombre o nombres", max_length=50, input_filter=letras, capitalization=palabras)
         self.ap_paterno = crear_campo_texto("Ingresa el apellido paterno", max_length=50, input_filter=letras, capitalization=palabras)
         self.ap_materno = crear_campo_texto("Ingresa el apellido materno", max_length=50, input_filter=letras, capitalization=palabras)
@@ -2140,6 +2146,13 @@ class FormAltas:
         self.txt_fecha.value = self.fecha.strftime("%d/%m/%Y")
         self.txt_fecha.error = None
         self._pintar()
+
+    def _ficha_cambiada(self, e):
+        valor = formatear_ficha(self.ficha.value or "")
+        if self.ficha.value != valor:
+            self.ficha.value = valor
+        self.ficha.error = None
+        self.page.update()
 
     def _genero_elegido(self, e):
         self.genero.error_text = None
