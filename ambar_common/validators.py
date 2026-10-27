@@ -21,7 +21,7 @@ PATRON_CURP = re.compile(
 )
 PATRON_RFC = re.compile(r"[A-ZÑ&]{4}\d{6}[A-Z0-9]{3}")
 PATRON_NSS = re.compile(r"\d{11}")
-PATRON_INE = re.compile(r"[A-Z]{6}\d{8}[HM]\d{3}")
+PATRON_INE = re.compile(r"[0-9]{13}")
 PATRON_PROMEDIO = re.compile(r"\d{1,3}(?:[.,]\d{1,2})?")
 PUNTUACION_DESCRIPTIVA = " .,#°ºª'’()/&-;:+"
 
@@ -274,17 +274,15 @@ def validar_promedio(valor: str) -> str | None:
     return None
 
 
-def validar_ine(valor: str | None, fecha: datetime.date | None = None) -> str | None:
-    """Clave de elector: 6 letras + AAMMDD + entidad (2) + H/M + 3 dígitos = 18."""
-    if not valor or not valor.strip():
-        return None
-    v = valor.strip().upper()
-    if len(v) != 18:
-        return "La clave de elector debe tener 18 caracteres"
-    if not PATRON_INE.fullmatch(v):
-        return "Formato de clave de elector inválido"
-    if fecha is not None and v[6:12] != _yymmdd(fecha):
-        return "La fecha de la INE no coincide con la fecha de nacimiento"
+def normalizar_ine(valor: str | None) -> str:
+    """Elimina espacios y otros separadores en el resultado OCR de la INE."""
+    return re.sub(r"\s+", "", valor or "")
+
+
+def validar_ine(valor: str | None) -> str | None:
+    """El OCR de la INE debe contener exactamente 13 dígitos."""
+    if not PATRON_INE.fullmatch(normalizar_ine(valor)):
+        return "El OCR de la INE debe contener exactamente 13 dígitos"
     return None
 
 

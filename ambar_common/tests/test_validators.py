@@ -101,29 +101,32 @@ class ValidacionesAltasTests(unittest.TestCase):
             with self.subTest(fecha=fecha):
                 self.assertIsNotNone(v.validar_fecha_nacimiento(fecha, hoy))
 
-    def test_documentos_de_identificacion_solo_son_obligatorios_tras_cumplir_18(self):
+    def test_ine_ocr_se_requiere_solo_a_partir_de_los_18(self):
         hoy = datetime.date(2026, 10, 21)
         self.assertFalse(v.es_mayor_de_18(v.hace_anios(17, hoy), hoy))
         self.assertTrue(v.es_mayor_de_18(v.hace_anios(18, hoy), hoy))
         self.assertTrue(v.es_mayor_de_18(v.hace_anios(19, hoy), hoy))
         self.assertIsNone(v.validar_rfc(None, hoy))
-        self.assertIsNone(v.validar_ine(None, hoy))
+        self.assertIsNotNone(v.validar_ine(None))
 
-    def test_curp_rfc_e_ine_validan_formato_y_coincidencia_de_fecha(self):
+    def test_ine_ocr_requiere_13_digitos_y_elimina_espacios(self):
         nacimiento = datetime.date(2005, 11, 5)
         curp = "ABCD051105HGRXYZ09"
         rfc = "ABCD051105AB1"
-        ine = "ABCDEF05110512H100"
+        ine = "1234567890123"
 
         self.assertIsNone(v.validar_curp(curp, nacimiento))
         self.assertIsNone(v.validar_curp(curp.lower(), nacimiento))
         self.assertIsNone(v.validar_rfc(rfc, nacimiento))
-        self.assertIsNone(v.validar_ine(ine, nacimiento))
+        self.assertIsNone(v.validar_ine(ine))
+        self.assertEqual(v.normalizar_ine("1234 5678 90123"), ine)
+        self.assertIsNone(v.validar_ine("1234 5678 90123"))
         self.assertIsNotNone(v.validar_curp(curp, datetime.date(2005, 11, 6)))
         self.assertIsNotNone(v.validar_rfc(rfc, datetime.date(2005, 11, 6)))
-        self.assertIsNotNone(v.validar_ine(ine, datetime.date(2005, 11, 6)))
         self.assertIsNone(v.validar_rfc(None, nacimiento))
-        self.assertIsNone(v.validar_ine("", nacimiento))
+        for ine_invalida in ("", "123456789012", "12345678901234", "123456789012a"):
+            with self.subTest(ine=ine_invalida):
+                self.assertIsNotNone(v.validar_ine(ine_invalida))
 
     def test_curp_coincide_con_las_iniciales_de_los_apellidos(self):
         curp = "CAJG050302HGRSSLA4"
@@ -213,7 +216,7 @@ class ValidacionesAltasTests(unittest.TestCase):
         self.assertIsNotNone(v.validar_curp("!" * 18))
         self.assertIsNotNone(v.validar_rfc("." * 13))
         self.assertIsNotNone(v.validar_nss("." * 11))
-        self.assertIsNotNone(v.validar_ine("." * 18))
+        self.assertIsNotNone(v.validar_ine("." * 13))
         self.assertIsNotNone(v.validar_celular("." * 10))
         self.assertIsNotNone(v.validar_genero("..."))
         self.assertIsNotNone(v.validar_promedio("..."))

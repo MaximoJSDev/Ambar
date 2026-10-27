@@ -17,6 +17,7 @@ def datos_alumno(**cambios) -> dict:
         "ap_materno": "Jesus",
         "fecha_nacimiento": "2005-03-02",
         "curp": "CAJG050302HGRSSLA4",
+        "ine": "1234567890123",
         "nss": "12345678901",
         "genero": "hombre",
         "celular": "7441234567",

@@ -140,7 +140,8 @@ def validar_alta(d: AltaIn, exigir_identificacion_adulto: bool = True) -> dict[s
     revisar("nss", v.validar_nss(d.nss))
     if exigir_identificacion_adulto and mayor_de_18 and not d.ine:
         revisar("ine", "Campo obligatorio para mayores de edad")
-    revisar("ine", v.validar_ine(d.ine, ref))
+    if d.ine:
+        revisar("ine", v.validar_ine(d.ine))
     revisar("genero", v.validar_genero(d.genero))
     revisar("celular", v.validar_celular(d.celular))
     revisar("correo", v.validar_correo_con_dominio(d.correo, maximo=100))
@@ -220,7 +221,7 @@ def duplicados(
         "curp": curp.strip().upper(),
         "nss": nss.strip(),
         "rfc": rfc.strip().upper(),
-        "ine": ine.strip().upper(),
+        "ine": v.normalizar_ine(ine).upper(),
         "correo": correo.strip().lower(),
     }
     condiciones = []
@@ -230,7 +231,7 @@ def duplicados(
         "curp": "UPPER(curp) = :curp",
         "nss": "nss = :nss",
         "rfc": "UPPER(rfc) = :rfc",
-        "ine": "UPPER(ine) = :ine",
+        "ine": "REPLACE(UPPER(ine), ' ', '') = :ine",
         "correo": "LOWER(TRIM(correo_personal)) = :correo",
     }
     for campo, condicion in condiciones_por_campo.items():
@@ -253,7 +254,9 @@ def duplicados(
         "curp": bool(valores["curp"]) and any(f["curp"].upper() == valores["curp"] for f in filas),
         "nss": bool(valores["nss"]) and any(f["nss"] == valores["nss"] for f in filas),
         "rfc": bool(valores["rfc"]) and any(f["rfc"] and f["rfc"].upper() == valores["rfc"] for f in filas),
-        "ine": bool(valores["ine"]) and any(f["ine"] and f["ine"].upper() == valores["ine"] for f in filas),
+        "ine": bool(valores["ine"]) and any(
+            f["ine"] and v.normalizar_ine(f["ine"]).upper() == valores["ine"] for f in filas
+        ),
         "correo": bool(valores["correo"]) and any(
             f["correo_personal"].strip().lower() == valores["correo"] for f in filas
         ),
@@ -460,7 +463,7 @@ def actualizar_alumno(numero_control: str, datos: AltaIn, id_usuario: int) -> No
                     "numero": numero_control, "ficha": datos.ficha, "nombre": datos.nombre,
                     "ap_paterno": datos.ap_paterno, "ap_materno": datos.ap_materno,
                     "fecha": datos.fecha_nacimiento, "genero": datos.genero, "curp": datos.curp,
-                    "rfc": datos.rfc, "ine": datos.ine, "nss": datos.nss,
+                    "rfc": datos.rfc, "ine": v.normalizar_ine(datos.ine), "nss": datos.nss,
                     "domicilio": datos.domicilio, "celular": re.sub(r"[\s-]", "", datos.celular),
                     "celular_emergencia": re.sub(r"[\s-]", "", datos.celular_emergencia),
                     "correo": datos.correo, "correo_emergencia": datos.correo_emergencia,
@@ -1787,7 +1790,8 @@ def registrar_alta(d: AltaIn, pdfs: dict[str, str], usuario: dict) -> dict:
                     )"""), {
                     "numero": numero, "ficha": d.ficha, "nombres": d.nombre,
                     "ap_p": d.ap_paterno, "ap_m": d.ap_materno, "nacimiento": d.fecha_nacimiento,
-                    "genero": d.genero, "curp": d.curp, "rfc": d.rfc, "ine": d.ine, "nss": d.nss,
+                    "genero": d.genero, "curp": d.curp, "rfc": d.rfc,
+                    "ine": v.normalizar_ine(d.ine), "nss": d.nss,
                     "domicilio": d.domicilio, "celular": re.sub(r"[\s-]", "", d.celular),
                     "cel_emerg": re.sub(r"[\s-]", "", d.celular_emergencia),
                     "correo": d.correo,

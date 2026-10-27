@@ -106,10 +106,15 @@ class AltaIn(BaseModel):
     tipo_sangre: str
     alergias: str = "Ninguna"
 
-    @field_validator("curp", "rfc", "ine")
+    @field_validator("curp", "rfc")
     @classmethod
     def _mayusculas(cls, valor: str | None) -> str | None:
         return valor.upper() if valor else None
+
+    @field_validator("ine")
+    @classmethod
+    def _normalizar_ine(cls, valor: str | None) -> str | None:
+        return v.normalizar_ine(valor) or None
 
     @field_validator("alergias")
     @classmethod

@@ -50,7 +50,7 @@ class ReporteExpedienteTests(unittest.TestCase):
                 "genero": "Hombre",
                 "curp": "CAJG050302HGRSSLA4",
                 "rfc": "—",
-                "ine": "—",
+                "ine": "1234567890123",
                 "nss": "12345678901",
             },
             "contacto": {

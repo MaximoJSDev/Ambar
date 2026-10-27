@@ -1813,7 +1813,12 @@ class FormAltas:
         self.rfc = crear_campo_texto("Ingresa el RFC", input_filter=alfanum, capitalization=mayus)
         self.nss = crear_campo_texto("Ingresa el número de seguro social", keyboard_type=ft.KeyboardType.NUMBER,
                       input_filter=ft.NumbersOnlyInputFilter())
-        self.ine = crear_campo_texto("Clave de elector (18 caracteres)", input_filter=alfanum, capitalization=mayus)
+        self.ine = crear_campo_texto(
+            "OCR de la INE (13 dígitos)",
+            keyboard_type=ft.KeyboardType.NUMBER,
+            input_filter=ft.NumbersOnlyInputFilter(),
+        )
+        self.ine.on_change = self._ine_cambiada
         self.genero = ft.Dropdown(
             hint_text="Selecciona",
             text_size=13,
@@ -1941,6 +1946,14 @@ class FormAltas:
         self.genero.error_text = None
         self.page.update()
 
+    def _ine_cambiada(self, e):
+        valor = self.ine.value or ""
+        normalizado = v.normalizar_ine(valor)
+        if valor != normalizado:
+            self.ine.value = normalizado
+        self.ine.error = None
+        self.page.update()
+
     def _tipo_sangre_elegido(self, e):
         self.tipo_sangre.error_text = None
         self.page.update()
@@ -2020,7 +2033,7 @@ class FormAltas:
                 curp=self._texto_campo(self.curp).upper(),
                 nss=self._texto_campo(self.nss),
                 rfc=self._texto_campo(self.rfc).upper(),
-                ine=self._texto_campo(self.ine).upper(),
+                ine=v.normalizar_ine(self._texto_campo(self.ine)),
                 correo=self._texto_campo(self.correo),
             )
         except ApiError:
@@ -2074,10 +2087,11 @@ class FormAltas:
             paso_valido &= self.rfc.error is None
             paso_valido &= self._requerido(self.nss, v.validar_nss)
             if mayor_de_18:
-                paso_valido &= self._requerido(self.ine, v.validar_ine, fecha=fecha_referencia)
+                paso_valido &= self._requerido(self.ine, v.validar_ine)
             else:
-                self.ine.error = v.validar_ine(self._texto_campo(self.ine), fecha=fecha_referencia)
-            paso_valido &= self.ine.error is None
+                ine = v.normalizar_ine(self._texto_campo(self.ine))
+                self.ine.error = v.validar_ine(ine) if ine else None
+                paso_valido &= self.ine.error is None
             self.genero.error_text = v.validar_genero(self.genero.value)
             paso_valido &= self.genero.error_text is None
             paso_valido &= self._requerido(self.celular, v.validar_celular)
@@ -2241,7 +2255,7 @@ class FormAltas:
             "curp": texto_campo(self.curp).upper(),
             "rfc": texto_campo(self.rfc).upper() or None,
             "nss": texto_campo(self.nss),
-            "ine": texto_campo(self.ine).upper() or None,
+            "ine": v.normalizar_ine(texto_campo(self.ine)),
             "genero": self.genero.value,
             "celular": texto_campo(self.celular),
             "correo": texto_campo(self.correo),
@@ -2327,8 +2341,8 @@ class FormAltas:
                 crear_fila(crear_campo_etiquetado("Número de ficha", self.ficha), crear_campo_etiquetado("Nombre(s)", self.nombre)),
                 crear_fila(crear_campo_etiquetado("Apellido paterno", self.ap_paterno), crear_campo_etiquetado("Apellido materno", self.ap_materno)),
                 crear_fila(crear_campo_etiquetado("Fecha de nacimiento", self.txt_fecha), crear_campo_etiquetado("CURP", self.curp)),
-                crear_fila(crear_campo_etiquetado(self._etiqueta_rfc_ine("RFC"), self.rfc), crear_campo_etiquetado("Número de seguro social", self.nss)),
-                crear_fila(crear_campo_etiquetado(self._etiqueta_rfc_ine("INE"), self.ine), crear_campo_etiquetado("Género", ft.Row([self.genero]))),
+                crear_fila(crear_campo_etiquetado(self._etiqueta_rfc("RFC"), self.rfc), crear_campo_etiquetado("Número de seguro social", self.nss)),
+                crear_fila(crear_campo_etiquetado(self._etiqueta_ine(), self.ine), crear_campo_etiquetado("Género", ft.Row([self.genero]))),
                 crear_fila(crear_campo_etiquetado("Teléfono celular", self.celular), crear_campo_etiquetado("Correo personal", self.correo)),
                 crear_fila(crear_campo_etiquetado("Domicilio", self.domicilio)),
             ]
@@ -2358,11 +2372,17 @@ class FormAltas:
                 self._resumen_final(),
             ]
 
-    def _etiqueta_rfc_ine(self, campo: str) -> str:
+    def _etiqueta_rfc(self, campo: str) -> str:
         if self.fecha is None:
             return f"{campo} (obligatorio para mayores de edad)"
         requisito = "obligatorio" if v.es_mayor_de_18(self.fecha) else "opcional"
         return f"{campo} ({requisito})"
+
+    def _etiqueta_ine(self) -> str:
+        if self.fecha is None:
+            return "INE (OCR, 13 dígitos)"
+        requisito = "obligatorio" if v.es_mayor_de_18(self.fecha) else "opcional"
+        return f"INE (OCR, 13 dígitos, {requisito})"
 
     def _resumen_final(self) -> ft.Control:
         texto_campo = self._texto_campo
@@ -3101,7 +3121,12 @@ class ConsultaExpediente:
             "curp": crear_campo_texto(value=p["curp"], label="CURP"),
             "rfc": crear_campo_texto(value="" if p["rfc"] == "—" else p["rfc"], label="RFC (opcional)"),
             "nss": crear_campo_texto(value=p["nss"], label="Número de seguro social"),
-            "ine": crear_campo_texto(value="" if p["ine"] == "—" else p["ine"], label="INE (opcional)"),
+            "ine": crear_campo_texto(
+                value="" if p["ine"] == "—" else p["ine"],
+                label="INE (OCR, 13 dígitos)",
+                keyboard_type=ft.KeyboardType.NUMBER,
+                input_filter=ft.NumbersOnlyInputFilter(),
+            ),
             "genero": ft.Dropdown(
                 label="Género",
                 value=genero,
@@ -3149,6 +3174,7 @@ class ConsultaExpediente:
 
     def _guardar_edicion(self, campos: dict):
         datos = {clave: (campo.value or "").strip() for clave, campo in campos.items()}
+        datos["ine"] = v.normalizar_ine(datos["ine"])
         try:
             datos["fecha_nacimiento"] = datetime.date.fromisoformat(datos["fecha_nacimiento"]).isoformat()
             datos["promedio"] = float(datos["promedio"].replace(",", "."))
@@ -3156,7 +3182,6 @@ class ConsultaExpediente:
             snackbar(self.page, "Revisa la fecha (AAAA-MM-DD) y el promedio.")
             return
         datos["rfc"] = datos["rfc"] or None
-        datos["ine"] = datos["ine"] or None
 
         try:
             api.actualizar_alumno(self.datos["numero_control"], datos)
