@@ -4,6 +4,7 @@ import datetime
 import json
 import logging
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -1774,6 +1775,204 @@ def build_bitacora_admin(page: ft.Page, navegar) -> ft.Control:
 # =====================================================================
 # 3. FORMULARIO DE ALTAS (4 pasos) — según Algoritmo 3 del documento de contexto
 # =====================================================================
+class DomicilioCampos:
+    """Campos dependientes de un catálogo postal local."""
+
+    def __init__(self, page: ft.Page, valores: dict | None = None):
+        valores = valores or {}
+        self.page = page
+        self.catalogo: dict[str, dict[str, list[str]]] = {}
+        self.aviso = ft.Text("", size=12, color=WARN_FG, visible=False)
+        self.codigo_postal = crear_campo_texto(
+            "5 dígitos",
+            value=valores.get("codigo_postal") or "",
+            max_length=5,
+            keyboard_type=ft.KeyboardType.NUMBER,
+            input_filter=ft.NumbersOnlyInputFilter(),
+        )
+        self.codigo_postal.on_change = self._codigo_postal_cambiado
+        self.estado = self._crear_dropdown("Estado", self._estado_cambiado)
+        self.municipio = self._crear_dropdown("Municipio", self._municipio_cambiado)
+        self.colonia = self._crear_dropdown("Colonia")
+        self.calle = crear_campo_texto(
+            "Calle y/o avenida",
+            value=valores.get("calle") or "",
+            max_length=150,
+        )
+        self.numero_exterior = crear_campo_texto(
+            "Número exterior",
+            value=valores.get("numero_exterior") or "",
+            max_length=20,
+        )
+        self.controles = [
+            ft.Row(spacing=16, controls=[
+                crear_campo_etiquetado("Código postal", self.codigo_postal),
+                crear_campo_etiquetado("Estado", self.estado),
+            ]),
+            ft.Row(spacing=16, controls=[
+                crear_campo_etiquetado("Municipio", self.municipio),
+                crear_campo_etiquetado("Colonia", self.colonia),
+            ]),
+            ft.Row(spacing=16, controls=[
+                crear_campo_etiquetado("Calle", self.calle),
+                crear_campo_etiquetado("Número exterior", self.numero_exterior),
+            ]),
+            self.aviso,
+        ]
+        codigo_postal = self.codigo_postal.value or ""
+        if len(codigo_postal) == 5:
+            self._cargar_catalogo(valores)
+
+    @staticmethod
+    def _crear_dropdown(etiqueta: str, on_select=None) -> ft.Dropdown:
+        return ft.Dropdown(
+            label=etiqueta,
+            hint_text="Selecciona",
+            text_size=13,
+            border_radius=6,
+            border_color=BORDER,
+            expand=True,
+            disabled=True,
+            options=[],
+            on_select=on_select,
+        )
+
+    @staticmethod
+    def _opciones(valores: list[str]) -> list[ft.DropdownOption]:
+        return [ft.DropdownOption(key=valor, text=valor) for valor in valores]
+
+    def _limpiar_selecciones(self):
+        self.catalogo = {}
+        for control in (self.estado, self.municipio, self.colonia):
+            control.value = None
+            control.options = []
+            control.disabled = True
+            control.error_text = None
+
+    def _codigo_postal_cambiado(self, e):
+        self.codigo_postal.error = None
+        codigo_postal = (self.codigo_postal.value or "").strip()
+        if len(codigo_postal) == 5:
+            self._cargar_catalogo()
+        else:
+            self._limpiar_selecciones()
+            self.aviso.value = ""
+            self.aviso.visible = False
+        self.page.update()
+
+    def _cargar_catalogo(self, valores: dict | None = None):
+        codigo_postal = (self.codigo_postal.value or "").strip()
+        try:
+            resultado = api.opciones_domicilio(codigo_postal)
+        except ApiError as ex:
+            self._limpiar_selecciones()
+            self.aviso.value = ex.mensaje
+            self.aviso.visible = True
+            return
+
+        self.catalogo = {
+            item["estado"]: {
+                municipio["municipio"]: municipio["colonias"]
+                for municipio in item["municipios"]
+            }
+            for item in resultado["estados"]
+        }
+        self.aviso.value = (
+            "" if self.catalogo else "Código postal no encontrado en el catálogo local."
+        )
+        self.aviso.visible = not bool(self.catalogo)
+        estados = list(self.catalogo)
+        self.estado.options = self._opciones(estados)
+        self.estado.disabled = not estados
+        preferido = (valores or {}).get("estado")
+        self.estado.value = preferido if preferido in self.catalogo else (
+            estados[0] if len(estados) == 1 else None
+        )
+        self._actualizar_municipios(
+            (valores or {}).get("municipio"),
+            (valores or {}).get("colonia"),
+        )
+
+    def _actualizar_municipios(self, preferido: str | None = None, colonia: str | None = None):
+        municipios = self.catalogo.get(self.estado.value, {})
+        opciones = list(municipios)
+        self.municipio.options = self._opciones(opciones)
+        self.municipio.disabled = not opciones
+        self.municipio.value = preferido if preferido in municipios else (
+            opciones[0] if len(opciones) == 1 else None
+        )
+        self._actualizar_colonias(colonia)
+
+    def _actualizar_colonias(self, preferida: str | None = None):
+        colonias = self.catalogo.get(self.estado.value, {}).get(self.municipio.value, [])
+        self.colonia.options = self._opciones(colonias)
+        self.colonia.disabled = not colonias
+        self.colonia.value = preferida if preferida in colonias else (
+            colonias[0] if len(colonias) == 1 else None
+        )
+
+    def _estado_cambiado(self, e):
+        self.estado.error_text = None
+        self._actualizar_municipios()
+        self.page.update()
+
+    def _municipio_cambiado(self, e):
+        self.municipio.error_text = None
+        self._actualizar_colonias()
+        self.page.update()
+
+    def validar(self) -> bool:
+        self.codigo_postal.error = (
+            None if re.fullmatch(r"\d{5}", self.codigo_postal.value or "")
+            else "El código postal debe contener 5 dígitos"
+        )
+        valido = self.codigo_postal.error is None
+        for control in (self.estado, self.municipio, self.colonia):
+            control.error_text = None if control.value else "Selecciona una opción"
+            valido &= control.error_text is None
+        self.calle.error = v.validar_calle(self.calle.value or "")
+        self.numero_exterior.error = v.validar_numero_exterior(
+            self.numero_exterior.value or "",
+        )
+        return bool(valido and not self.calle.error and not self.numero_exterior.error)
+
+    def datos(self) -> dict[str, str]:
+        return {
+            "codigo_postal": (self.codigo_postal.value or "").strip(),
+            "estado": self.estado.value or "",
+            "municipio": self.municipio.value or "",
+            "colonia": self.colonia.value or "",
+            "calle": (self.calle.value or "").strip(),
+            "numero_exterior": (self.numero_exterior.value or "").strip(),
+        }
+
+    def texto(self) -> str:
+        datos = self.datos()
+        if not any(datos.values()):
+            return ""
+        return (
+            f"{datos['calle']} {datos['numero_exterior']}, {datos['colonia']}, "
+            f"{datos['municipio']}, {datos['estado']}, C.P. {datos['codigo_postal']}"
+        )
+
+    def marcar_errores(self, errores: dict[str, str]):
+        controles = {
+            "codigo_postal": self.codigo_postal,
+            "estado": self.estado,
+            "municipio": self.municipio,
+            "colonia": self.colonia,
+            "calle": self.calle,
+            "numero_exterior": self.numero_exterior,
+        }
+        for campo, control in controles.items():
+            if campo not in errores:
+                continue
+            if isinstance(control, ft.Dropdown):
+                control.error_text = errores[campo]
+            else:
+                control.error = errores[campo]
+
+
 class FormAltas:
     PASOS = ["Datos personales", "Datos académicos", "Documentos", "Confirmación"]
 
@@ -1831,7 +2030,7 @@ class FormAltas:
         self.celular = crear_campo_texto("Número de 10 dígitos", keyboard_type=ft.KeyboardType.PHONE,
                           input_filter=ft.NumbersOnlyInputFilter())
         self.correo = crear_campo_texto("Correo electrónico del alumno", keyboard_type=ft.KeyboardType.EMAIL)
-        self.domicilio = crear_campo_texto("Calle, número, colonia, ciudad y estado")
+        self.domicilio = DomicilioCampos(page)
 
         # ---- Paso 2
         self.prepa = crear_campo_texto("Nombre de la preparatoria")
@@ -2096,7 +2295,7 @@ class FormAltas:
             paso_valido &= self.genero.error_text is None
             paso_valido &= self._requerido(self.celular, v.validar_celular)
             paso_valido &= self._requerido(self.correo, v.validar_correo_con_dominio, maximo=100)
-            paso_valido &= self._requerido(self.domicilio, v.validar_domicilio)
+            paso_valido &= self.domicilio.validar()
             if self.ficha.error is None and self.curp.error is None:
                 paso_valido &= self._no_duplicado()
         elif paso == 1:
@@ -2156,9 +2355,10 @@ class FormAltas:
 
     def hay_datos(self) -> bool:
         campos = [self.ficha, self.nombre, self.ap_paterno, self.ap_materno, self.curp, self.rfc,
-                  self.nss, self.ine, self.celular, self.correo, self.domicilio, self.prepa,
+                  self.nss, self.ine, self.celular, self.correo, self.prepa,
                   self.promedio, self.cel_emerg, self.correo_emerg, self.alergias]
         return (any(self._texto_campo(campo) for campo in campos) or self.fecha is not None
+                or any(self.domicilio.datos().values())
                 or self.tipo_sangre.value is not None
                 or self.genero.value is not None or bool(self.archivos))
 
@@ -2210,7 +2410,7 @@ class FormAltas:
             "ficha": (self.ficha, 0), "nombre": (self.nombre, 0), "ap_paterno": (self.ap_paterno, 0),
             "ap_materno": (self.ap_materno, 0), "fecha_nacimiento": (self.txt_fecha, 0),
             "curp": (self.curp, 0), "rfc": (self.rfc, 0), "nss": (self.nss, 0), "ine": (self.ine, 0),
-            "celular": (self.celular, 0), "correo": (self.correo, 0), "domicilio": (self.domicilio, 0),
+            "celular": (self.celular, 0), "correo": (self.correo, 0),
             "preparatoria": (self.prepa, 1), "promedio": (self.promedio, 1),
             "celular_emergencia": (self.cel_emerg, 1),
             "correo_emergencia": (self.correo_emerg, 1), "alergias": (self.alergias, 1),
@@ -2227,6 +2427,11 @@ class FormAltas:
             elif campo == "tipo_sangre":
                 self.tipo_sangre.error_text = mensaje_error
                 pasos_con_error.append(1)
+            elif campo in {
+                "codigo_postal", "estado", "municipio", "colonia", "calle", "numero_exterior",
+            }:
+                self.domicilio.marcar_errores({campo: mensaje_error})
+                pasos_con_error.append(0)
             elif campo == "documentos":
                 self.aviso_docs.value = mensaje_error
                 self.aviso_docs.visible = True
@@ -2259,7 +2464,7 @@ class FormAltas:
             "genero": self.genero.value,
             "celular": texto_campo(self.celular),
             "correo": texto_campo(self.correo),
-            "domicilio": texto_campo(self.domicilio),
+            **self.domicilio.datos(),
             "preparatoria": texto_campo(self.prepa),
             "promedio": float(texto_campo(self.promedio).replace(",", ".")),
             "celular_emergencia": texto_campo(self.cel_emerg),
@@ -2344,7 +2549,8 @@ class FormAltas:
                 crear_fila(crear_campo_etiquetado(self._etiqueta_rfc("RFC"), self.rfc), crear_campo_etiquetado("Número de seguro social", self.nss)),
                 crear_fila(crear_campo_etiquetado(self._etiqueta_ine(), self.ine), crear_campo_etiquetado("Género", ft.Row([self.genero]))),
                 crear_fila(crear_campo_etiquetado("Teléfono celular", self.celular), crear_campo_etiquetado("Correo personal", self.correo)),
-                crear_fila(crear_campo_etiquetado("Domicilio", self.domicilio)),
+                ft.Text("Domicilio", size=16, weight=ft.FontWeight.BOLD, color=NAVY),
+                *self.domicilio.controles,
             ]
         elif self.paso == 1:
             self.titulo_card.value = "Datos académicos"
@@ -2400,7 +2606,7 @@ class FormAltas:
             ("Seguro social", texto_campo(self.nss)), ("INE", texto_campo(self.ine).upper()),
             ("Género", genero),
             ("Celular", texto_campo(self.celular)), ("Correo personal", texto_campo(self.correo)),
-            ("Domicilio", texto_campo(self.domicilio)),
+            ("Domicilio", self.domicilio.texto()),
             ("Preparatoria", texto_campo(self.prepa)), ("Promedio", promedio_texto), ("Turno", turno),
             ("Contacto de emergencia", f"{texto_campo(self.cel_emerg)} · {texto_campo(self.correo_emerg)}"),
             ("Tipo de sangre", self.tipo_sangre.value or "—"),
@@ -3134,7 +3340,6 @@ class ConsultaExpediente:
             ),
             "celular": crear_campo_texto(value=c["celular"], label="Celular"),
             "correo": crear_campo_texto(value=c["correo_personal"], label="Correo personal"),
-            "domicilio": crear_campo_texto(value=c["domicilio"], label="Domicilio"),
             "preparatoria": crear_campo_texto(value=a["preparatoria"], label="Preparatoria"),
             "promedio": crear_campo_texto(value=a["promedio"], label="Promedio"),
             "celular_emergencia": crear_campo_texto(value=c["celular_emergencia"], label="Celular de emergencia"),
@@ -3146,12 +3351,16 @@ class ConsultaExpediente:
             ),
             "alergias": crear_campo_texto(value=c["alergias"], label="Alergias"),
         }
+        domicilio = DomicilioCampos(self.page, c)
         contenido = ft.ResponsiveRow(
             spacing=12,
             run_spacing=8,
             controls=[
                 ft.Container(col={"xs": 12, "md": 6}, content=campo)
                 for campo in campos.values()
+            ] + [
+                ft.Container(col={"xs": 12, "md": 12}, content=control)
+                for control in domicilio.controles
             ],
         )
         self.page.show_dialog(ft.AlertDialog(
@@ -3160,20 +3369,24 @@ class ConsultaExpediente:
             title=ft.Text("Modificar datos del alumno"),
             content=ft.Container(
                 width=680,
-                height=520,
+                height=640,
                 content=ft.Column(scroll=ft.ScrollMode.AUTO, controls=[contenido]),
             ),
             actions=[
                 ft.TextButton("Cancelar", on_click=lambda _: self.page.pop_dialog()),
                 ft.FilledButton(
                     "Guardar cambios", style=estilo_boton_primario(),
-                    on_click=lambda _: self._guardar_edicion(campos),
+                    on_click=lambda _: self._guardar_edicion(campos, domicilio),
                 ),
             ],
         ))
 
-    def _guardar_edicion(self, campos: dict):
+    def _guardar_edicion(self, campos: dict, domicilio: DomicilioCampos):
         datos = {clave: (campo.value or "").strip() for clave, campo in campos.items()}
+        if not domicilio.validar():
+            snackbar(self.page, "Completa el domicilio y selecciona sus opciones del catálogo.")
+            return
+        datos.update(domicilio.datos())
         datos["ine"] = v.normalizar_ine(datos["ine"])
         try:
             datos["fecha_nacimiento"] = datetime.date.fromisoformat(datos["fecha_nacimiento"]).isoformat()
@@ -3189,6 +3402,7 @@ class ConsultaExpediente:
             if ex.status == 401:
                 self.navegar("/consultas")
                 return
+            domicilio.marcar_errores(ex.errores)
             detalles = "; ".join(f"{campo}: {mensaje}" for campo, mensaje in ex.errores.items())
             snackbar(self.page, f"{ex.mensaje}{': ' + detalles if detalles else ''}")
             return

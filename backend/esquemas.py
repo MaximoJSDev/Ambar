@@ -98,7 +98,12 @@ class AltaIn(BaseModel):
     genero: str
     celular: str
     correo: str
-    domicilio: str
+    codigo_postal: str = Field(min_length=5, max_length=5, pattern=r"^\d{5}$")
+    estado: str = Field(min_length=1, max_length=100)
+    municipio: str = Field(min_length=1, max_length=100)
+    colonia: str = Field(min_length=1, max_length=150)
+    calle: str = Field(min_length=1, max_length=150)
+    numero_exterior: str = Field(min_length=1, max_length=20)
     preparatoria: str
     promedio: float = Field(allow_inf_nan=False)
     celular_emergencia: str

@@ -124,6 +124,10 @@ class ApiClient:
         """{"periodo", "turnos": {"Matutino": n, "Vespertino": n}, "total"}"""
         return self._request("GET", "/alumnos/cupo-ingreso")
 
+    def opciones_domicilio(self, codigo_postal: str) -> dict:
+        """Opciones de estado, municipio y colonia almacenadas localmente para el CP."""
+        return self._request("GET", f"/alumnos/domicilios/{codigo_postal}")
+
     def verificar(
         self,
         ficha: str = "",

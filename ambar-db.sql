@@ -74,6 +74,29 @@ CREATE TABLE alumnos (
     INDEX idx_alumnos_estatus (estatus)
 );
 
+CREATE TABLE catalogo_codigos_postales (
+    codigo_postal CHAR(5) NOT NULL,
+    estado VARCHAR(100) NOT NULL,
+    municipio VARCHAR(100) NOT NULL,
+    colonia VARCHAR(150) NOT NULL,
+    PRIMARY KEY (codigo_postal, estado, municipio, colonia),
+    INDEX idx_catalogo_cp_estado (codigo_postal, estado),
+    INDEX idx_catalogo_cp_municipio (codigo_postal, municipio)
+) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+CREATE TABLE domicilios (
+    id_domicilio INT AUTO_INCREMENT PRIMARY KEY,
+    numero_control VARCHAR(20) NOT NULL UNIQUE,
+    codigo_postal CHAR(5),
+    estado VARCHAR(100),
+    municipio VARCHAR(100),
+    colonia VARCHAR(150),
+    calle VARCHAR(255) NOT NULL,
+    numero_exterior VARCHAR(20),
+    FOREIGN KEY (numero_control) REFERENCES alumnos(numero_control)
+        ON UPDATE CASCADE ON DELETE CASCADE
+) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
 CREATE TABLE historial_alumnos (
     id_historial INT AUTO_INCREMENT PRIMARY KEY,
     numero_control VARCHAR(20) NOT NULL,

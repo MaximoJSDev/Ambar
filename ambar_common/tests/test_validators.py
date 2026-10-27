@@ -197,6 +197,21 @@ class ValidacionesAltasTests(unittest.TestCase):
         self.assertIsNotNone(v.validar_domicilio("Calle!!! 123"))
         self.assertIsNotNone(v.validar_domicilio("Calle " + "x" * 250))
 
+    def test_calle_valida_longitud_caracteres_y_contenido(self):
+        self.assertIsNone(v.validar_calle("Av. Costera #12"))
+        self.assertIsNone(v.validar_calle("5 de Mayo"))
+        for calle in ("AB", "nose", "asdfg", "ninguna", "basura", "aaaaaaa", "A" * 151, "Calle @ 1"):
+            with self.subTest(calle=calle):
+                self.assertIsNotNone(v.validar_calle(calle))
+
+    def test_numero_exterior_acepta_formatos_comunes_y_sin_numero(self):
+        for numero in ("124-B", "45-Bis", "102 A", "14-A", "SN", "S/N", "S.N.", "Manzana 4, Lote 12"):
+            with self.subTest(numero=numero):
+                self.assertIsNone(v.validar_numero_exterior(numero))
+        for numero in ("", "Manzana B", "12@", "A" * 21):
+            with self.subTest(numero=numero):
+                self.assertIsNotNone(v.validar_numero_exterior(numero))
+
     def test_preparatoria_rechaza_simbolos_y_respeta_la_columna(self):
         self.assertIsNone(v.validar_preparatoria("CBTis 41"))
         self.assertIsNotNone(v.validar_preparatoria("." * 20))

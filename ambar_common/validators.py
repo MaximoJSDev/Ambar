@@ -252,6 +252,41 @@ def validar_domicilio(valor: str) -> str | None:
     return None
 
 
+def _normalizar_texto_domicilio(valor: str) -> str:
+    return "".join(
+        caracter for caracter in unicodedata.normalize("NFD", valor.casefold())
+        if unicodedata.category(caracter) != "Mn"
+    )
+
+
+def validar_calle(valor: str) -> str | None:
+    calle = valor.strip()
+    if not 3 <= len(calle) <= 150:
+        return "La calle debe tener entre 3 y 150 caracteres"
+    if not re.fullmatch(r"[A-Za-zÁÉÍÓÚÜÑáéíóúüñ0-9\s.,#°ºª'’()/&-]+", calle):
+        return "La calle contiene caracteres no permitidos"
+
+    normalizada = _normalizar_texto_domicilio(calle)
+    contenido = re.sub(r"[^a-z0-9]", "", normalizada)
+    if contenido in {"nose", "asdfg", "ninguna", "basura"}:
+        return "Escribe el nombre real de la calle"
+    if re.search(r"([a-z])\1{6,}", normalizada):
+        return "La calle no puede repetir la misma letra 7 veces o más"
+    return None
+
+
+def validar_numero_exterior(valor: str) -> str | None:
+    numero = valor.strip()
+    if not 1 <= len(numero) <= 20:
+        return "El número exterior debe tener entre 1 y 20 caracteres"
+    if not re.fullmatch(r"[A-Za-zÁÉÍÓÚÜÑáéíóúüñ0-9\s.,#/-]+", numero):
+        return "El número exterior contiene caracteres no permitidos"
+    sin_numero = re.sub(r"[\s./]", "", numero).casefold() == "sn"
+    if not sin_numero and not any(caracter.isdigit() for caracter in numero):
+        return "Incluye un número o indica S/N (sin número)"
+    return None
+
+
 def validar_preparatoria(valor: str) -> str | None:
     v = valor.strip()
     if not 3 <= len(v) <= 100:

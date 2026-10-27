@@ -45,6 +45,14 @@ def verificar(
     )
 
 
+@router.get("/domicilios/{codigo_postal}")
+def consultar_domicilio(codigo_postal: str, _: dict = Depends(usuario_actual)):
+    """Opciones de estado, municipio y colonia del catálogo postal local."""
+    if not re.fullmatch(r"\d{5}", codigo_postal):
+        raise HTTPException(422, {"mensaje": "El código postal debe contener 5 dígitos"})
+    return servicios.opciones_domicilio(codigo_postal)
+
+
 # --- Consultas -------------------------------------------------------------
 @router.get("/expediente")
 def expediente(
@@ -110,6 +118,8 @@ def actualizar_alumno(
 ):
     """Modifica datos personales y de contacto sin cambiar el historial académico."""
     errores = servicios.validar_alta(datos, exigir_identificacion_adulto=False)
+    if not errores:
+        errores.update(servicios.validar_domicilio_catalogo(datos))
     if errores:
         raise HTTPException(422, {"mensaje": "Revisa los datos capturados", "errores": errores})
     try:
@@ -236,6 +246,8 @@ def registrar_alta(
         raise HTTPException(422, {"mensaje": "Datos incompletos o con formato incorrecto", "errores": errores})
 
     errores = servicios.validar_alta(alta)
+    if not errores:
+        errores.update(servicios.validar_domicilio_catalogo(alta))
     subidos = {
         "doc_acta_nacimiento": doc_acta_nacimiento,
         "doc_curp": doc_curp,

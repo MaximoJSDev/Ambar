@@ -48,7 +48,7 @@ def _ascii(texto: str) -> str:
     return unicodedata.normalize("NFD", texto).encode("ascii", "ignore").decode().upper()
 
 
-def _datos_alumno_demo(indice: int) -> AltaIn:
+def _datos_alumno_demo(indice: int, domicilio: dict[str, str]) -> AltaIn:
     nombre, paterno, materno = ALUMNOS_DEMO[(indice - 1) % len(ALUMNOS_DEMO)]
     hoy = datetime.date.today()
     fecha = datetime.date(hoy.year - 18, (indice - 1) % 12 + 1, (indice - 1) % 28 + 1)
@@ -77,7 +77,12 @@ def _datos_alumno_demo(indice: int) -> AltaIn:
         genero=genero,
         celular=f"744{indice:07d}",
         correo=f"alumno.demo{indice:05d}@example.test",
-        domicilio=f"Calle Demo {indice}, Colonia Centro, Acapulco, Guerrero",
+        codigo_postal=domicilio["codigo_postal"],
+        estado=domicilio["estado"],
+        municipio=domicilio["municipio"],
+        colonia=domicilio["colonia"],
+        calle=f"Calle Demo {indice}",
+        numero_exterior=str(indice),
         preparatoria="Preparatoria Demo",
         promedio=9.2 if indice % 2 else 8.4,
         celular_emergencia=f"781{indice:07d}",
@@ -88,9 +93,23 @@ def _datos_alumno_demo(indice: int) -> AltaIn:
 
 
 def crear_alumnos_demo(cantidad: int, id_usuario: int) -> None:
+    if cantidad < 1:
+        return
+    with engine.connect() as conn:
+        domicilio_catalogo = conn.execute(
+            text("""SELECT codigo_postal, estado, municipio, colonia
+                    FROM catalogo_codigos_postales
+                    ORDER BY codigo_postal, estado, municipio, colonia
+                    LIMIT 1"""),
+        ).mappings().first()
+    if domicilio_catalogo is None:
+        raise RuntimeError(
+            "Importa el catálogo postal local antes de generar alumnos demo."
+        )
+
     creados = 0
     for indice in range(1, cantidad + 1):
-        datos = _datos_alumno_demo(indice)
+        datos = _datos_alumno_demo(indice, dict(domicilio_catalogo))
         existentes = servicios.verificar_duplicados(
             datos.ficha, datos.curp, datos.nss, datos.rfc or "", datos.ine or "", datos.correo,
         )

@@ -145,7 +145,10 @@ def validar_alta(d: AltaIn, exigir_identificacion_adulto: bool = True) -> dict[s
     revisar("genero", v.validar_genero(d.genero))
     revisar("celular", v.validar_celular(d.celular))
     revisar("correo", v.validar_correo_con_dominio(d.correo, maximo=100))
-    revisar("domicilio", v.validar_domicilio(d.domicilio))
+    if not re.fullmatch(r"\d{5}", d.codigo_postal):
+        revisar("codigo_postal", "El código postal debe contener 5 dígitos")
+    revisar("calle", v.validar_calle(d.calle))
+    revisar("numero_exterior", v.validar_numero_exterior(d.numero_exterior))
     revisar("preparatoria", v.validar_preparatoria(d.preparatoria))
     revisar("promedio", v.validar_promedio(str(d.promedio)))
     revisar("celular_emergencia", v.validar_celular_emergencia(d.celular_emergencia, d.celular))
@@ -156,6 +159,67 @@ def validar_alta(d: AltaIn, exigir_identificacion_adulto: bool = True) -> dict[s
     revisar("tipo_sangre", v.validar_tipo_sangre(d.tipo_sangre))
     revisar("alergias", v.validar_alergias(d.alergias))
     return errores
+
+
+def _formatear_domicilio(d: AltaIn) -> str:
+    return (
+        f"{d.calle} {d.numero_exterior}, {d.colonia}, {d.municipio}, "
+        f"{d.estado}, C.P. {d.codigo_postal}"
+    )
+
+
+def _domicilio_catalogo_valido(conn, d: AltaIn) -> bool:
+    return conn.execute(
+        text("""SELECT 1 FROM catalogo_codigos_postales
+                WHERE codigo_postal = :codigo_postal
+                  AND estado = :estado AND municipio = :municipio AND colonia = :colonia
+                LIMIT 1"""),
+        {
+            "codigo_postal": d.codigo_postal,
+            "estado": d.estado,
+            "municipio": d.municipio,
+            "colonia": d.colonia,
+        },
+    ).first() is not None
+
+
+def validar_domicilio_catalogo(d: AltaIn) -> dict[str, str]:
+    """Comprueba que la selección del formulario coincida con el catálogo local."""
+    with engine.connect() as conn:
+        valido = _domicilio_catalogo_valido(conn, d)
+    return {} if valido else {
+        "colonia": "La colonia no corresponde al código postal seleccionado",
+    }
+
+
+def opciones_domicilio(codigo_postal: str) -> dict:
+    """Devuelve opciones locales del catálogo, sin consultas de red."""
+    with engine.connect() as conn:
+        filas = conn.execute(
+            text("""SELECT estado, municipio, colonia
+                    FROM catalogo_codigos_postales
+                    WHERE codigo_postal = :codigo_postal
+                    ORDER BY estado, municipio, colonia"""),
+            {"codigo_postal": codigo_postal},
+        ).mappings().all()
+    estados: dict[str, dict[str, list[str]]] = {}
+    for fila in filas:
+        estados.setdefault(fila["estado"], {}).setdefault(fila["municipio"], []).append(
+            fila["colonia"],
+        )
+    return {
+        "codigo_postal": codigo_postal,
+        "estados": [
+            {
+                "estado": estado,
+                "municipios": [
+                    {"municipio": municipio, "colonias": colonias}
+                    for municipio, colonias in municipios.items()
+                ],
+            }
+            for estado, municipios in estados.items()
+        ],
+    }
 
 
 # --------------------------------------------------------------------------
@@ -321,6 +385,11 @@ def buscar_expediente(q: str, incluir_bajas: bool = False) -> dict:
                     ORDER BY i.id_inscripcion DESC LIMIT 1"""),
             {"n": a["numero_control"]},
         ).mappings().first()
+        domicilio = conn.execute(
+            text("""SELECT codigo_postal, estado, municipio, colonia, calle, numero_exterior
+                    FROM domicilios WHERE numero_control = :n"""),
+            {"n": a["numero_control"]},
+        ).mappings().first()
 
     nombre = " ".join(p for p in (a["nombres"], a["apellido_paterno"], a["apellido_materno"]) if p)
     return {
@@ -342,6 +411,12 @@ def buscar_expediente(q: str, incluir_bajas: bool = False) -> dict:
         },
         "contacto": {
             "domicilio": a["domicilio"],
+            "codigo_postal": domicilio["codigo_postal"] if domicilio else None,
+            "estado": domicilio["estado"] if domicilio else None,
+            "municipio": domicilio["municipio"] if domicilio else None,
+            "colonia": domicilio["colonia"] if domicilio else None,
+            "calle": domicilio["calle"] if domicilio else a["domicilio"],
+            "numero_exterior": domicilio["numero_exterior"] if domicilio else None,
             "celular": a["celular"],
             "correo_personal": a["correo_personal"],
             "correo_institucional": a["correo_institucional"] or "—",
@@ -427,6 +502,11 @@ def actualizar_alumno(numero_control: str, datos: AltaIn, id_usuario: int) -> No
             ).mappings().first()
             if anterior is None or anterior["eliminado"]:
                 raise NoEncontrado()
+            if not _domicilio_catalogo_valido(conn, datos):
+                raise Conflicto(
+                    "La colonia no corresponde al código postal seleccionado",
+                    {"colonia": "Selecciona una colonia del catálogo para ese código postal"},
+                )
 
             duplicados_alumno = duplicados(
                 conn, datos.ficha, datos.curp, datos.nss, datos.rfc or "", datos.ine or "",
@@ -464,12 +544,35 @@ def actualizar_alumno(numero_control: str, datos: AltaIn, id_usuario: int) -> No
                     "ap_paterno": datos.ap_paterno, "ap_materno": datos.ap_materno,
                     "fecha": datos.fecha_nacimiento, "genero": datos.genero, "curp": datos.curp,
                     "rfc": datos.rfc, "ine": v.normalizar_ine(datos.ine), "nss": datos.nss,
-                    "domicilio": datos.domicilio, "celular": re.sub(r"[\s-]", "", datos.celular),
+                    "domicilio": _formatear_domicilio(datos),
+                    "celular": re.sub(r"[\s-]", "", datos.celular),
                     "celular_emergencia": re.sub(r"[\s-]", "", datos.celular_emergencia),
                     "correo": datos.correo, "correo_emergencia": datos.correo_emergencia,
                     "tipo_sangre": datos.tipo_sangre, "alergias": datos.alergias,
                     "preparatoria": datos.preparatoria,
                     "promedio": datos.promedio,
+                },
+            )
+            conn.execute(
+                text("""INSERT INTO domicilios
+                            (numero_control, codigo_postal, estado, municipio, colonia, calle, numero_exterior)
+                        VALUES
+                            (:numero, :codigo_postal, :estado, :municipio, :colonia, :calle, :numero_exterior)
+                        ON DUPLICATE KEY UPDATE
+                            codigo_postal = VALUES(codigo_postal),
+                            estado = VALUES(estado),
+                            municipio = VALUES(municipio),
+                            colonia = VALUES(colonia),
+                            calle = VALUES(calle),
+                            numero_exterior = VALUES(numero_exterior)"""),
+                {
+                    "numero": numero_control,
+                    "codigo_postal": datos.codigo_postal,
+                    "estado": datos.estado,
+                    "municipio": datos.municipio,
+                    "colonia": datos.colonia,
+                    "calle": datos.calle,
+                    "numero_exterior": datos.numero_exterior,
                 },
             )
             nuevo = conn.execute(
@@ -1715,6 +1818,9 @@ def listar_bitacora_accesos(limite: int = 200) -> list[dict]:
 # --------------------------------------------------------------------------
 def registrar_alta(d: AltaIn, pdfs: dict[str, str], usuario: dict) -> dict:
     """`pdfs` mapea nombre visible del documento -> ruta temporal ya validada."""
+    errores = validar_alta(d)
+    if errores:
+        raise Conflicto("Revisa los datos capturados", errores)
     base = settings.storage_dir
 
     # El candado vive en su propia conexión y se libera DESPUÉS del commit; si se
@@ -1743,6 +1849,11 @@ def registrar_alta(d: AltaIn, pdfs: dict[str, str], usuario: dict) -> dict:
                     errores["correo"] = "Este correo personal ya está registrado"
                 if errores:
                     raise Conflicto("El alumno ya está registrado", errores)
+                if not _domicilio_catalogo_valido(conn, d):
+                    raise Conflicto(
+                        "La colonia no corresponde al código postal seleccionado",
+                        {"colonia": "Selecciona una colonia del catálogo para ese código postal"},
+                    )
 
                 turno = v.turno_por_promedio(d.promedio)
 
@@ -1792,7 +1903,8 @@ def registrar_alta(d: AltaIn, pdfs: dict[str, str], usuario: dict) -> dict:
                     "ap_p": d.ap_paterno, "ap_m": d.ap_materno, "nacimiento": d.fecha_nacimiento,
                     "genero": d.genero, "curp": d.curp, "rfc": d.rfc,
                     "ine": v.normalizar_ine(d.ine), "nss": d.nss,
-                    "domicilio": d.domicilio, "celular": re.sub(r"[\s-]", "", d.celular),
+                    "domicilio": _formatear_domicilio(d),
+                    "celular": re.sub(r"[\s-]", "", d.celular),
                     "cel_emerg": re.sub(r"[\s-]", "", d.celular_emergencia),
                     "correo": d.correo,
                     "correo_emerg": d.correo_emergencia, "correo_inst": correo_inst,
@@ -1800,6 +1912,21 @@ def registrar_alta(d: AltaIn, pdfs: dict[str, str], usuario: dict) -> dict:
                     "prepa": d.preparatoria, "promedio": d.promedio,
                     "turno": turno, "sem": SEMESTRE_INGRESO,
                 })
+                conn.execute(
+                    text("""INSERT INTO domicilios
+                                (numero_control, codigo_postal, estado, municipio, colonia, calle, numero_exterior)
+                            VALUES
+                                (:numero, :codigo_postal, :estado, :municipio, :colonia, :calle, :numero_exterior)"""),
+                    {
+                        "numero": numero,
+                        "codigo_postal": d.codigo_postal,
+                        "estado": d.estado,
+                        "municipio": d.municipio,
+                        "colonia": d.colonia,
+                        "calle": d.calle,
+                        "numero_exterior": d.numero_exterior,
+                    },
+                )
 
                 # La BD guarda solo la ruta, relativa a STORAGE_DIR (portable entre servidores)
                 tipos = {visible: tipo_bd for visible, tipo_bd in DOCUMENTOS.values()}
