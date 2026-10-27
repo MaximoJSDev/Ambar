@@ -5,6 +5,18 @@ import main
 
 
 class DomicilioCamposTests(unittest.TestCase):
+    def test_formatea_numero_de_ficha_con_guion_despues_de_cuatro_digitos(self):
+        for entrada, esperado in (
+            ("", ""),
+            ("1234", "1234"),
+            ("12345", "1234-5"),
+            ("123456789", "1234-56789"),
+            ("1234567890", "1234-567890"),
+            ("1234-56789", "1234-56789"),
+        ):
+            with self.subTest(entrada=entrada):
+                self.assertEqual(main.formatear_ficha(entrada), esperado)
+
     def test_filtra_municipio_y_colonia_segun_codigo_postal(self):
         catalogo = {
             "codigo_postal": "39000",

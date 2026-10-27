@@ -13,7 +13,7 @@ PATRON_EMAIL = re.compile(
     r"@(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}$"
 )
 PATRON_CELULAR = re.compile(r"(744|781)\d{7}")
-PATRON_FICHA = re.compile(r"\d{10}|\d{4}-\d{5}")
+PATRON_FICHA = re.compile(r"\d{10}|\d{4}-\d{5,6}")
 PATRON_NOMBRE = re.compile(r"[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]+(?:[ '\-][A-Za-zÁÉÍÓÚÜÑáéíóúüñ]+)*")
 PATRON_CURP = re.compile(
     r"[A-Z]{4}\d{6}[HMX](?:AS|BC|BS|CC|CL|CM|CS|CH|DF|DG|GT|GR|HG|JC|MC|MN|MS|NT|NL|OC|PL|QT|QR|SP|SL|SR|TC|TS|TL|VZ|YN|ZS|NE)"

@@ -53,6 +53,12 @@ class ValidacionesAltasTests(unittest.TestCase):
         self.assertIsNone(v.validar_correo(correo_100, maximo=100))
         self.assertIsNotNone(v.validar_correo(f"a{correo_100}", maximo=100))
 
+    def test_ficha_acepta_formatos_con_10_digitos_y_guion_automatico(self):
+        for ficha in ("1234567890", "1234-56789", "1234-567890"):
+            with self.subTest(ficha=ficha):
+                self.assertIsNone(v.validar_ficha(ficha))
+        self.assertIsNotNone(v.validar_ficha("1234-5678901"))
+
     def test_domicilio_y_preparatoria_aceptan_limites_exactos(self):
         self.assertIsNone(v.validar_domicilio("Calle 1234"))
         domicilio_255 = "Calle " + "A" * 249
