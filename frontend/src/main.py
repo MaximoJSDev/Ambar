@@ -87,7 +87,7 @@ RUTAS_ADMIN = {
 }
 IMPLEMENTADAS = {
     "/secretaria", "/altas", "/altas-maestros", "/consulta-maestros",
-    "/grupos-horarios", "/modificacion", "/bajas", "/docente",
+    "/grupos-horarios", "/modificacion", "/bajas", "/reinscripcion", "/docente",
     *RUTAS_ADMIN,
 }
 
@@ -100,7 +100,7 @@ _CAMPOS_HISTORIAL = {
     "genero": ("Datos personales", "Género"),
     "curp": ("Datos personales", "CURP"),
     "rfc": ("Datos personales", "RFC"),
-    "ine": ("Datos personales", "Clave de elector (INE)"),
+    "ine": ("Datos personales", "IDMEX"),
     "nss": ("Datos personales", "Número de seguro social"),
     "domicilio": ("Contacto", "Domicilio"),
     "celular": ("Contacto", "Celular"),
@@ -1713,6 +1713,211 @@ def build_grupos_horarios(page: ft.Page, navegar) -> ft.Control:
     return vista
 
 
+def build_reinscripcion(page: ft.Page, navegar) -> ft.Control:
+    entrada = crear_campo_texto(
+        "Número de control o CURP",
+        capitalization=ft.TextCapitalization.CHARACTERS,
+    )
+    boton_buscar = ft.FilledButton(
+        "Buscar", style=estilo_boton_primario(), height=46,
+    )
+    aviso = ft.Text("", size=13, color=WARN_FG, visible=False)
+    resultado = ft.Column(spacing=16)
+    selector_paquete = ft.Dropdown(
+        label="Paquete del semestre",
+        options=[],
+        expand=True,
+    )
+    resumen_paquete = ft.Text("", size=13, color=MUTED)
+    boton_asignar = ft.FilledButton(
+        "Asignar paquete completo",
+        icon=ft.Icons.CHECK_CIRCLE_OUTLINE,
+        style=estilo_boton_primario(),
+        disabled=True,
+    )
+    estado: dict | None = None
+    id_paquete_seleccionado: int | None = None
+
+    def paquete_seleccionado():
+        return next(
+            (
+                paquete for paquete in (estado or {}).get("paquetes", [])
+                if paquete["id_paquete"] == id_paquete_seleccionado
+            ),
+            None,
+        )
+
+    def actualizar_resumen(_=None):
+        paquete = paquete_seleccionado()
+        if paquete is None:
+            resumen_paquete.value = "Selecciona un paquete disponible."
+            boton_asignar.disabled = True
+        else:
+            resumen_paquete.value = (
+                f"{paquete['total_materias']} materias · {paquete['turno']} · "
+                f"{paquete['lugares']} lugares disponibles"
+            )
+            boton_asignar.disabled = paquete["lugares"] <= 0
+        page.update()
+
+    def mostrar_estado():
+        nonlocal id_paquete_seleccionado
+        resultado.controls.clear()
+        if estado is None:
+            page.update()
+            return
+
+        resultado.controls.append(crear_tarjeta(ft.ResponsiveRow(controls=[
+            ft.Container(col={"xs": 12, "md": 6}, content=ft.Column(spacing=4, controls=[
+                ft.Text("Alumno", size=12, color=MUTED),
+                ft.Text(estado["nombre_completo"], size=15, weight=ft.FontWeight.BOLD, color=NAVY),
+                ft.Text(estado["numero_control"], size=13, color=TEXT),
+            ])),
+            ft.Container(col={"xs": 6, "md": 3}, content=ft.Column(spacing=4, controls=[
+                ft.Text("Semestre actual", size=12, color=MUTED),
+                ft.Text(str(estado["semestre"]), size=15, weight=ft.FontWeight.BOLD, color=NAVY),
+            ])),
+            ft.Container(col={"xs": 6, "md": 3}, content=ft.Column(spacing=4, controls=[
+                ft.Text("Periodo activo", size=12, color=MUTED),
+                ft.Text(estado["periodo"], size=15, weight=ft.FontWeight.BOLD, color=NAVY),
+            ])),
+        ]), padding=18))
+
+        if estado["asignado"]:
+            paquete = estado["paquete"]
+            resultado.controls.append(crear_tarjeta(ft.Column(spacing=10, controls=[
+                ft.Text(
+                    f"Ya tiene asignado el paquete {paquete['nombre']}.",
+                    size=16, weight=ft.FontWeight.BOLD, color=NAVY,
+                ),
+                *[
+                    ft.Text(f"• {materia['nombre_materia']}", size=13, color=TEXT)
+                    for materia in estado["materias"]
+                ],
+            ]), padding=18))
+        elif not estado["paquetes"]:
+            resultado.controls.append(crear_tarjeta(ft.Text(
+                f"No hay paquetes de {estado['semestre']}° semestre cargados "
+                f"para el periodo {estado['periodo']}.",
+                color=MUTED,
+            ), padding=18))
+        else:
+            opciones = estado["paquetes"]
+            ids = {paquete["id_paquete"] for paquete in opciones}
+            if id_paquete_seleccionado not in ids:
+                id_paquete_seleccionado = opciones[0]["id_paquete"]
+            selector_paquete.options = [
+                ft.DropdownOption(
+                    key=str(paquete["id_paquete"]),
+                    text=(
+                        f"{paquete['nombre']} · {paquete['turno']} · "
+                        f"{paquete['total_materias']} materias · "
+                        f"{paquete['lugares']} lugares"
+                    ),
+                )
+                for paquete in opciones
+            ]
+            selector_paquete.value = str(id_paquete_seleccionado)
+            resultado.controls.append(crear_tarjeta(ft.Column(spacing=12, controls=[
+                ft.Text(
+                    "La asignación incluye todos los grupos del paquete.",
+                    size=14, color=TEXT,
+                ),
+                selector_paquete,
+                resumen_paquete,
+                ft.Row(controls=[boton_asignar]),
+            ]), padding=18))
+            actualizar_resumen()
+        page.update()
+
+    def buscar(_=None):
+        nonlocal estado, id_paquete_seleccionado
+        consulta = (entrada.value or "").strip()
+        if not consulta:
+            entrada.error = "Escribe un número de control o una CURP"
+            page.update()
+            return
+        entrada.error = None
+        aviso.visible = False
+        boton_buscar.disabled = True
+        page.update()
+        try:
+            estado = api.estado_reinscripcion(consulta)
+            id_paquete_seleccionado = None
+        except ApiError as ex:
+            estado = None
+            if ex.status == 401:
+                navegar("/secretaria")
+                return
+            aviso.value = ex.mensaje
+            aviso.visible = True
+            resultado.controls.clear()
+        finally:
+            boton_buscar.disabled = False
+        mostrar_estado()
+
+    def asignar(_=None):
+        paquete = paquete_seleccionado()
+        if estado is None or paquete is None or paquete["lugares"] <= 0:
+            return
+
+        def confirmar(_):
+            nonlocal estado
+            page.pop_dialog()
+            boton_asignar.disabled = True
+            page.update()
+            try:
+                estado = api.asignar_paquete_reinscripcion(
+                    estado["numero_control"], paquete["id_paquete"],
+                )
+                snackbar(page, "Paquete de reinscripción asignado correctamente.")
+            except ApiError as ex:
+                if ex.status == 401:
+                    navegar("/secretaria")
+                    return
+                aviso.value = ex.mensaje
+                aviso.visible = True
+            mostrar_estado()
+
+        page.show_dialog(ft.AlertDialog(
+            title=ft.Text("Confirmar reinscripción"),
+            content=ft.Text(
+                f"¿Asignar el paquete {paquete['nombre']} completo a "
+                f"{estado['nombre_completo']} para {estado['periodo']}?"
+            ),
+            actions=[
+                ft.TextButton("Cancelar", on_click=lambda _: page.pop_dialog()),
+                ft.FilledButton("Confirmar", on_click=confirmar),
+            ],
+        ))
+
+    def cambiar_paquete(e):
+        nonlocal id_paquete_seleccionado
+        id_paquete_seleccionado = int(e.control.value) if e.control.value else None
+        actualizar_resumen()
+
+    boton_buscar.on_click = buscar
+    entrada.on_submit = buscar
+    selector_paquete.on_select = cambiar_paquete
+    boton_asignar.on_click = asignar
+    vista = ft.Column(expand=True, scroll=ft.ScrollMode.AUTO, spacing=20, controls=[
+        titulo_pagina(
+            "Reinscripción",
+            "Busca al alumno y asigna un paquete completo del semestre registrado "
+            "para el periodo activo.",
+        ),
+        crear_tarjeta(ft.Column(spacing=8, controls=[
+            ft.Row(vertical_alignment=ft.CrossAxisAlignment.END, spacing=16, controls=[
+                crear_campo_etiquetado("Número de control o CURP", entrada),
+                boton_buscar,
+            ]),
+            aviso,
+        ]), padding=ft.Padding.symmetric(horizontal=20, vertical=16)),
+        resultado,
+    ])
+    return vista
+
+
 def build_bitacora_admin(page: ft.Page, navegar) -> ft.Control:
     filas = ft.Column(spacing=0)
     aviso = ft.Text("", size=13, color=WARN_FG, visible=False)
@@ -1784,9 +1989,16 @@ def formatear_ficha(valor: str) -> str:
 class DomicilioCampos:
     """Campos dependientes de un catálogo postal local."""
 
-    def __init__(self, page: ft.Page, valores: dict | None = None):
+    def __init__(
+        self,
+        page: ft.Page,
+        valores: dict | None = None,
+        permitir_cp_sin_catalogo: bool = False,
+    ):
         valores = valores or {}
         self.page = page
+        self.permitir_cp_sin_catalogo = permitir_cp_sin_catalogo
+        self.campos_ubicacion_manuales = False
         self.catalogo: dict[str, dict[str, list[str]]] = {}
         self.aviso = ft.Text("", size=12, color=WARN_FG, visible=False)
         self.codigo_postal = crear_campo_texto(
@@ -1810,15 +2022,17 @@ class DomicilioCampos:
             value=valores.get("numero_exterior") or "",
             max_length=20,
         )
+        self.fila_codigo_estado = ft.Row(spacing=16, controls=[
+            crear_campo_etiquetado("Código postal", self.codigo_postal),
+            crear_campo_etiquetado("Estado", self.estado),
+        ])
+        self.fila_municipio_colonia = ft.Row(spacing=16, controls=[
+            crear_campo_etiquetado("Municipio", self.municipio),
+            crear_campo_etiquetado("Colonia", self.colonia),
+        ])
         self.controles = [
-            ft.Row(spacing=16, controls=[
-                crear_campo_etiquetado("Código postal", self.codigo_postal),
-                crear_campo_etiquetado("Estado", self.estado),
-            ]),
-            ft.Row(spacing=16, controls=[
-                crear_campo_etiquetado("Municipio", self.municipio),
-                crear_campo_etiquetado("Colonia", self.colonia),
-            ]),
+            self.fila_codigo_estado,
+            self.fila_municipio_colonia,
             ft.Row(spacing=16, controls=[
                 crear_campo_etiquetado("Calle", self.calle),
                 crear_campo_etiquetado("Número exterior", self.numero_exterior),
@@ -1849,6 +2063,8 @@ class DomicilioCampos:
 
     def _limpiar_selecciones(self):
         self.catalogo = {}
+        if self.campos_ubicacion_manuales:
+            self._restaurar_selectores()
         for control in (self.estado, self.municipio, self.colonia):
             control.value = None
             control.options = []
@@ -1883,6 +2099,16 @@ class DomicilioCampos:
             }
             for item in resultado["estados"]
         }
+        if not self.catalogo and self.permitir_cp_sin_catalogo:
+            self._usar_campos_manuales(valores or {})
+            self.aviso.value = (
+                "Este código postal no está en el catálogo local. "
+                "Puedes capturar Estado, Municipio y Colonia manualmente."
+            )
+            self.aviso.visible = True
+            return
+        if self.campos_ubicacion_manuales:
+            self._restaurar_selectores()
         self.aviso.value = (
             "" if self.catalogo else "Código postal no encontrado en el catálogo local."
         )
@@ -1898,6 +2124,40 @@ class DomicilioCampos:
             (valores or {}).get("municipio"),
             (valores or {}).get("colonia"),
         )
+
+    def _usar_campos_manuales(self, valores: dict):
+        self.campos_ubicacion_manuales = True
+        self.estado = crear_campo_texto(
+            value=valores.get("estado") or "",
+            label="Estado",
+            max_length=100,
+        )
+        self.municipio = crear_campo_texto(
+            value=valores.get("municipio") or "",
+            label="Municipio",
+            max_length=100,
+        )
+        self.colonia = crear_campo_texto(
+            value=valores.get("colonia") or "",
+            label="Colonia",
+            max_length=150,
+        )
+        self.fila_codigo_estado.controls[1] = crear_campo_etiquetado("Estado", self.estado)
+        self.fila_municipio_colonia.controls = [
+            crear_campo_etiquetado("Municipio", self.municipio),
+            crear_campo_etiquetado("Colonia", self.colonia),
+        ]
+
+    def _restaurar_selectores(self):
+        self.campos_ubicacion_manuales = False
+        self.estado = self._crear_dropdown("Estado", self._estado_cambiado)
+        self.municipio = self._crear_dropdown("Municipio", self._municipio_cambiado)
+        self.colonia = self._crear_dropdown("Colonia")
+        self.fila_codigo_estado.controls[1] = crear_campo_etiquetado("Estado", self.estado)
+        self.fila_municipio_colonia.controls = [
+            crear_campo_etiquetado("Municipio", self.municipio),
+            crear_campo_etiquetado("Colonia", self.colonia),
+        ]
 
     def _actualizar_municipios(self, preferido: str | None = None, colonia: str | None = None):
         municipios = self.catalogo.get(self.estado.value, {})
@@ -1933,9 +2193,14 @@ class DomicilioCampos:
             else "El código postal debe contener 5 dígitos"
         )
         valido = self.codigo_postal.error is None
-        for control in (self.estado, self.municipio, self.colonia):
-            control.error_text = None if control.value else "Selecciona una opción"
-            valido &= control.error_text is None
+        if self.campos_ubicacion_manuales:
+            for control in (self.estado, self.municipio, self.colonia):
+                control.error = None if (control.value or "").strip() else "Campo obligatorio"
+                valido &= control.error is None
+        else:
+            for control in (self.estado, self.municipio, self.colonia):
+                control.error_text = None if control.value else "Selecciona una opción"
+                valido &= control.error_text is None
         self.calle.error = v.validar_calle(self.calle.value or "")
         self.numero_exterior.error = v.validar_numero_exterior(
             self.numero_exterior.value or "",
@@ -2020,7 +2285,7 @@ class FormAltas:
         self.nss = crear_campo_texto("Ingresa el número de seguro social", keyboard_type=ft.KeyboardType.NUMBER,
                       input_filter=ft.NumbersOnlyInputFilter(), max_length=11)
         self.ine = crear_campo_texto(
-            "OCR de la INE (13 dígitos)",
+            "IDMEX (OCR, 13 dígitos)",
             keyboard_type=ft.KeyboardType.NUMBER,
             input_filter=ft.NumbersOnlyInputFilter(),
             max_length=13
@@ -2314,7 +2579,7 @@ class FormAltas:
             "curp": (self.curp, "Esta CURP ya está registrada"),
             "nss": (self.nss, "Este NSS ya está registrado"),
             "rfc": (self.rfc, "Este RFC ya está registrado"),
-            "ine": (self.ine, "Esta INE ya está registrada"),
+            "ine": (self.ine, "Este IDMEX ya está registrado"),
             "correo": (self.correo, "Este correo personal ya está registrado"),
         }
         sin_duplicados = True
@@ -2657,9 +2922,9 @@ class FormAltas:
 
     def _etiqueta_ine(self) -> str:
         if self.fecha is None:
-            return "INE (OCR, 13 dígitos)"
+            return "IDMEX (OCR, 13 dígitos)"
         requisito = "obligatorio" if v.es_mayor_de_18(self.fecha) else "opcional"
-        return f"INE (OCR, 13 dígitos, {requisito})"
+        return f"IDMEX (OCR, 13 dígitos, {requisito})"
 
     def _resumen_final(self) -> ft.Control:
         texto_campo = self._texto_campo
@@ -2674,7 +2939,7 @@ class FormAltas:
             ("Nombre", f"{texto_campo(self.nombre)} {texto_campo(self.ap_paterno)} {texto_campo(self.ap_materno)}"),
             ("Fecha de nacimiento", self.txt_fecha.value or "—"),
             ("CURP", texto_campo(self.curp).upper()), ("RFC", texto_campo(self.rfc).upper()),
-            ("Seguro social", texto_campo(self.nss)), ("INE", texto_campo(self.ine).upper()),
+            ("Seguro social", texto_campo(self.nss)), ("IDMEX", texto_campo(self.ine).upper()),
             ("Género", genero),
             ("Celular", texto_campo(self.celular)), ("Correo personal", texto_campo(self.correo)),
             ("Domicilio", self.domicilio.texto()),
@@ -2850,7 +3115,7 @@ class ConsultaExpediente:
             ("nombres", "Nombre(s)"), ("apellido_paterno", "Apellido paterno"),
             ("apellido_materno", "Apellido materno"), ("fecha_nacimiento", "Fecha de nacimiento"),
             ("genero", "Género"), ("curp", "CURP"), ("rfc", "RFC"),
-            ("ine", "Clave de elector (INE)"), ("nss", "Número de seguro social"),
+            ("ine", "IDMEX"), ("nss", "Número de seguro social"),
         ],
         "contacto": [
             ("domicilio", "Domicilio"), ("celular", "Celular"),
@@ -3373,9 +3638,10 @@ class ConsultaExpediente:
             "nss": crear_campo_texto(value=p["nss"], label="Número de seguro social"),
             "ine": crear_campo_texto(
                 value="" if p["ine"] == "—" else p["ine"],
-                label="INE (OCR, 13 dígitos)",
+                label="IDMEX (OCR, 13 dígitos)",
                 keyboard_type=ft.KeyboardType.NUMBER,
                 input_filter=ft.NumbersOnlyInputFilter(),
+                max_length=13,
             ),
             "genero": ft.Dropdown(
                 label="Género",
@@ -3395,7 +3661,7 @@ class ConsultaExpediente:
             ),
             "alergias": crear_campo_texto(value=c["alergias"], label="Alergias"),
         }
-        domicilio = DomicilioCampos(self.page, c)
+        domicilio = DomicilioCampos(self.page, c, permitir_cp_sin_catalogo=True)
         contenido = ft.ResponsiveRow(
             spacing=12,
             run_spacing=8,
@@ -3428,17 +3694,34 @@ class ConsultaExpediente:
     def _guardar_edicion(self, campos: dict, domicilio: DomicilioCampos):
         datos = {clave: (campo.value or "").strip() for clave, campo in campos.items()}
         if not domicilio.validar():
-            snackbar(self.page, "Completa el domicilio y selecciona sus opciones del catálogo.")
+            snackbar(self.page, "Completa los campos del domicilio.")
             return
         datos.update(domicilio.datos())
         datos["ine"] = v.normalizar_ine(datos["ine"])
         try:
-            datos["fecha_nacimiento"] = datetime.date.fromisoformat(datos["fecha_nacimiento"]).isoformat()
+            fecha_nacimiento = datetime.date.fromisoformat(datos["fecha_nacimiento"])
+            datos["fecha_nacimiento"] = fecha_nacimiento.isoformat()
             datos["promedio"] = float(datos["promedio"].replace(",", "."))
         except ValueError:
             snackbar(self.page, "Revisa la fecha (AAAA-MM-DD) y el promedio.")
             return
         datos["rfc"] = datos["rfc"] or None
+
+        campos["curp"].error = v.validar_curp(
+            datos["curp"],
+            fecha_nacimiento,
+            datos["ap_paterno"],
+            datos["ap_materno"],
+            datos["genero"],
+        )
+        campos["rfc"].error = v.validar_rfc(
+            datos["rfc"],
+            fecha_nacimiento,
+        )
+        if campos["curp"].error or campos["rfc"].error:
+            self.page.update()
+            snackbar(self.page, "Revisa la CURP y el RFC antes de guardar.")
+            return
 
         try:
             api.actualizar_alumno(self.datos["numero_control"], datos)
@@ -3446,6 +3729,10 @@ class ConsultaExpediente:
             if ex.status == 401:
                 self.navegar("/consultas")
                 return
+            for campo, mensaje in ex.errores.items():
+                if campo in campos:
+                    campos[campo].error = mensaje
+            self.page.update()
             domicilio.marcar_errores(ex.errores)
             detalles = "; ".join(f"{campo}: {mensaje}" for campo, mensaje in ex.errores.items())
             snackbar(self.page, f"{ex.mensaje}{': ' + detalles if detalles else ''}")
@@ -3761,6 +4048,8 @@ def main(page: ft.Page):
             return build_consulta_maestros(page, navegar)
         if ruta == "/grupos-horarios":
             return build_grupos_horarios(page, navegar)
+        if ruta == "/reinscripcion":
+            return build_reinscripcion(page, navegar)
         if ruta == "/consultas":
             numero_control = sesion.pop("consulta_numero_control", None)
             return build_consultas(

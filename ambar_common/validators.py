@@ -25,7 +25,7 @@ PATRON_RFC = re.compile(r"[A-ZÑ&]{4}\d{6}[A-Z0-9]{3}")
 PATRON_NSS = re.compile(r"\d{11}")
 PATRON_INE = re.compile(r"[0-9]{13}")
 PATRON_PROMEDIO = re.compile(r"\d{1,3}(?:[.,]\d{1,2})?")
-PUNTUACION_DESCRIPTIVA = " .,#°ºª'’()/&-;:+"
+PUNTUACION_DESCRIPTIVA = " .,#°ºª'’\"()/&-;:+"
 
 EDAD_MINIMA = 12
 EDAD_MAXIMA = 80
@@ -312,14 +312,14 @@ def validar_promedio(valor: str) -> str | None:
 
 
 def normalizar_ine(valor: str | None) -> str:
-    """Elimina espacios y otros separadores en el resultado OCR de la INE."""
+    """Elimina espacios y otros separadores del número IDMEX capturado por OCR."""
     return re.sub(r"\s+", "", valor or "")
 
 
 def validar_ine(valor: str | None) -> str | None:
-    """El OCR de la INE debe contener exactamente 13 dígitos."""
+    """El IDMEX debe contener exactamente 13 dígitos."""
     if not PATRON_INE.fullmatch(normalizar_ine(valor)):
-        return "El OCR de la INE debe contener exactamente 13 dígitos"
+        return "El IDMEX debe contener exactamente 13 dígitos"
     return None
 
 

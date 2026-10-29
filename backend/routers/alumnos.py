@@ -119,7 +119,9 @@ def actualizar_alumno(
     """Modifica datos personales y de contacto sin cambiar el historial académico."""
     errores = servicios.validar_alta(datos, exigir_identificacion_adulto=False)
     if not errores:
-        errores.update(servicios.validar_domicilio_catalogo(datos))
+        errores.update(
+            servicios.validar_domicilio_catalogo(datos, permitir_cp_sin_catalogo=True)
+        )
     if errores:
         raise HTTPException(422, {"mensaje": "Revisa los datos capturados", "errores": errores})
     try:

@@ -8,7 +8,7 @@ from ambar_common.logging_config import configure_file_logging
 
 from . import servicios
 from .config import engine, settings
-from .routers import admin, alumnos, auth, horarios, panel, personal
+from .routers import admin, alumnos, auth, horarios, panel, personal, reinscripciones
 
 log = logging.getLogger("sige")
 logging.basicConfig(level=logging.INFO)
@@ -30,6 +30,7 @@ app.include_router(panel.router)
 app.include_router(admin.router)
 app.include_router(personal.router)
 app.include_router(horarios.router)
+app.include_router(reinscripciones.router)
 
 
 @app.get("/salud", tags=["Sistema"])

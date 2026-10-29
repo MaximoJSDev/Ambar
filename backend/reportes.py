@@ -232,7 +232,7 @@ def generar_expediente_pdf(datos: dict) -> bytes:
         ("Género", personales.get("genero")),
         ("CURP", personales.get("curp")),
         ("RFC", personales.get("rfc")),
-        ("Identificación electoral", personales.get("ine")),
+        ("IDMEX", personales.get("ine")),
         ("Número de seguro social", personales.get("nss")),
     ], ancho_contenido, estilos))
 

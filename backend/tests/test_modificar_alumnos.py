@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 
 from backend import servicios
 from backend.deps import usuario_actual
+from backend.esquemas import AltaIn
 from backend.main import app
 
 
@@ -47,8 +48,25 @@ class ModificarAlumnoTests(unittest.TestCase):
             "backend.routers.alumnos.servicios.validar_domicilio_catalogo",
             return_value={},
         )
-        parche_catalogo.start()
+        self.validar_catalogo = parche_catalogo.start()
         self.addCleanup(parche_catalogo.stop)
+
+    def test_cp_ausente_del_catalogo_se_permite_solo_en_validacion_de_edicion(self):
+        datos = AltaIn.model_validate(datos_alumno(codigo_postal="39814"))
+        with (
+            patch(
+                "backend.servicios.opciones_domicilio",
+                return_value={"codigo_postal": "39814", "estados": []},
+            ),
+            patch("backend.servicios.engine.connect") as conectar,
+        ):
+            errores = servicios.validar_domicilio_catalogo(
+                datos,
+                permitir_cp_sin_catalogo=True,
+            )
+
+        self.assertEqual(errores, {})
+        conectar.assert_not_called()
 
     def test_actualizacion_valida_persiste_datos_y_registra_actor(self):
         with patch("backend.routers.alumnos.servicios.actualizar_alumno") as actualizar:
@@ -68,6 +86,56 @@ class ModificarAlumnoTests(unittest.TestCase):
         self.assertEqual(numero_control, "26320700")
         self.assertEqual(datos.curp, "CAJG050302HGRSSLA4")
         self.assertEqual(id_usuario, 17)
+        self.assertTrue(self.validar_catalogo.call_args.kwargs["permitir_cp_sin_catalogo"])
+
+    def test_actualizacion_permite_editar_domicilio_con_cp_ausente_del_catalogo(self):
+        with patch("backend.routers.alumnos.servicios.actualizar_alumno") as actualizar:
+            respuesta = self.client.put(
+                "/alumnos/26320700",
+                json=datos_alumno(
+                    codigo_postal="39814",
+                    estado="Guerrero",
+                    municipio="Acapulco",
+                    colonia="Nueva colonia",
+                    calle="Carretera Cayaco",
+                    numero_exterior="64",
+                ),
+            )
+
+        self.assertEqual(respuesta.status_code, 200, msg=respuesta.text)
+        self.assertTrue(
+            self.validar_catalogo.call_args.kwargs["permitir_cp_sin_catalogo"]
+        )
+        actualizar.assert_called_once()
+
+    def test_curp_y_rfc_se_validan_al_modificar(self):
+        with patch("backend.routers.alumnos.servicios.actualizar_alumno") as actualizar:
+            respuesta = self.client.put(
+                "/alumnos/26320700",
+                json=datos_alumno(rfc="CAJG050302KU3"),
+            )
+
+        self.assertEqual(respuesta.status_code, 200, msg=respuesta.text)
+        actualizar.assert_called_once()
+
+        casos_invalidos = (
+            ({"curp": "!" * 18}, "curp"),
+            ({"fecha_nacimiento": "2005-03-03"}, "curp"),
+            ({"ap_paterno": "López"}, "curp"),
+            ({"genero": "mujer"}, "curp"),
+            ({"rfc": "!" * 13}, "rfc"),
+            ({"rfc": "CAJG050303KU3"}, "rfc"),
+        )
+        actualizar.reset_mock()
+        for cambios, campo in casos_invalidos:
+            with self.subTest(cambios=cambios):
+                respuesta = self.client.put(
+                    "/alumnos/26320700",
+                    json=datos_alumno(**{"rfc": "CAJG050302KU3", **cambios}),
+                )
+                self.assertEqual(respuesta.status_code, 422)
+                self.assertIn(campo, respuesta.json()["detail"]["errores"])
+        actualizar.assert_not_called()
 
     def test_rechaza_datos_invalidos_sin_modificar_el_registro(self):
         casos_invalidos = (

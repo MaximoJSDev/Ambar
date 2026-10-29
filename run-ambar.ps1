@@ -155,6 +155,11 @@ try:
                     cursor.execute(statement)
             print("Base de datos y tablas creadas desde ambar-db.sql.")
             print("AMBAR_DATABASE_CREATED=1")
+        cursor.execute(
+            "SELECT COUNT(*) FROM ambar_escolar.catalogo_codigos_postales"
+        )
+        if cursor.fetchone()[0] == 0:
+            print("AMBAR_POSTAL_CATALOG_EMPTY=1")
 finally:
     connection.close()
 '@
@@ -164,6 +169,20 @@ if ($LASTEXITCODE -ne 0) {
 }
 $databaseOutput | ForEach-Object { Write-Host $_ }
 $newDatabase = $databaseOutput -contains "AMBAR_DATABASE_CREATED=1"
+$postalCatalogEmpty = $databaseOutput -contains "AMBAR_POSTAL_CATALOG_EMPTY=1"
+
+if ($postalCatalogEmpty) {
+    $postalCatalogFile = Join-Path $root "SERVICIO_POSTAL_MEXICANO.txt"
+    if (-not (Test-Path -LiteralPath $postalCatalogFile -PathType Leaf)) {
+        throw "La tabla de códigos postales está vacía y no se encontró SERVICIO_POSTAL_MEXICANO.txt en la raíz del proyecto."
+    }
+
+    Write-Host "`nPrimera inicialización del catálogo postal local..."
+    & $venvPython -m backend.importar_catalogo_cp $postalCatalogFile
+    if ($LASTEXITCODE -ne 0) {
+        throw "No se pudo importar el catálogo postal. Revisa la conexión a MySQL y el archivo SERVICIO_POSTAL_MEXICANO.txt."
+    }
+}
 
 if ($newDatabase) {
     Write-Host "`nCrea el usuario de Secretaría para iniciar sesión." -ForegroundColor Yellow
