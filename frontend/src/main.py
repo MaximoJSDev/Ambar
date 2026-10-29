@@ -2192,6 +2192,12 @@ class FormAltas:
 
     async def _elegir_pdf(self, doc: str):
         """Abre el selector de archivos para un documento (solo PDF)."""
+        log.info(
+            "Abriendo selector de PDF (control=%s, documento=%s, ruta=%s)",
+            self.picker._i,
+            doc,
+            self.page.route,
+        )
         try:
             archivos_seleccionados = await self.picker.pick_files(
                 dialog_title=f"Selecciona: {doc}",
@@ -2200,6 +2206,12 @@ class FormAltas:
                 allow_multiple=False,
             )
         except Exception as ex:  # Algunas plataformas no implementan el selector; el error se muestra en el formulario.
+            log.exception(
+                "Falló FilePicker.pick_files (control=%s, documento=%s, ruta=%s)",
+                self.picker._i,
+                doc,
+                self.page.route,
+            )
             self.errores_docs[doc] = f"No se pudo abrir el selector de archivos ({ex})"
             self._pintar()
             return
@@ -3704,9 +3716,8 @@ def main(page: ft.Page):
     }
 
     # FilePicker pertenece a la página y se reutiliza al cambiar de vista.
+    # Flet registra automáticamente los Service creados en el contexto de la página.
     selector_archivos = ft.FilePicker()
-    if not any(service is selector_archivos for service in page.services):
-        page.services.append(selector_archivos)
 
     def navegar(ruta: str):
         page.route = ruta

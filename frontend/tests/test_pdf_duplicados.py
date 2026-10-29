@@ -14,6 +14,8 @@ class PdfDuplicadosTests(unittest.IsolatedAsyncioTestCase):
         self.ruta = Path(self.directorio.name)
         self.formulario = object.__new__(main.FormAltas)
         self.formulario.picker = Mock()
+        self.formulario.picker._i = 9
+        self.formulario.page = Mock(route="/altas")
         self.formulario.errores_docs = {}
         self.formulario.archivos = {}
         self.formulario._pintar = Mock()
@@ -59,6 +61,20 @@ class PdfDuplicadosTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(self.formulario.archivos["CURP"]["path"], str(seleccionado))
         self.assertNotIn("CURP", self.formulario.errores_docs)
+
+    async def test_registra_el_timeout_del_selector_en_el_log(self):
+        error = RuntimeError(
+            "Timeout waiting for invoke method listener for FilePicker(9).pick_files"
+        )
+        self.formulario.picker.pick_files = AsyncMock(side_effect=error)
+
+        with self.assertLogs("sige.frontend", level="ERROR") as capturado:
+            await self.formulario._elegir_pdf("CURP")
+
+        self.assertIn("FilePicker.pick_files", capturado.output[0])
+        self.assertIn("control=9", capturado.output[0])
+        self.assertIn("Timeout waiting for invoke method listener", capturado.output[0])
+        self.assertIn("No se pudo abrir el selector", self.formulario.errores_docs["CURP"])
 
 
 if __name__ == "__main__":
