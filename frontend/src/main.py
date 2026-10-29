@@ -1,6 +1,7 @@
 import asyncio
 import atexit
 import datetime
+import hashlib
 import json
 import logging
 import os
@@ -2181,6 +2182,14 @@ class FormAltas:
             self.res_turno.value = "Se asigna según el promedio"
         self.page.update()
 
+    @staticmethod
+    def _huella_pdf(ruta: str) -> str:
+        huella = hashlib.sha256()
+        with open(ruta, "rb") as archivo:
+            for bloque in iter(lambda: archivo.read(1024 * 1024), b""):
+                huella.update(bloque)
+        return huella.hexdigest()
+
     async def _elegir_pdf(self, doc: str):
         """Abre el selector de archivos para un documento (solo PDF)."""
         try:
@@ -2206,11 +2215,47 @@ class FormAltas:
             self.archivos.pop(doc, None)
             self.errores_docs[doc] = error_pdf
         else:
+            ruta = archivo_seleccionado.path
+            if not ruta:
+                self.archivos.pop(doc, None)
+                self.errores_docs[doc] = "No se pudo leer el archivo para validar si está duplicado"
+                self._pintar()
+                return
+            try:
+                huella = await asyncio.to_thread(self._huella_pdf, ruta)
+                documento_duplicado = None
+                for otro_doc, archivo in self.archivos.items():
+                    if otro_doc == doc:
+                        continue
+                    huella_existente = archivo.get("huella")
+                    if huella_existente is None:
+                        huella_existente = await asyncio.to_thread(
+                            self._huella_pdf, archivo["path"]
+                        )
+                        archivo["huella"] = huella_existente
+                    if huella == huella_existente:
+                        documento_duplicado = otro_doc
+                        break
+            except OSError:
+                log.exception("No se pudo comprobar si el PDF seleccionado está duplicado")
+                self.archivos.pop(doc, None)
+                self.errores_docs[doc] = "No se pudo leer el archivo para validar si está duplicado"
+                self._pintar()
+                return
+            if documento_duplicado:
+                self.archivos.pop(doc, None)
+                self.errores_docs[doc] = (
+                    f"Este PDF ya está cargado en «{documento_duplicado}». "
+                    "Selecciona un archivo diferente."
+                )
+                self._pintar()
+                return
             self.errores_docs.pop(doc, None)
             self.archivos[doc] = {
                 "nombre": archivo_seleccionado.name,
-                "path": archivo_seleccionado.path,
+                "path": ruta,
                 "size": archivo_seleccionado.size,
+                "huella": huella,
             }
         self._pintar()
 
