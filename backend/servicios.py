@@ -190,8 +190,13 @@ def _formatear_domicilio(domicilio: dict | None) -> str:
     return completo or "—"
 
 
-def validar_domicilio_catalogo(d: AltaIn) -> dict[str, str]:
+def validar_domicilio_catalogo(
+    d: AltaIn,
+    permitir_cp_sin_catalogo: bool = False,
+) -> dict[str, str]:
     """Comprueba que la selección del formulario coincida con el catálogo local."""
+    if permitir_cp_sin_catalogo and not opciones_domicilio(d.codigo_postal)["estados"]:
+        return {}
     with engine.connect() as conn:
         valido = _domicilio_catalogo_valido(conn, d)
     return {} if valido else {
@@ -529,7 +534,7 @@ def actualizar_alumno(numero_control: str, datos: AltaIn, id_usuario: int) -> No
                 "curp": "Esta CURP ya está registrada",
                 "nss": "Este NSS ya está registrado",
                 "rfc": "Este RFC ya está registrado",
-                "ine": "Esta INE ya está registrada",
+                "ine": "Este IDMEX ya está registrado",
                 "correo": "Este correo personal ya está registrado",
             }
             errores_duplicados = {
@@ -1070,6 +1075,128 @@ def estado_horario_alumno(numero_control: str) -> dict:
             "paquete": paquete,
             "materias": materias,
         }
+
+
+def estado_reinscripcion_alumno(consulta: str) -> dict:
+    consulta = consulta.strip().upper()
+    with engine.connect() as conn:
+        alumno = conn.execute(
+            text("""SELECT numero_control, nombres, apellido_paterno, apellido_materno,
+                           semestre_actual, estatus, eliminado
+                    FROM alumnos
+                    WHERE numero_control = :consulta OR UPPER(TRIM(curp)) = :consulta"""),
+            {"consulta": consulta},
+        ).mappings().first()
+        if alumno is None or alumno["eliminado"] or alumno["estatus"] != "Activo":
+            raise NoEncontrado()
+
+        semestre = alumno["semestre_actual"]
+        if semestre is None or not 2 <= semestre <= 10:
+            raise Conflicto(
+                "La reinscripción está disponible únicamente para alumnos de semestres 2 a 10."
+            )
+
+        paquetes = _resumen_paquetes_horario(
+            conn, settings.periodo, semestre, solo_catalogo=False,
+        )
+        existentes = conn.execute(
+            text("""SELECT DISTINCT p.id_paquete
+                    FROM inscripciones_grupos i
+                    JOIN grupos g ON g.id_grupo = i.id_grupo
+                    JOIN paquetes_horario p ON p.id_paquete = g.id_paquete
+                    WHERE i.numero_control = :numero AND g.periodo_escolar = :periodo"""),
+            {"numero": alumno["numero_control"], "periodo": settings.periodo},
+        ).scalars().all()
+        if len(existentes) > 1:
+            raise Conflicto(
+                "El alumno aparece inscrito en más de un paquete del periodo activo."
+            )
+
+        paquete_actual = None
+        materias = []
+        if existentes:
+            paquete_actual, materias = _datos_paquete_horario(
+                conn, existentes[0], settings.periodo, solo_catalogo=False,
+            )
+
+        return {
+            "numero_control": alumno["numero_control"],
+            "nombre_completo": " ".join(
+                parte for parte in (
+                    alumno["nombres"], alumno["apellido_paterno"],
+                    alumno["apellido_materno"],
+                ) if parte
+            ),
+            "semestre": semestre,
+            "periodo": settings.periodo,
+            "asignado": bool(existentes),
+            "paquete": paquete_actual,
+            "materias": materias,
+            "paquetes": paquetes,
+        }
+
+
+def asignar_paquete_reinscripcion(numero_control: str, id_paquete: int) -> dict:
+    with engine.begin() as conn:
+        alumno = conn.execute(
+            text("""SELECT semestre_actual, estatus, eliminado
+                    FROM alumnos WHERE numero_control = :numero FOR UPDATE"""),
+            {"numero": numero_control},
+        ).mappings().first()
+        if alumno is None or alumno["eliminado"] or alumno["estatus"] != "Activo":
+            raise NoEncontrado()
+
+        semestre = alumno["semestre_actual"]
+        if semestre is None or not 2 <= semestre <= 10:
+            raise Conflicto(
+                "La reinscripción está disponible únicamente para alumnos de semestres 2 a 10."
+            )
+
+        paquete = conn.execute(
+            text("""SELECT id_paquete FROM paquetes_horario
+                    WHERE id_paquete = :paquete AND semestre = :semestre"""),
+            {"paquete": id_paquete, "semestre": semestre},
+        ).mappings().first()
+        if paquete is None:
+            raise Conflicto("El paquete seleccionado no corresponde al semestre del alumno.")
+
+        existentes = conn.execute(
+            text("""SELECT DISTINCT p.nombre_paquete
+                    FROM inscripciones_grupos i
+                    JOIN grupos g ON g.id_grupo = i.id_grupo
+                    JOIN paquetes_horario p ON p.id_paquete = g.id_paquete
+                    WHERE i.numero_control = :numero AND g.periodo_escolar = :periodo"""),
+            {"numero": numero_control, "periodo": settings.periodo},
+        ).scalars().all()
+        if existentes:
+            raise Conflicto(
+                f"El alumno ya tiene un paquete asignado en {settings.periodo}: "
+                f"{', '.join(existentes)}."
+            )
+
+        grupos = conn.execute(
+            text("""SELECT id_grupo, turno, cupo_disponible
+                    FROM grupos
+                    WHERE id_paquete = :paquete AND periodo_escolar = :periodo
+                    ORDER BY id_grupo FOR UPDATE"""),
+            {"paquete": id_paquete, "periodo": settings.periodo},
+        ).mappings().all()
+        if not grupos:
+            raise NoEncontrado()
+        if any(fila["cupo_disponible"] <= 0 for fila in grupos):
+            raise CupoLleno("El paquete seleccionado ya no tiene cupo disponible.")
+
+        conn.execute(
+            text("""INSERT INTO inscripciones_grupos (numero_control, id_grupo)
+                    VALUES (:numero, :grupo)"""),
+            [{"numero": numero_control, "grupo": fila["id_grupo"]} for fila in grupos],
+        )
+        conn.execute(
+            text("UPDATE alumnos SET turno = :turno WHERE numero_control = :numero"),
+            {"turno": grupos[0]["turno"], "numero": numero_control},
+        )
+
+    return estado_reinscripcion_alumno(numero_control)
 
 
 def asignar_paquete_horario(numero_control: str, id_paquete: int) -> dict:
@@ -1669,7 +1796,7 @@ def registrar_alta(d: AltaIn, pdfs: dict[str, str], usuario: dict) -> dict:
                 if dup["rfc"]:
                     errores["rfc"] = "Este RFC ya está registrado"
                 if dup["ine"]:
-                    errores["ine"] = "Esta INE ya está registrada"
+                    errores["ine"] = "Este IDMEX ya está registrado"
                 if dup["correo"]:
                     errores["correo"] = "Este correo personal ya está registrado"
                 if errores:

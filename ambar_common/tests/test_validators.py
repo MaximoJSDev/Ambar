@@ -67,6 +67,9 @@ class ValidacionesAltasTests(unittest.TestCase):
         self.assertIsNotNone(v.validar_domicilio(domicilio_255 + "A"))
 
         self.assertIsNone(v.validar_preparatoria("CBT"))
+        self.assertIsNone(
+            v.validar_preparatoria('Preparatoria No. 7 "Salvador Allende Gossens"')
+        )
         preparatoria_100 = "A" * 100
         self.assertIsNone(v.validar_preparatoria(preparatoria_100))
         self.assertIsNotNone(v.validar_preparatoria(preparatoria_100 + "A"))

@@ -52,6 +52,30 @@ class ApiClientTests(unittest.TestCase):
             ("GET", "/alumnos/26320700/historial"),
         ])
 
+    def test_reinscripcion_usa_consulta_y_asignacion_dedicadas(self):
+        solicitudes = []
+
+        def responder(request: httpx.Request) -> httpx.Response:
+            solicitudes.append((request.method, request.url.path, dict(request.url.params)))
+            return httpx.Response(200, json={"ok": True})
+
+        cliente = ApiClient()
+        cliente._http.close()
+        cliente._http = httpx.Client(
+            base_url="http://test",
+            transport=httpx.MockTransport(responder),
+        )
+        try:
+            cliente.estado_reinscripcion("CURP123")
+            cliente.asignar_paquete_reinscripcion("26320700", 12)
+        finally:
+            cliente._http.close()
+
+        self.assertEqual(solicitudes, [
+            ("GET", "/reinscripciones/alumno", {"q": "CURP123"}),
+            ("POST", "/reinscripciones/alumnos/26320700/paquete", {}),
+        ])
+
     def test_actualizar_documentos_envia_pdf_en_multipart(self):
         with tempfile.TemporaryDirectory() as tmp:
             archivo = Path(tmp) / "curp.pdf"

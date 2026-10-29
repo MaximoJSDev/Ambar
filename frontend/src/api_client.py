@@ -254,6 +254,18 @@ class ApiClient:
             json={"id_paquete": id_paquete},
         )
 
+    def estado_reinscripcion(self, consulta: str) -> dict:
+        return self._request(
+            "GET", "/reinscripciones/alumno", params={"q": consulta},
+        )
+
+    def asignar_paquete_reinscripcion(self, numero_control: str, id_paquete: int) -> dict:
+        return self._request(
+            "POST",
+            f"/reinscripciones/alumnos/{numero_control}/paquete",
+            json={"id_paquete": id_paquete},
+        )
+
     def descargar_horario_alumno(self, numero_control: str) -> bytes:
         return self._descargar_pdf(f"/horarios/alumnos/{numero_control}/pdf")
 

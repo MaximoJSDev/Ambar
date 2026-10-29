@@ -75,10 +75,12 @@ puedes crear o actualizar el usuario ejecutando
 `python -m backend.seed --correo TU_CORREO --nombres TU_NOMBRE --apellidos TUS_APELLIDOS`
 desde la carpeta del proyecto.
 
-Para habilitar los selectores de domicilio, inicia el backend al menos una vez
-para que cree las tablas y luego descarga el catálogo nacional en formato TXT
-desde el [portal de Correos de México](https://www.correosdemexico.gob.mx/SSLServicios/ConsultaCP/CodigoPostal_Exportar.aspx).
-Desde la raíz del proyecto, impórtalo con:
+El primer inicio con `run-ambar.bat` carga automáticamente en MySQL el catálogo
+postal incluido (`SERVICIO_POSTAL_MEXICANO.txt`), solo si la tabla local todavía
+está vacía. Los siguientes inicios no vuelven a importarlo. Para actualizar o
+reponer manualmente el catálogo, descarga el TXT nacional desde el
+[portal de Correos de México](https://www.correosdemexico.gob.mx/SSLServicios/ConsultaCP/CodigoPostal_Exportar.aspx)
+y ejecuta desde la raíz:
 
 ```bash
 python -m backend.importar_catalogo_cp SERVICIO_POSTAL_MEXICANO.txt
@@ -89,6 +91,9 @@ internet para buscar códigos postales. La importación conserva las combinacion
 ya existentes y agrega las nuevas. El catálogo es gratuito; revisa las
 condiciones de SEPOMEX antes de redistribuirlo o comercializarlo. Importa el
 catálogo antes de generar alumnos demo con `--alumnos-demo`.
+Al modificar un expediente cuyo código postal no esté en el catálogo, Estado,
+Municipio y Colonia se pueden capturar manualmente; las altas siguen requiriendo
+seleccionar esos datos del catálogo local.
 
 Para crear una cuenta independiente de Administración, ejecuta
 `python -m backend.seed --admin-correo CORREO_ADMINISTRADOR`; se solicitará su
@@ -138,7 +143,12 @@ apellido paterno, apellido materno y nombre(s).
 En el panel de Secretaría, la actividad muestra el número de control, se
 recorre en páginas de 10 alumnos y permite abrir directamente cada expediente
 en **Consultas**. El panel ya no muestra la sección de pendientes.
-Los horarios de otros semestres se incorporarán con el módulo de reinscripción.
+En **Reinscripción**, Secretaría busca al alumno por número de control o CURP
+y le asigna un paquete completo correspondiente al `semestre_actual` guardado
+(semestres 2 a 10) para el periodo activo. La asignación valida los lugares
+disponibles, evita duplicados en ese periodo y no modifica el semestre ni
+depende de las calificaciones. Los paquetes deben estar cargados para el
+periodo activo configurado en el backend.
 
 Administración configura en **Periodos escolares** la fecha de inicio de la
 semana 1 para cada periodo; el sistema habilita la captura al comenzar las
