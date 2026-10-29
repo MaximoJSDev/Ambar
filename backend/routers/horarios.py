@@ -59,22 +59,6 @@ def asignar_paquete(
         raise HTTPException(409, {"mensaje": ex.mensaje})
 
 
-@router.put("/alumnos/{numero_control}/paquete")
-def migrar_paquete(
-    numero_control: str,
-    datos: AsignarPaqueteIn,
-    _: dict = Depends(solo_secretaria),
-):
-    try:
-        return servicios.reasignar_paquete_horario(numero_control, datos.id_paquete)
-    except servicios.NoEncontrado:
-        _not_found()
-    except servicios.CupoLleno as ex:
-        raise HTTPException(409, {"mensaje": str(ex)})
-    except servicios.Conflicto as ex:
-        raise HTTPException(409, {"mensaje": ex.mensaje})
-
-
 @router.get("/alumnos/{numero_control}/pdf")
 def descargar_horario_alumno(numero_control: str, _: dict = Depends(solo_secretaria)):
     try:

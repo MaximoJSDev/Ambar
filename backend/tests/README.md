@@ -52,7 +52,7 @@ general.
 | `test_altas_docentes.py` | Alta de docentes, nombres/apellidos de 2–50 caracteres, permisos y correo duplicado |
 | `test_altas_secretarias.py` | Alta de secretarías, nombres/apellidos de 2–50 caracteres, permisos y correo duplicado |
 | `test_modificar_alumnos.py` | Reglas de validación y permisos al modificar un alumno |
-| `test_personal.py` | Consulta y baja de docentes y migración de cuentas antiguas |
+| `test_personal.py` | Consulta y baja de docentes |
 | `test_secretarias_admin.py` | Periodos escolares, consulta de secretarías, bitácora y baja |
 | `test_panel.py` | Actividad del panel y números de control |
 | `test_alumnos_admin.py` | Documentos, bajas e historial de expedientes |

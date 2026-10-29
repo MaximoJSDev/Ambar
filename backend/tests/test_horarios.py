@@ -381,27 +381,12 @@ class HorariosTests(unittest.TestCase):
 
         self.assertEqual(respuesta.status_code, 409)
 
-    def test_secretaria_puede_migrar_un_alumno_de_grupo_anterior(self):
-        estado = {
-            "numero_control": "26320700",
-            "semestre": 1,
-            "periodo": PERIODO_1ISC,
-            "asignado": True,
-            "paquete": {"id_paquete": 12, "nombre": "1ISC3"},
-            "materias": [],
-        }
-        with patch(
-            "backend.routers.horarios.servicios.reasignar_paquete_horario",
-            return_value=estado,
-        ) as migrar:
-            respuesta = self.client.put(
-                "/horarios/alumnos/26320700/paquete",
-                json={"id_paquete": 12},
-            )
-
-        self.assertEqual(respuesta.status_code, 200)
-        self.assertEqual(respuesta.json()["paquete"]["nombre"], "1ISC3")
-        migrar.assert_called_once_with("26320700", 12)
+    def test_no_hay_endpoint_para_reasignar_paquetes(self):
+        respuesta = self.client.put(
+            "/horarios/alumnos/26320700/paquete",
+            json={"id_paquete": 12},
+        )
+        self.assertEqual(respuesta.status_code, 405)
 
     def test_servicio_no_asigna_paquetes_ajenos_al_catalogo_oficial(self):
         alumno = MagicMock()
@@ -410,14 +395,14 @@ class HorariosTests(unittest.TestCase):
             "estatus": "Activo",
             "eliminado": False,
         }
-        paquete_legacy = MagicMock()
-        paquete_legacy.mappings.return_value.first.return_value = {
+        paquete_no_oficial = MagicMock()
+        paquete_no_oficial.mappings.return_value.first.return_value = {
             "id_paquete": 99,
-            "nombre_paquete": "1A",
+            "nombre_paquete": "NO-OFICIAL",
             "semestre": 1,
         }
         transaccion = MagicMock()
-        transaccion.execute.side_effect = [alumno, paquete_legacy]
+        transaccion.execute.side_effect = [alumno, paquete_no_oficial]
 
         with patch("backend.servicios.engine.begin") as begin:
             begin.return_value.__enter__.return_value = transaccion
@@ -425,104 +410,6 @@ class HorariosTests(unittest.TestCase):
                 servicios.asignar_paquete_horario("26320700", 99)
 
         self.assertEqual(transaccion.execute.call_count, 2)
-
-    def test_migracion_conserva_inscripcion_con_historial_de_materia_coincidente(self):
-        alumno = MagicMock()
-        alumno.mappings.return_value.first.return_value = {
-            "semestre_actual": 1,
-            "estatus": "Activo",
-            "eliminado": False,
-        }
-        paquete = MagicMock()
-        paquete.mappings.return_value.first.return_value = {
-            "id_paquete": 12,
-            "nombre_paquete": "1ISC3",
-            "semestre": 1,
-        }
-        destino = MagicMock()
-        destino.mappings.return_value.all.return_value = [
-            {
-                "id_grupo": index + 100,
-                "id_materia": index + 10,
-                "turno": "Matutino",
-                "cupo_disponible": 10,
-            }
-            for index in range(6)
-        ]
-        actual = MagicMock()
-        actual.mappings.return_value.all.return_value = [{
-            "id_inscripcion": 8,
-            "id_grupo": 31,
-            "id_materia": 10,
-            "nombre_paquete": "1A",
-        }]
-        reserva = MagicMock(rowcount=1)
-        transaccion = MagicMock()
-        transaccion.execute.side_effect = [
-            alumno,
-            paquete,
-            destino,
-            actual,
-            reserva,
-            MagicMock(),
-            MagicMock(),
-            MagicMock(),
-            MagicMock(),
-        ]
-
-        with (
-            patch("backend.servicios.engine.begin") as begin,
-            patch("backend.servicios.estado_horario_alumno", return_value={"asignado": True}),
-        ):
-            begin.return_value.__enter__.return_value = transaccion
-            estado = servicios.reasignar_paquete_horario("26320700", 12)
-
-        self.assertTrue(estado["asignado"])
-        consultas = [str(llamada.args[0]) for llamada in transaccion.execute.call_args_list]
-        self.assertTrue(any("UPDATE inscripciones_grupos SET id_grupo" in sql for sql in consultas))
-        self.assertFalse(any("DELETE FROM inscripciones_grupos" in sql for sql in consultas))
-
-    def test_migracion_se_detiene_antes_de_borrar_historial_sin_equivalencia(self):
-        alumno = MagicMock()
-        alumno.mappings.return_value.first.return_value = {
-            "semestre_actual": 1,
-            "estatus": "Activo",
-            "eliminado": False,
-        }
-        paquete = MagicMock()
-        paquete.mappings.return_value.first.return_value = {
-            "id_paquete": 12,
-            "nombre_paquete": "1ISC3",
-            "semestre": 1,
-        }
-        destino = MagicMock()
-        destino.mappings.return_value.all.return_value = [
-            {
-                "id_grupo": index + 100,
-                "id_materia": index + 10,
-                "turno": "Matutino",
-                "cupo_disponible": 10,
-            }
-            for index in range(6)
-        ]
-        actual = MagicMock()
-        actual.mappings.return_value.all.return_value = [{
-            "id_inscripcion": 8,
-            "id_grupo": 31,
-            "id_materia": 99,
-            "nombre_paquete": "1A",
-        }]
-        dependencias = MagicMock()
-        dependencias.scalar_one.return_value = 1
-        transaccion = MagicMock()
-        transaccion.execute.side_effect = [alumno, paquete, destino, actual, dependencias]
-
-        with patch("backend.servicios.engine.begin") as begin:
-            begin.return_value.__enter__.return_value = transaccion
-            with self.assertRaises(servicios.Conflicto):
-                servicios.reasignar_paquete_horario("26320700", 12)
-
-        self.assertEqual(transaccion.execute.call_count, 5)
 
     def test_horario_individual_se_descarga_como_pdf(self):
         estado = {
@@ -616,7 +503,7 @@ class HorariosTests(unittest.TestCase):
     def test_endpoints_de_horario_se_publican(self):
         paths = app.openapi()["paths"]
         self.assertIn("post", paths["/horarios/alumnos/{numero_control}/paquete"])
-        self.assertIn("put", paths["/horarios/alumnos/{numero_control}/paquete"])
+        self.assertNotIn("put", paths["/horarios/alumnos/{numero_control}/paquete"])
         self.assertIn("get", paths["/horarios/grupos/{id_paquete}/alumnos/pdf"])
         self.assertIn("put", paths["/horarios/grupos/{id_grupo}/docente"])
         self.assertIn("get", paths["/horarios/docente/grupos"])

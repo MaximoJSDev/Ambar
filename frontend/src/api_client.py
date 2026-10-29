@@ -254,13 +254,6 @@ class ApiClient:
             json={"id_paquete": id_paquete},
         )
 
-    def migrar_paquete(self, numero_control: str, id_paquete: int) -> dict:
-        return self._request(
-            "PUT",
-            f"/horarios/alumnos/{numero_control}/paquete",
-            json={"id_paquete": id_paquete},
-        )
-
     def descargar_horario_alumno(self, numero_control: str) -> bytes:
         return self._descargar_pdf(f"/horarios/alumnos/{numero_control}/pdf")
 
