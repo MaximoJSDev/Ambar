@@ -262,7 +262,7 @@ def build_login(page: ft.Page, al_entrar) -> ft.View:
                 return
             if ex.status == 401:        # El mensaje no distingue entre correo inexistente y contraseña incorrecta.
                 restantes = ex.extra.get("intentos_restantes", 0)
-                password.error = (f"Credenciales incorrectas. Te quedan {restantes} "
+                password.error = (f"Contraseña incorrecta. Te quedan {restantes} "
                                   f"intento{'s' if restantes != 1 else ''}.")
             else:
                 aviso.value = ex.mensaje
@@ -2014,14 +2014,15 @@ class FormAltas:
         )
         self.txt_fecha = crear_campo_texto("DD / MM / AAAA", read_only=True, suffix_icon=ft.Icons.CALENDAR_TODAY_OUTLINED)
         self.txt_fecha.on_click = lambda e: self.page.show_dialog(self.date_picker)
-        self.curp = crear_campo_texto("Ingresa la CURP", input_filter=alfanum, capitalization=mayus)
-        self.rfc = crear_campo_texto("Ingresa el RFC", input_filter=alfanum, capitalization=mayus)
+        self.curp = crear_campo_texto("Ingresa la CURP", input_filter=alfanum, capitalization=mayus, max_length=18)
+        self.rfc = crear_campo_texto("Ingresa el RFC", input_filter=alfanum, capitalization=mayus, max_length=13)
         self.nss = crear_campo_texto("Ingresa el número de seguro social", keyboard_type=ft.KeyboardType.NUMBER,
-                      input_filter=ft.NumbersOnlyInputFilter())
+                      input_filter=ft.NumbersOnlyInputFilter(), max_length=11)
         self.ine = crear_campo_texto(
             "OCR de la INE (13 dígitos)",
             keyboard_type=ft.KeyboardType.NUMBER,
             input_filter=ft.NumbersOnlyInputFilter(),
+            max_length=13
         )
         self.ine.on_change = self._ine_cambiada
         self.genero = ft.Dropdown(
@@ -2034,7 +2035,7 @@ class FormAltas:
             on_select=self._genero_elegido,
         )
         self.celular = crear_campo_texto("Número de 10 dígitos", keyboard_type=ft.KeyboardType.PHONE,
-                          input_filter=ft.NumbersOnlyInputFilter())
+                          input_filter=ft.NumbersOnlyInputFilter(), max_length=10)
         self.correo = crear_campo_texto("Correo electrónico del alumno", keyboard_type=ft.KeyboardType.EMAIL)
         self.domicilio = DomicilioCampos(page)
 

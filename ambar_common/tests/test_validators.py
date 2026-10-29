@@ -185,14 +185,17 @@ class ValidacionesAltasTests(unittest.TestCase):
                 self.assertIsNotNone(v.validar_nombre(valor))
 
     def test_correo_respeta_formato_y_longitud_de_columna(self):
-        self.assertIsNone(v.validar_correo("alumno@example.com", maximo=100))
+        self.assertIsNone(v.validar_correo("alumno@gmail.com", maximo=100))
         self.assertIsNotNone(v.validar_correo("............", maximo=100))
-        self.assertIsNotNone(v.validar_correo(f"{'a' * 91}@example.com", maximo=100))
-        self.assertIsNone(v.validar_correo(f"{'a' * 135}@example.com"))
+        self.assertIsNotNone(v.validar_correo(f"{'a' * 91}@gmail.com", maximo=100))
+        self.assertIsNone(v.validar_correo(f"{'a' * 135}@gmail.com"))
 
-    def test_correo_con_dominio_publico_se_valida_sin_red(self):
+    def test_correo_solo_acepta_dominios_publicos_permitidos(self):
         self.assertIsNone(v.validar_correo_con_dominio("alumno@gmail.com"))
-        self.assertIsNone(v.validar_correo_con_dominio("alumno@dominio.example"))
+        self.assertIsNone(v.validar_correo_con_dominio("alumno+tag@GMAIL.COM"))
+        self.assertIsNotNone(v.validar_correo_con_dominio("asd@aaa.com"))
+        self.assertIsNotNone(v.validar_correo_con_dominio("alumno@dominio.example"))
+        self.assertIsNotNone(v.validar_correo_con_dominio("no-es-correo"))
         self.assertIn("gmail.com", v.DOMINIOS_CORREO_PUBLICOS)
         self.assertIn("outlook.com", v.DOMINIOS_CORREO_PUBLICOS)
 

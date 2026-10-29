@@ -7,6 +7,9 @@ name = "ambar-common"
 version = "0.1.0"
 description = "Shared validation rules for the Ambar SIGE client and server"
 requires-python = ">=3.10"
+dependencies = [
+    "email-validator>=2.2,<3",
+]
 
 [tool.setuptools]
 packages = ["ambar_common"]

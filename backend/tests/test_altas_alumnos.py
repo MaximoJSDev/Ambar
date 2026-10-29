@@ -25,7 +25,7 @@ def datos_validos() -> dict:
         "ine": "1234567890123",
         "genero": "hombre",
         "celular": "7441234567",
-        "correo": "alumno@example.com",
+        "correo": "alumno@gmail.com",
         "codigo_postal": "39000",
         "estado": "Guerrero",
         "municipio": "Acapulco de Juárez",
@@ -35,7 +35,7 @@ def datos_validos() -> dict:
         "preparatoria": "Preparatoria de prueba",
         "promedio": 9.5,
         "celular_emergencia": "7447654321",
-        "correo_emergencia": "contacto@example.com",
+        "correo_emergencia": "contacto@gmail.com",
         "tipo_sangre": "O+",
         "alergias": "Ninguna",
     }
@@ -171,7 +171,7 @@ class ValidacionAltaAntesDePersistirTests(unittest.TestCase):
                     "nss": "12345678901",
                     "rfc": "CAJG050302AB1",
                     "ine": "1234 5678 90123",
-                    "correo": "alumno@example.com",
+                    "correo": "alumno@gmail.com",
                 },
             )
 
@@ -179,7 +179,7 @@ class ValidacionAltaAntesDePersistirTests(unittest.TestCase):
         self.assertEqual(respuesta.json(), duplicados)
         verificar.assert_called_once_with(
             "2026123456", "CAJG050302HGRSSLA4", "12345678901",
-            "CAJG050302AB1", "1234567890123", "alumno@example.com",
+            "CAJG050302AB1", "1234567890123", "alumno@gmail.com",
         )
 
     def test_rechaza_campos_invalidos_sin_llamar_a_persistencia(self):
@@ -257,8 +257,8 @@ class ValidacionAltaAntesDePersistirTests(unittest.TestCase):
             "ap_paterno": "B" * 50,
             "ap_materno": "C" * 50,
             "curp": "BXCA050302HGRSSLA4",
-            "correo": f"{'a' * 88}@example.com",
-            "correo_emergencia": f"{'b' * 88}@example.com",
+            "correo": f"{'a' * 90}@gmail.com",
+            "correo_emergencia": f"{'b' * 90}@gmail.com",
             "calle": "AB" * 75,
             "preparatoria": "E" * 100,
             "promedio": 7,
@@ -395,7 +395,7 @@ class ValidacionAltaAntesDePersistirTests(unittest.TestCase):
         self.assertEqual(respuesta.status_code, 500)
 
     def test_limita_correos_a_la_longitud_de_la_columna(self):
-        correo_largo = f"{'a' * 91}@example.com"
+        correo_largo = f"{'a' * 91}@gmail.com"
         for campo in ("correo", "correo_emergencia"):
             with self.subTest(campo=campo), patch(
                 "backend.routers.alumnos.servicios.registrar_alta"
