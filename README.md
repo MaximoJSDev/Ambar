@@ -108,9 +108,8 @@ Secretaría, pero conservan sus datos y documentos. Administración también tie
 acceso a **Modificación**, además de un inicio de sesión y una vista propios en
 **Historial de alumnos** para consultar las bajas y revisar las versiones
 anteriores de los datos junto con quién y cuándo hizo cada cambio. Al iniciar,
-el backend elimina la antigua marca de ocultación si existe y crea las
-estructuras de historial necesarias; las bases nuevas ya las incluyen desde
-`ambar-db.sql`.
+el backend usa el esquema actual definido en `ambar-db.sql` y no aplica
+migraciones automáticas de versiones anteriores.
 
 Administración también puede crear cuentas de secretarias desde **Alta de
 secretaria** y revisar o dar de baja cuentas desde **Consulta de secretarias**.
@@ -139,11 +138,6 @@ apellido paterno, apellido materno y nombre(s).
 En el panel de Secretaría, la actividad muestra el número de control, se
 recorre en páginas de 10 alumnos y permite abrir directamente cada expediente
 en **Consultas**. El panel ya no muestra la sección de pendientes.
-Los alumnos que ya estaban inscritos en `1A` o `1B` pueden migrarse desde
-**Consultas**: Secretaría elige manualmente su sección oficial. La migración
-conserva calificaciones y asistencias en materias coincidentes; si hay datos
-históricos en una materia sin equivalente, la operación se cancela para no
-perderlos.
 Los horarios de otros semestres se incorporarán con el módulo de reinscripción.
 
 Administración configura en **Periodos escolares** la fecha de inicio de la

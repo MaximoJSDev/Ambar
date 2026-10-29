@@ -275,7 +275,10 @@ def registrar_alta(
         except servicios.CupoLleno as ex:
             raise HTTPException(409, {"mensaje": str(ex), "codigo": "cupo_lleno"})
         except servicios.SinGrupos as ex:
-            raise HTTPException(503, {"mensaje": f"{ex} Ejecuta seed.py o configura los grupos."})
+            raise HTTPException(
+                503,
+                {"mensaje": f"{ex} Ejecuta python -m backend.seed o configura los grupos."},
+            )
         except servicios.Ocupado:
             raise HTTPException(503, {"mensaje": "El servidor está procesando otra alta. Intenta de nuevo."})
         except OSError:

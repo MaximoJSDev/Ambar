@@ -39,7 +39,6 @@ from .seguridad import hashear
 
 log = logging.getLogger("sige")
 NOMBRE_CANDADO = "sige_altas"
-PAQUETES_LEGACY_MIGRABLES = {"1A", "1B"}
 ERRNO_CHECK_VIOLADO = (3819, 4025)      # MySQL / MariaDB
 # Constancia fiscal existe en el ENUM de la BD, aunque Altas todavía no la solicita.
 TIPOS_EXPEDIENTE = [
@@ -161,13 +160,6 @@ def validar_alta(d: AltaIn, exigir_identificacion_adulto: bool = True) -> dict[s
     return errores
 
 
-def _formatear_domicilio(d: AltaIn) -> str:
-    return (
-        f"{d.calle} {d.numero_exterior}, {d.colonia}, {d.municipio}, "
-        f"{d.estado}, C.P. {d.codigo_postal}"
-    )
-
-
 def _domicilio_catalogo_valido(conn, d: AltaIn) -> bool:
     return conn.execute(
         text("""SELECT 1 FROM catalogo_codigos_postales
@@ -181,6 +173,21 @@ def _domicilio_catalogo_valido(conn, d: AltaIn) -> bool:
             "colonia": d.colonia,
         },
     ).first() is not None
+
+
+def _formatear_domicilio(domicilio: dict | None) -> str:
+    if not domicilio:
+        return "—"
+    partes = [
+        " ".join(p for p in (domicilio["calle"], domicilio["numero_exterior"]) if p),
+        domicilio["colonia"],
+        domicilio["municipio"],
+        domicilio["estado"],
+    ]
+    completo = ", ".join(p for p in partes if p)
+    if domicilio["codigo_postal"]:
+        completo += f", C.P. {domicilio['codigo_postal']}"
+    return completo or "—"
 
 
 def validar_domicilio_catalogo(d: AltaIn) -> dict[str, str]:
@@ -410,12 +417,12 @@ def buscar_expediente(q: str, incluir_bajas: bool = False) -> dict:
             "nss": a["nss"] or "—",
         },
         "contacto": {
-            "domicilio": a["domicilio"],
+            "domicilio": _formatear_domicilio(dict(domicilio) if domicilio else None),
             "codigo_postal": domicilio["codigo_postal"] if domicilio else None,
             "estado": domicilio["estado"] if domicilio else None,
             "municipio": domicilio["municipio"] if domicilio else None,
             "colonia": domicilio["colonia"] if domicilio else None,
-            "calle": domicilio["calle"] if domicilio else a["domicilio"],
+            "calle": domicilio["calle"] if domicilio else None,
             "numero_exterior": domicilio["numero_exterior"] if domicilio else None,
             "celular": a["celular"],
             "correo_personal": a["correo_personal"],
@@ -502,6 +509,11 @@ def actualizar_alumno(numero_control: str, datos: AltaIn, id_usuario: int) -> No
             ).mappings().first()
             if anterior is None or anterior["eliminado"]:
                 raise NoEncontrado()
+            domicilio_anterior = conn.execute(
+                text("""SELECT codigo_postal, estado, municipio, colonia, calle, numero_exterior
+                        FROM domicilios WHERE numero_control = :numero"""),
+                {"numero": numero_control},
+            ).mappings().first()
             if not _domicilio_catalogo_valido(conn, datos):
                 raise Conflicto(
                     "La colonia no corresponde al código postal seleccionado",
@@ -532,7 +544,7 @@ def actualizar_alumno(numero_control: str, datos: AltaIn, id_usuario: int) -> No
                             numero_ficha = :ficha, nombres = :nombre,
                             apellido_paterno = :ap_paterno, apellido_materno = :ap_materno,
                             fecha_nacimiento = :fecha, genero = :genero, curp = :curp,
-                            rfc = :rfc, ine = :ine, nss = :nss, domicilio = :domicilio,
+                            rfc = :rfc, ine = :ine, nss = :nss,
                             celular = :celular, celular_emergencia = :celular_emergencia,
                             correo_personal = :correo, correo_emergencia = :correo_emergencia,
                             tipo_sangre = :tipo_sangre, alergias = :alergias,
@@ -544,7 +556,6 @@ def actualizar_alumno(numero_control: str, datos: AltaIn, id_usuario: int) -> No
                     "ap_paterno": datos.ap_paterno, "ap_materno": datos.ap_materno,
                     "fecha": datos.fecha_nacimiento, "genero": datos.genero, "curp": datos.curp,
                     "rfc": datos.rfc, "ine": v.normalizar_ine(datos.ine), "nss": datos.nss,
-                    "domicilio": _formatear_domicilio(datos),
                     "celular": re.sub(r"[\s-]", "", datos.celular),
                     "celular_emergencia": re.sub(r"[\s-]", "", datos.celular_emergencia),
                     "correo": datos.correo, "correo_emergencia": datos.correo_emergencia,
@@ -579,8 +590,19 @@ def actualizar_alumno(numero_control: str, datos: AltaIn, id_usuario: int) -> No
                 text("SELECT * FROM alumnos WHERE numero_control = :numero"),
                 {"numero": numero_control},
             ).mappings().one()
+            domicilio_nuevo = conn.execute(
+                text("""SELECT codigo_postal, estado, municipio, colonia, calle, numero_exterior
+                        FROM domicilios WHERE numero_control = :numero"""),
+                {"numero": numero_control},
+            ).mappings().one()
+            anterior = dict(anterior)
+            anterior["domicilio"] = _formatear_domicilio(
+                dict(domicilio_anterior) if domicilio_anterior else None,
+            )
+            nuevo = dict(nuevo)
+            nuevo["domicilio"] = _formatear_domicilio(dict(domicilio_nuevo))
             _guardar_historial(
-                conn, numero_control, "MODIFICACION", dict(anterior), dict(nuevo), id_usuario,
+                conn, numero_control, "MODIFICACION", anterior, nuevo, id_usuario,
             )
     except IntegrityError as exc:
         raise Conflicto("Uno o más datos identificadores ya están registrados.") from exc
@@ -798,32 +820,6 @@ def listar_docentes() -> list[dict]:
             {"rol": ROL_DOCENTE},
         ).mappings().all()
     return [dict(fila) for fila in filas]
-
-
-def migrar_horarios(conn) -> None:
-    columnas = {
-        "docente_programado": "VARCHAR(150) NULL",
-        "aula": "VARCHAR(30) NOT NULL DEFAULT ''",
-        "creditos": "INT NOT NULL DEFAULT 0",
-    }
-    for nombre, definicion in columnas.items():
-        existe = conn.execute(
-            text(f"SHOW COLUMNS FROM grupos LIKE '{nombre}'")
-        ).first()
-        if existe is None:
-            conn.execute(text(f"ALTER TABLE grupos ADD COLUMN {nombre} {definicion}"))
-
-    conn.execute(text("""CREATE TABLE IF NOT EXISTS horarios_grupo (
-        id_horario INT AUTO_INCREMENT PRIMARY KEY,
-        id_grupo INT NOT NULL,
-        dia_semana TINYINT NOT NULL,
-        hora_inicio TIME NOT NULL,
-        hora_fin TIME NOT NULL,
-        FOREIGN KEY (id_grupo) REFERENCES grupos(id_grupo) ON DELETE CASCADE,
-        CONSTRAINT chk_horario_dia CHECK (dia_semana BETWEEN 1 AND 5),
-        CONSTRAINT chk_horario_horas CHECK (hora_fin > hora_inicio),
-        UNIQUE (id_grupo, dia_semana)
-    )"""))
 
 
 def cargar_catalogo_1isc(conn) -> None:
@@ -1054,7 +1050,6 @@ def estado_horario_alumno(numero_control: str) -> dict:
                 "semestre": alumno["semestre_actual"],
                 "periodo": PERIODO_1ISC,
                 "asignado": False,
-                "puede_migrar": False,
                 "paquete": None,
                 "materias": [],
             }
@@ -1072,10 +1067,6 @@ def estado_horario_alumno(numero_control: str) -> dict:
             "semestre": alumno["semestre_actual"],
             "periodo": PERIODO_1ISC,
             "asignado": True,
-            "puede_migrar": (
-                alumno["semestre_actual"] == 1
-                and paquete["nombre"] in PAQUETES_LEGACY_MIGRABLES
-            ),
             "paquete": paquete,
             "materias": materias,
         }
@@ -1137,119 +1128,6 @@ def asignar_paquete_horario(numero_control: str, id_paquete: int) -> dict:
         conn.execute(
             text("UPDATE alumnos SET turno = :turno WHERE numero_control = :numero"),
             {"turno": grupos[0]["turno"], "numero": numero_control},
-        )
-
-    return estado_horario_alumno(numero_control)
-
-
-def reasignar_paquete_horario(numero_control: str, id_paquete: int) -> dict:
-    with engine.begin() as conn:
-        alumno = conn.execute(
-            text("""SELECT semestre_actual, estatus, eliminado
-                    FROM alumnos WHERE numero_control = :numero FOR UPDATE"""),
-            {"numero": numero_control},
-        ).mappings().first()
-        if alumno is None or alumno["eliminado"] or alumno["estatus"] != "Activo":
-            raise NoEncontrado()
-
-        paquete = conn.execute(
-            text("""SELECT id_paquete, nombre_paquete, semestre
-                    FROM paquetes_horario
-                    WHERE id_paquete = :paquete AND semestre = :semestre"""),
-            {"paquete": id_paquete, "semestre": alumno["semestre_actual"]},
-        ).mappings().first()
-        if paquete is None or paquete["nombre_paquete"] not in CATALOGO_1ISC:
-            raise Conflicto("El paquete seleccionado no corresponde al periodo escolar habilitado.")
-
-        destino = conn.execute(
-            text("""SELECT id_grupo, id_materia, turno, cupo_disponible
-                    FROM grupos
-                    WHERE id_paquete = :paquete AND periodo_escolar = :periodo
-                    ORDER BY id_grupo FOR UPDATE"""),
-            {"paquete": id_paquete, "periodo": PERIODO_1ISC},
-        ).mappings().all()
-        if len(destino) != 6:
-            raise Conflicto("El paquete está incompleto y no puede asignarse.")
-        if any(fila["cupo_disponible"] <= 0 for fila in destino):
-            raise CupoLleno("El paquete seleccionado ya no tiene cupo disponible.")
-
-        actuales = conn.execute(
-            text("""SELECT i.id_inscripcion, i.id_grupo, g.id_materia,
-                           p.nombre_paquete
-                    FROM inscripciones_grupos i
-                    JOIN grupos g ON g.id_grupo = i.id_grupo
-                    JOIN paquetes_horario p ON p.id_paquete = g.id_paquete
-                    WHERE i.numero_control = :numero AND g.periodo_escolar = :periodo
-                    FOR UPDATE"""),
-            {"numero": numero_control, "periodo": PERIODO_1ISC},
-        ).mappings().all()
-        paquetes_actuales = {fila["nombre_paquete"] for fila in actuales}
-        if len(paquetes_actuales) != 1 or not paquetes_actuales.issubset(PAQUETES_LEGACY_MIGRABLES):
-            raise Conflicto("Solo se pueden migrar alumnos que aún estén en los grupos anteriores 1A o 1B.")
-
-        destino_por_materia = {fila["id_materia"]: fila for fila in destino}
-        if len(destino_por_materia) != 6:
-            raise Conflicto("El paquete tiene materias repetidas y no puede asignarse.")
-        materias_actuales = [fila["id_materia"] for fila in actuales]
-        if len(set(materias_actuales)) != len(materias_actuales):
-            raise Conflicto("El grupo anterior tiene materias repetidas; revisa la inscripción antes de migrar.")
-
-        for fila in actuales:
-            grupo_destino = destino_por_materia.get(fila["id_materia"])
-            if grupo_destino is None:
-                dependencias = conn.execute(
-                    text("""SELECT
-                                (SELECT COUNT(*) FROM calificaciones
-                                 WHERE id_inscripcion = :inscripcion)
-                                + (SELECT COUNT(*) FROM registro_asistencia
-                                   WHERE id_inscripcion = :inscripcion)"""),
-                    {"inscripcion": fila["id_inscripcion"]},
-                ).scalar_one()
-                if dependencias:
-                    raise Conflicto(
-                        "No se migró: una materia del grupo anterior tiene calificaciones o "
-                        "asistencias y no existe en el paquete seleccionado."
-                    )
-                conn.execute(
-                    text("DELETE FROM inscripciones_grupos WHERE id_inscripcion = :inscripcion"),
-                    {"inscripcion": fila["id_inscripcion"]},
-                )
-                continue
-
-            reserva = conn.execute(
-                text("""UPDATE grupos SET cupo_disponible = cupo_disponible - 1
-                        WHERE id_grupo = :grupo AND cupo_disponible > 0"""),
-                {"grupo": grupo_destino["id_grupo"]},
-            )
-            if reserva.rowcount != 1:
-                raise CupoLleno("El paquete seleccionado ya no tiene cupo disponible.")
-            conn.execute(
-                text("UPDATE grupos SET cupo_disponible = cupo_disponible + 1 WHERE id_grupo = :grupo"),
-                {"grupo": fila["id_grupo"]},
-            )
-            conn.execute(
-                text("""UPDATE inscripciones_grupos SET id_grupo = :destino
-                        WHERE id_inscripcion = :inscripcion"""),
-                {"destino": grupo_destino["id_grupo"], "inscripcion": fila["id_inscripcion"]},
-            )
-
-        materias_migradas = set(materias_actuales)
-        faltantes = [
-            fila for fila in destino
-            if fila["id_materia"] not in materias_migradas
-        ]
-        if faltantes:
-            conn.execute(
-                text("""INSERT INTO inscripciones_grupos (numero_control, id_grupo)
-                        VALUES (:numero, :grupo)"""),
-                [
-                    {"numero": numero_control, "grupo": fila["id_grupo"]}
-                    for fila in faltantes
-                ],
-            )
-        conn.execute(
-            text("UPDATE alumnos SET turno = :turno WHERE numero_control = :numero"),
-            {"turno": destino[0]["turno"], "numero": numero_control},
         )
 
     return estado_horario_alumno(numero_control)
@@ -1673,59 +1551,6 @@ def actualizar_docente_grupo(id_grupo: int, id_docente: int | None) -> dict:
     return detalle_paquete_horario(id_paquete)
 
 
-def migrar_docente_sin_asignar(conn) -> None:
-    """Makes group assignments optional and removes the legacy fake teacher."""
-    columna_docente = conn.execute(
-        text("SHOW COLUMNS FROM grupos LIKE 'id_docente'")
-    ).mappings().first()
-    if columna_docente and columna_docente["Null"] == "NO":
-        conn.execute(text("ALTER TABLE grupos MODIFY id_docente INT NULL"))
-
-    marcador = conn.execute(
-        text("""SELECT u.id_usuario, d.id_docente
-                FROM usuarios u
-                LEFT JOIN empleados_docentes d ON d.id_usuario = u.id_usuario
-                WHERE u.correo = :correo"""),
-        {"correo": "docente.por.asignar@invalid.local"},
-    ).mappings().first()
-    if marcador is None:
-        return
-
-    if marcador["id_docente"] is not None:
-        conn.execute(
-            text("UPDATE grupos SET id_docente = NULL WHERE id_docente = :docente"),
-            {"docente": marcador["id_docente"]},
-        )
-        conn.execute(
-            text("DELETE FROM empleados_docentes WHERE id_docente = :docente"),
-            {"docente": marcador["id_docente"]},
-        )
-
-    referencias = conn.execute(
-        text("""SELECT
-                    (SELECT COUNT(*) FROM bitacora_accesos WHERE id_usuario = :usuario)
-                        + (SELECT COUNT(*) FROM alumnos WHERE id_usuario = :usuario)
-                        + (SELECT COUNT(*) FROM historial_alumnos WHERE id_usuario = :usuario)
-                        + (SELECT COUNT(*) FROM personal_secretaria WHERE id_usuario = :usuario)
-                    AS total"""),
-        {"usuario": marcador["id_usuario"]},
-    ).scalar_one()
-    if referencias:
-        conn.execute(
-            text("UPDATE usuarios SET estatus = 'Inactivo' WHERE id_usuario = :usuario"),
-            {"usuario": marcador["id_usuario"]},
-        )
-        log.warning(
-            "Se conservó desactivada la cuenta histórica del docente marcador (id_usuario=%s)",
-            marcador["id_usuario"],
-        )
-    else:
-        conn.execute(
-            text("DELETE FROM usuarios WHERE id_usuario = :usuario"),
-            {"usuario": marcador["id_usuario"]},
-        )
-
-
 def dar_baja_docente(id_usuario: int) -> dict:
     with engine.begin() as conn:
         fila = conn.execute(
@@ -1888,14 +1713,14 @@ def registrar_alta(d: AltaIn, pdfs: dict[str, str], usuario: dict) -> dict:
                 conn.execute(text("""
                     INSERT INTO alumnos (
                         numero_control, numero_ficha, nombres, apellido_paterno, apellido_materno,
-                        fecha_nacimiento, genero, curp, rfc, ine, nss, domicilio, celular,
+                        fecha_nacimiento, genero, curp, rfc, ine, nss, celular,
                         celular_emergencia, correo_personal,
                         correo_emergencia, correo_institucional, tipo_sangre, alergias,
                         preparatoria_procedencia, promedio_preparatoria, turno, semestre_actual,
                         estatus
                     ) VALUES (
                         :numero, :ficha, :nombres, :ap_p, :ap_m, :nacimiento, :genero, :curp, :rfc,
-                        :ine, :nss, :domicilio, :celular, :cel_emerg, :correo,
+                        :ine, :nss, :celular, :cel_emerg, :correo,
                         :correo_emerg, :correo_inst, :tipo_sangre, :alergias, :prepa, :promedio, :turno, :sem,
                         'Activo'
                     )"""), {
@@ -1903,7 +1728,6 @@ def registrar_alta(d: AltaIn, pdfs: dict[str, str], usuario: dict) -> dict:
                     "ap_p": d.ap_paterno, "ap_m": d.ap_materno, "nacimiento": d.fecha_nacimiento,
                     "genero": d.genero, "curp": d.curp, "rfc": d.rfc,
                     "ine": v.normalizar_ine(d.ine), "nss": d.nss,
-                    "domicilio": _formatear_domicilio(d),
                     "celular": re.sub(r"[\s-]", "", d.celular),
                     "cel_emerg": re.sub(r"[\s-]", "", d.celular_emergencia),
                     "correo": d.correo,

@@ -2914,10 +2914,7 @@ class ConsultaExpediente:
             ):
                 try:
                     self.horario = api.estado_horario(self.datos["numero_control"])
-                    if (
-                        not self.horario["asignado"]
-                        or self.horario.get("puede_migrar", False)
-                    ):
+                    if not self.horario["asignado"]:
                         self.paquetes_horario = api.paquetes_horario(self.horario["semestre"])
                 except ApiError as ex:
                     if ex.status == 401:
@@ -3089,28 +3086,18 @@ class ConsultaExpediente:
         if paquete is None:
             snackbar(self.page, "El paquete seleccionado ya no está disponible.")
             return
-        es_migracion = self.horario["asignado"]
-        detalle = (
-            f"El alumno pasará de {self.horario['paquete']['nombre']} a {paquete['nombre']}. "
-            "Se conservarán las calificaciones y asistencias de las materias que coincidan; "
-            "si hay datos históricos en materias sin equivalente, la operación se cancelará."
-            if es_migracion
-            else (
-                f"Se inscribirá al alumno en todas las materias de {paquete['nombre']} "
-                f"para {paquete['periodo']}."
-            )
-        )
         self.page.show_dialog(ft.AlertDialog(
             modal=True,
-            title=ft.Text("Migrar al paquete seleccionado" if es_migracion else "Asignar paquete de horario"),
+            title=ft.Text("Asignar paquete de horario"),
             content=ft.Text(
-                f"{detalle} Al confirmar, el alumno quedará en un solo paquete para "
+                f"Se inscribirá al alumno en todas las materias de {paquete['nombre']}. "
+                "Al confirmar, el alumno quedará en un solo paquete para "
                 f"{paquete['periodo']}."
             ),
             actions=[
                 ft.TextButton("Cancelar", on_click=lambda _: self.page.pop_dialog()),
                 ft.FilledButton(
-                    "Confirmar migración" if es_migracion else "Confirmar asignación",
+                    "Confirmar asignación",
                     style=estilo_boton_primario(),
                     on_click=lambda _: self._asignar_paquete(id_paquete),
                 ),
@@ -3120,10 +3107,7 @@ class ConsultaExpediente:
     def _asignar_paquete(self, id_paquete: int):
         self.page.pop_dialog()
         try:
-            if self.horario["asignado"]:
-                self.horario = api.migrar_paquete(self.datos["numero_control"], id_paquete)
-            else:
-                self.horario = api.asignar_paquete(self.datos["numero_control"], id_paquete)
+            self.horario = api.asignar_paquete(self.datos["numero_control"], id_paquete)
             self.datos = api.expediente(self.datos["numero_control"])
             self.error_horario = None
             self._pintar()
@@ -3149,8 +3133,7 @@ class ConsultaExpediente:
                 color=ft.Colors.RED_700,
             ), padding=20)
 
-        if not self.horario["asignado"] or self.horario.get("puede_migrar", False):
-            es_migracion = self.horario["asignado"]
+        if not self.horario["asignado"]:
             selector = ft.Dropdown(
                 label=f"Grupo destino para semestre {self.horario['semestre']}",
                 options=[
@@ -3166,12 +3149,7 @@ class ConsultaExpediente:
                 width=380,
                 disabled=not self.paquetes_horario,
             )
-            if es_migracion:
-                mensaje = (
-                    f"El alumno conserva el grupo anterior {self.horario['paquete']['nombre']}. "
-                    "Elige manualmente uno de los grupos oficiales disponibles."
-                )
-            elif self.paquetes_horario:
+            if self.paquetes_horario:
                 mensaje = f"El alumno aún no tiene paquete para {self.horario['periodo']}."
             else:
                 mensaje = (
@@ -3184,20 +3162,15 @@ class ConsultaExpediente:
                 ft.Row(spacing=12, controls=[
                     selector,
                     ft.FilledButton(
-                        "Migrar al grupo elegido" if es_migracion else "Asignar paquete",
+                        "Asignar paquete",
                         style=estilo_boton_primario(),
-                        disabled=not self.paquetes_horario or es_migracion and not self.horario.get("puede_migrar", False),
+                        disabled=not self.paquetes_horario,
                         on_click=lambda _: self._confirmar_asignacion_paquete(selector),
                     ),
                 ]),
                 ft.Text(
-                    (
-                        "La migración conserva calificaciones y asistencias en materias "
-                        "coincidentes y respeta los cupos."
-                        if es_migracion
-                        else "La asignación inscribe al alumno en todas las materias del paquete "
-                        "y respeta el cupo de cada grupo."
-                    ),
+                    "La asignación inscribe al alumno en todas las materias del paquete "
+                    "y respeta el cupo de cada grupo.",
                     size=12,
                     color=MUTED,
                 ),

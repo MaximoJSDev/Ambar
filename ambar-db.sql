@@ -53,7 +53,6 @@ CREATE TABLE alumnos (
     rfc VARCHAR(13),
     ine VARCHAR(20),
     nss VARCHAR(11),
-    domicilio VARCHAR(255) NOT NULL,
     celular VARCHAR(15) NOT NULL,
     celular_emergencia VARCHAR(15) NOT NULL,
     correo_personal VARCHAR(100) NOT NULL,

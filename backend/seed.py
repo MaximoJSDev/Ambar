@@ -170,12 +170,8 @@ def main() -> None:
             sys.exit("La contraseña de Administración debe tener al menos 10 caracteres.")
 
     with engine.begin() as conn:
-        servicios.migrar_docente_sin_asignar(conn)
         for rol in ROLES:
             conn.execute(text("INSERT IGNORE INTO roles (nombre_rol) VALUES (:r)"), {"r": rol})
-            # MySQL's accent-insensitive unique collation can ignore an accented
-            # spelling when an older unaccented role already exists.
-            conn.execute(text("UPDATE roles SET nombre_rol = :r WHERE nombre_rol = :r"), {"r": rol})
         id_rol = {
             rol: conn.execute(
                 text("SELECT id_rol FROM roles WHERE nombre_rol = :r"),
@@ -227,7 +223,6 @@ def main() -> None:
                 )
                 print(f"Administrador creado: {admin_correo}")
 
-        servicios.migrar_horarios(conn)
         servicios.cargar_catalogo_1isc(conn)
 
     if args.alumnos_demo:
