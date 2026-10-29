@@ -81,7 +81,7 @@ desde el [portal de Correos de México](https://www.correosdemexico.gob.mx/SSLSe
 Desde la raíz del proyecto, impórtalo con:
 
 ```bash
-python -m backend.importar_catalogo_cp RUTA_AL_ARCHIVO_TXT
+python -m backend.importar_catalogo_cp SERVICIO_POSTAL_MEXICANO.txt
 ```
 
 La aplicación consulta ese catálogo en la base de datos local y no necesita

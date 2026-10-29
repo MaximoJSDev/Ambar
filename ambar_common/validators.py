@@ -8,6 +8,8 @@ import os
 import re
 import unicodedata
 
+from email_validator import EmailNotValidError, validate_email
+
 PATRON_EMAIL = re.compile(
     r"^[A-Za-z0-9_%+-]+(?:\.[A-Za-z0-9_%+-]+)*"
     r"@(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}$"
@@ -72,7 +74,7 @@ def hace_anios(n: int, hoy: datetime.date | None = None) -> datetime.date:
 # --------------------------------------------------------------------------
 def validar_correo_login(valor: str) -> str | None:
     if not PATRON_EMAIL.fullmatch(valor.strip()):
-        return "Formato de correo electrónico inválido"
+        return "Correo electrónico no registrado en el sistema"
     return None
 
 
@@ -208,8 +210,10 @@ def validar_correo(valor: str, maximo: int = 150) -> str | None:
     v = valor.strip()
     if len(v) > maximo:
         return f"El correo no puede exceder {maximo} caracteres"
-    if not PATRON_EMAIL.fullmatch(v):
-        return "Formato de correo electrónico inválido"
+    try:
+        validate_email(v, check_deliverability=False)
+    except EmailNotValidError as error:
+        return f"Formato de correo electrónico inválido: {error}"
     return None
 
 
@@ -219,9 +223,7 @@ def validar_correo_con_dominio(valor: str, maximo: int = 150) -> str | None:
         return error
     dominio = valor.strip().rsplit("@", 1)[1].lower()
     if dominio not in DOMINIOS_CORREO_PUBLICOS:
-        # Los dominios personalizados se aceptan por formato, sin comprobarlos.
-        return None
-    # Los proveedores públicos de esta lista se consideran conocidos sin red.
+        return "El dominio del correo no está permitido"
     return None
 
 
