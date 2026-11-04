@@ -5,6 +5,53 @@ import main
 
 
 class DomicilioCamposTests(unittest.TestCase):
+    def test_error_de_domicilio_se_muestra_en_el_modal_de_edicion(self):
+        page = Mock()
+        expediente = main.ConsultaExpediente.__new__(main.ConsultaExpediente)
+        expediente.page = page
+        expediente.datos = {
+            "numero_control": "26320700",
+            "personales": {
+                "nombres": "Ana",
+                "apellido_paterno": "Prueba",
+                "apellido_materno": "Ejemplo",
+                "fecha_nacimiento": "02/03/2005",
+                "curp": "CURP",
+                "rfc": "—",
+                "nss": "12345678901",
+                "ine": "—",
+                "genero": "Mujer",
+            },
+            "contacto": {
+                "celular": "7441234567",
+                "correo_personal": "ana@example.com",
+                "celular_emergencia": "7441234567",
+                "correo_emergencia": "contacto@example.com",
+                "tipo_sangre": "—",
+                "alergias": "",
+                "codigo_postal": "",
+                "estado": "",
+                "municipio": "",
+                "colonia": "",
+                "calle": "",
+                "numero_exterior": "",
+            },
+            "academicos": {
+                "numero_ficha": "2020-12345",
+                "preparatoria": "Preparatoria",
+                "promedio": "9",
+            },
+        }
+
+        expediente._editar_alumno()
+        dialogo = page.show_dialog.call_args.args[0]
+        aviso = dialogo.content.content.controls[0]
+        dialogo.actions[1].on_click(None)
+
+        self.assertTrue(aviso.visible)
+        self.assertEqual(aviso.value, "Completa los campos del domicilio.")
+        page.show_dialog.assert_called_once_with(dialogo)
+
     def test_formatea_numero_de_ficha_con_guion_despues_de_cuatro_digitos(self):
         for entrada, esperado in (
             ("", ""),
