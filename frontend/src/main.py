@@ -1685,7 +1685,7 @@ def build_grupos_horarios(page: ft.Page, navegar) -> ft.Control:
             paquete_seleccionado = None
             selector.value = None
             panel_grupo.controls = [crear_tarjeta(ft.Text(
-                "No hay paquetes 1ISC configurados para el periodo activo. "
+                "No hay paquetes configurados para el periodo activo. "
                 "Reinicia el backend después de actualizar SIGE.",
                 color=MUTED,
             ))]

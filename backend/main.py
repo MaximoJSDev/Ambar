@@ -30,7 +30,7 @@ async def _monitorear_avance_semestre() -> None:
 async def lifespan(_: FastAPI):
     settings.storage_dir.mkdir(parents=True, exist_ok=True)
     with engine.begin() as conn:
-        servicios.cargar_catalogo_1isc(conn)
+        servicios.cargar_catalogo_horarios(conn)
         servicios.preparar_avances_semestre(conn)
     monitor = asyncio.create_task(_monitorear_avance_semestre())
     try:
