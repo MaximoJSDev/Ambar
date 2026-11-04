@@ -31,14 +31,29 @@ EDAD_MINIMA = 12
 EDAD_MAXIMA = 80
 DOMINIO_CORREO_INSTITUCIONAL = "@acapulco.tecnm.mx"
 DOMINIOS_CORREO_PUBLICOS = frozenset({
+    # Google
     "gmail.com", "googlemail.com",
+    # Microsoft
     "hotmail.com", "hotmail.com.mx", "hotmail.es",
     "outlook.com", "outlook.com.mx", "outlook.es",
-    "live.com", "live.com.mx", "msn.com",
-    "yahoo.com", "yahoo.com.mx", "yahoo.es", "ymail.com",
+    "live.com", "live.com.mx", "live.es", "msn.com", "windowslive.com",
+    # Yahoo
+    "yahoo.com", "yahoo.com.mx", "yahoo.es", "ymail.com", "rocketmail.com",
+    # Apple
     "icloud.com", "me.com", "mac.com",
-    "aol.com", "proton.me", "protonmail.com", "pm.me",
-    "gmx.com", "gmx.net", "zoho.com", "yandex.com",
+    # Privacidad (Proton, Tuta)
+    "proton.me", "protonmail.com", "pm.me", "protonmail.ch",
+    "tuta.com", "tutanota.com", "tutamail.com",
+    # AOL / Yahoo
+    "aol.com", "aim.com",
+    # Zoho
+    "zoho.com", "zohomail.com",
+    # GMX & Mail.com (Globales muy usados)
+    "gmx.com", "gmx.net", "gmx.es", "mail.com",
+    # Yandex
+    "yandex.com",
+    # legacy/globales
+    "terra.com.mx", "terra.com", "fastmail.com"
 })
 TIPOS_SANGRE = ("O+", "O-", "A+", "A-", "B+", "B-", "AB+", "AB-")
 NOMBRE_MIN, NOMBRE_MAX = 3, 50
