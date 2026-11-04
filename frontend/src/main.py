@@ -2311,7 +2311,7 @@ class FormAltas:
                            input_filter=ft.InputFilter(regex_string=r"^[0-9.,]*$", allow=True, replacement_string=""))
         self.promedio.on_change = self._promedio_cambiado
         self.cel_emerg = crear_campo_texto("Número de 10 dígitos", keyboard_type=ft.KeyboardType.PHONE,
-                            input_filter=ft.NumbersOnlyInputFilter())
+                            input_filter=ft.NumbersOnlyInputFilter(), max_length=10)
         self.correo_emerg = crear_campo_texto("Correo del contacto de emergencia", keyboard_type=ft.KeyboardType.EMAIL)
         self.tipo_sangre = ft.Dropdown(
             hint_text="Selecciona",
@@ -3673,6 +3673,13 @@ class ConsultaExpediente:
                 for control in domicilio.controles
             ],
         )
+        aviso = ft.Text(
+            "",
+            size=13,
+            color=ft.Colors.RED_700,
+            weight=ft.FontWeight.W_600,
+            visible=False,
+        )
         self.page.show_dialog(ft.AlertDialog(
             modal=True,
             bgcolor=WHITE,
@@ -3680,21 +3687,32 @@ class ConsultaExpediente:
             content=ft.Container(
                 width=680,
                 height=640,
-                content=ft.Column(scroll=ft.ScrollMode.AUTO, controls=[contenido]),
+                content=ft.Column(spacing=8, controls=[
+                    aviso,
+                    ft.Container(
+                        expand=True,
+                        content=ft.Column(
+                            scroll=ft.ScrollMode.AUTO,
+                            controls=[contenido],
+                        ),
+                    ),
+                ]),
             ),
             actions=[
                 ft.TextButton("Cancelar", on_click=lambda _: self.page.pop_dialog()),
                 ft.FilledButton(
                     "Guardar cambios", style=estilo_boton_primario(),
-                    on_click=lambda _: self._guardar_edicion(campos, domicilio),
+                    on_click=lambda _: self._guardar_edicion(campos, domicilio, aviso),
                 ),
             ],
         ))
 
-    def _guardar_edicion(self, campos: dict, domicilio: DomicilioCampos):
+    def _guardar_edicion(self, campos: dict, domicilio: DomicilioCampos, aviso: ft.Text):
         datos = {clave: (campo.value or "").strip() for clave, campo in campos.items()}
         if not domicilio.validar():
-            snackbar(self.page, "Completa los campos del domicilio.")
+            aviso.value = "Completa los campos del domicilio."
+            aviso.visible = True
+            self.page.update()
             return
         datos.update(domicilio.datos())
         datos["ine"] = v.normalizar_ine(datos["ine"])
@@ -3703,7 +3721,9 @@ class ConsultaExpediente:
             datos["fecha_nacimiento"] = fecha_nacimiento.isoformat()
             datos["promedio"] = float(datos["promedio"].replace(",", "."))
         except ValueError:
-            snackbar(self.page, "Revisa la fecha (AAAA-MM-DD) y el promedio.")
+            aviso.value = "Revisa la fecha (AAAA-MM-DD) y el promedio."
+            aviso.visible = True
+            self.page.update()
             return
         datos["rfc"] = datos["rfc"] or None
 
@@ -3719,8 +3739,9 @@ class ConsultaExpediente:
             fecha_nacimiento,
         )
         if campos["curp"].error or campos["rfc"].error:
+            aviso.value = "Revisa la CURP y el RFC antes de guardar."
+            aviso.visible = True
             self.page.update()
-            snackbar(self.page, "Revisa la CURP y el RFC antes de guardar.")
             return
 
         try:
@@ -3732,10 +3753,11 @@ class ConsultaExpediente:
             for campo, mensaje in ex.errores.items():
                 if campo in campos:
                     campos[campo].error = mensaje
-            self.page.update()
             domicilio.marcar_errores(ex.errores)
             detalles = "; ".join(f"{campo}: {mensaje}" for campo, mensaje in ex.errores.items())
-            snackbar(self.page, f"{ex.mensaje}{': ' + detalles if detalles else ''}")
+            aviso.value = f"{ex.mensaje}{': ' + detalles if detalles else ''}"
+            aviso.visible = True
+            self.page.update()
             return
 
         numero_control = self.datos["numero_control"]
