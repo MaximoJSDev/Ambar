@@ -27,7 +27,8 @@ class CalificacionesTests(unittest.TestCase):
         }
         conn = MagicMock()
         conn.execute.side_effect = [
-            existente, duplicado, grupos_destino, MagicMock(), MagicMock(), guardado,
+            existente, duplicado, grupos_destino, MagicMock(), MagicMock(),
+            MagicMock(), guardado,
         ]
         configuracion = SimpleNamespace(periodo="ENE-JUN 2026", periodo_escolar="ENE-JUN 2026")
 
@@ -52,6 +53,10 @@ class CalificacionesTests(unittest.TestCase):
         self.assertIn(
             "UPDATE periodos_escolares",
             str(conn.execute.call_args_list[4].args[0]),
+        )
+        self.assertIn(
+            "UPDATE avances_semestre",
+            str(conn.execute.call_args_list[5].args[0]),
         )
 
     def test_corregir_fecha_no_consulta_ni_elimina_calificaciones(self):
