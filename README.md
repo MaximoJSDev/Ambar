@@ -162,6 +162,13 @@ Administración puede seleccionar un periodo registrado para corregir su nombre
 o fecha de inicio desde el calendario. Al renombrarlo, también se actualiza el
 periodo de sus grupos. Corregir la fecha conserva las calificaciones existentes
 y recalcula automáticamente qué semanas están habilitadas.
+Desde el inicio de la semana 18 del periodo activo, el backend revisa
+automáticamente el avance de semestre cada hora. Una sola vez por periodo,
+aumenta en uno el semestre de todos los alumnos activos no eliminados, sin
+condicionar el avance a sus calificaciones; quienes ya están en décimo
+permanecen en décimo. El registro del avance se conserva para evitar repetirlo
+si el backend se reinicia, y la tabla necesaria se crea al iniciar el servicio
+para bases de datos existentes.
 
 ### Ejecutar el Backend (FastAPI)
 Desde la raíz del repositorio y con el entorno virtual del backend activado:

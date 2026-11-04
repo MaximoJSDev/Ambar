@@ -215,6 +215,12 @@ CREATE TABLE periodos_escolares (
     FOREIGN KEY (actualizado_por) REFERENCES usuarios(id_usuario)
 );
 
+CREATE TABLE avances_semestre (
+    periodo VARCHAR(20) PRIMARY KEY,
+    alumnos_avanzados INT UNSIGNED NOT NULL,
+    fecha_avance TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB;
+
 CREATE TABLE registro_asistencia (
     id_registro INT AUTO_INCREMENT PRIMARY KEY,
     id_inscripcion INT NOT NULL,

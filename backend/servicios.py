@@ -1308,6 +1308,68 @@ def listar_periodos_escolares() -> list[dict]:
     return [dict(fila) for fila in filas]
 
 
+def preparar_avances_semestre(conn) -> None:
+    conn.execute(
+        text("""CREATE TABLE IF NOT EXISTS avances_semestre (
+                    periodo VARCHAR(20) PRIMARY KEY,
+                    alumnos_avanzados INT UNSIGNED NOT NULL,
+                    fecha_avance TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                ) ENGINE=InnoDB""")
+    )
+
+
+def avanzar_semestre_si_corresponde() -> dict | None:
+    periodo = settings.periodo
+    with engine.begin() as conn:
+        configuracion = conn.execute(
+            text("""SELECT fecha_inicio FROM periodos_escolares
+                    WHERE periodo = :periodo FOR UPDATE"""),
+            {"periodo": periodo},
+        ).mappings().first()
+        if configuracion is None:
+            return None
+
+        semana = _semana_del_periodo(configuracion["fecha_inicio"])
+        if semana < 18:
+            return None
+
+        avance_existente = conn.execute(
+            text("SELECT periodo FROM avances_semestre WHERE periodo = :periodo"),
+            {"periodo": periodo},
+        ).scalar_one_or_none()
+        if avance_existente is not None:
+            return None
+
+        conn.execute(
+            text("""INSERT INTO avances_semestre (periodo, alumnos_avanzados)
+                    VALUES (:periodo, 0)"""),
+            {"periodo": periodo},
+        )
+        resultado = conn.execute(
+            text("""UPDATE alumnos
+                    SET semestre_actual = LEAST(semestre_actual + 1, 10)
+                    WHERE estatus = 'Activo' AND eliminado = FALSE
+                      AND semestre_actual < 10""")
+        )
+        alumnos_avanzados = resultado.rowcount
+        conn.execute(
+            text("""UPDATE avances_semestre
+                    SET alumnos_avanzados = :cantidad
+                    WHERE periodo = :periodo"""),
+            {"cantidad": alumnos_avanzados, "periodo": periodo},
+        )
+
+    log.info(
+        "Avance de semestre aplicado periodo=%s semana=%s alumnos=%s",
+        periodo, semana, alumnos_avanzados,
+    )
+    return {
+        "periodo": periodo,
+        "semana": semana,
+        "alumnos_avanzados": alumnos_avanzados,
+    }
+
+
 def guardar_periodo_escolar(
     periodo: str,
     fecha_inicio: date,
@@ -1352,6 +1414,10 @@ def guardar_periodo_escolar(
                     "fecha_inicio": fecha_inicio,
                     "usuario": id_usuario,
                 },
+            )
+            conn.execute(
+                text("UPDATE avances_semestre SET periodo = :nuevo WHERE periodo = :anterior"),
+                {"nuevo": periodo, "anterior": origen},
             )
         elif existente:
             conn.execute(
