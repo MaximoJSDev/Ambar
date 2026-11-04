@@ -105,6 +105,14 @@ seed asigna números de control y correos institucionales mediante el flujo norm
 de altas; al no crear PDF, sus documentos aparecerán pendientes. Secretaría les
 puede asignar un paquete desde **Consultas**. Los registros demo usan fichas
 `9999-NNNNN` y se omiten si ya existen al volver a ejecutar la seed.
+Para probar reinscripciones en la base de desarrollo, ejecuta
+`python -m backend.seed --alumnos-demo-reinscripcion 3`. Crea tres alumnos
+ficticios por semestre del 2.º al 10.º (27 en total), usando el flujo normal de
+alta y una cuenta de Secretaría activa ya existente, sin cambiar sus credenciales.
+Los registros usan fichas `8888-NNNNN`; si el comando se repite, conserva esos
+alumnos en su semestre en lugar de duplicarlos. `run-ambar.bat` ejecuta esta
+comprobación en cada inicio, por lo que también crea cualquier demo que aún falte
+sin duplicar los ya registrados.
 
 En **Consultas**, Secretaría puede buscar y revisar la información y los
 documentos de los alumnos. La edición de datos y la baja de expedientes activos
@@ -127,12 +135,13 @@ desactivar el acceso sin borrar los datos; cada cuenta queda asociada a un
 registro docente y el correo debe ser único.
 
 Al iniciar el backend se carga de forma idempotente el horario publicado de
-primer semestre para **AGO-DIC 2026**, con los paquetes `1ISC1` a `1ISC7`. Al registrar un
-alumno, el horario queda pendiente; Secretaría lo busca en **Consultas** y, si
-aún no tiene grupo, le asigna un paquete completo del mismo semestre. La
-asignación inscribe al alumno en todas las materias de esa sección y respeta los
-cupos. Desde **Consultas** también se descarga el horario individual con
-membrete. Desde **Grupos y horarios** se revisan las listas por sección, se
+primero a noveno semestre para **AGO-DIC 2026**, con los paquetes definidos en
+los horarios fuente. Se conservan las materias repetidas y la cantidad de filas
+de cada paquete. Al registrar un alumno, el horario queda pendiente; Secretaría
+lo busca en **Consultas** y, si aún no tiene grupo, le asigna un paquete completo
+del mismo semestre. La asignación inscribe al alumno en todas las materias de esa
+sección y respeta los cupos. Desde **Consultas** también se descarga el horario
+individual con membrete. Desde **Grupos y horarios** se revisan las listas por sección, se
 descargan con membrete y se vinculan las cuentas de maestros a las materias.
 La asignación de docente se realiza por grupo y materia en **Grupos y horarios**.
 En **Mis grupos**, cada maestro consulta solo sus asignaciones y puede descargar

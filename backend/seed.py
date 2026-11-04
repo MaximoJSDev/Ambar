@@ -1,4 +1,4 @@
-"""Datos iniciales: roles, usuario de Secretaría y catálogo de primer semestre.
+"""Datos iniciales: roles, usuario de Secretaría y catálogo de horarios.
 
     python -m backend.seed --correo secretaria@acapulco.tecnm.mx --nombres "María" --apellidos "López Pérez"
     python -m backend.seed --admin-correo administrador@acapulco.tecnm.mx
@@ -6,8 +6,8 @@
     python -m backend.seed --correo secretaria3@acapulco.tecnm.mx --nombres "Emmanuel" --apellidos "Garnica Saida"
 
 Es idempotente. Si el usuario ya existe, actualiza su nombre (personal_secretaria)
-y contraseña (sirve para restablecerla). Carga el horario publicado de 1ISC1 a
-1ISC7 para agosto-diciembre de 2026; los docentes se vinculan a sus cuentas después.
+y contraseña (sirve para restablecerla). Carga los horarios publicados para
+agosto-diciembre de 2026; los docentes se vinculan a sus cuentas después.
 """
 import argparse
 import datetime
@@ -48,7 +48,11 @@ def _ascii(texto: str) -> str:
     return unicodedata.normalize("NFD", texto).encode("ascii", "ignore").decode().upper()
 
 
-def _datos_alumno_demo(indice: int, domicilio: dict[str, str]) -> AltaIn:
+def _datos_alumno_demo(
+    indice: int,
+    domicilio: dict[str, str],
+    prefijo_ficha: str = "9999",
+) -> AltaIn:
     nombre, paterno, materno = ALUMNOS_DEMO[(indice - 1) % len(ALUMNOS_DEMO)]
     hoy = datetime.date.today()
     fecha = datetime.date(hoy.year - 18, (indice - 1) % 12 + 1, (indice - 1) % 28 + 1)
@@ -60,9 +64,9 @@ def _datos_alumno_demo(indice: int, domicilio: dict[str, str]) -> AltaIn:
     alfanumerico = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"[(indice - 1) % 36]
     genero = "mujer" if indice % 2 else "hombre"
     sexo = "M" if genero == "mujer" else "H"
-    ficha = f"9999-{indice:05d}"
+    ficha = f"{prefijo_ficha}-{indice:05d}"
     curp = f"{iniciales}{yymmdd}{sexo}AS{consonantes}{alfanumerico}{indice % 10}"
-    ine = f"{(_ascii(paterno + materno + nombre) + 'XXXXXX')[:6]}{yymmdd}12{sexo}{indice % 1000:03d}"
+    ine = f"{indice:013d}"
 
     return AltaIn(
         ficha=ficha,
@@ -76,7 +80,7 @@ def _datos_alumno_demo(indice: int, domicilio: dict[str, str]) -> AltaIn:
         ine=ine,
         genero=genero,
         celular=f"744{indice:07d}",
-        correo=f"alumno.demo{indice:05d}@example.test",
+        correo=f"alumno.demo{indice:05d}@gmail.com",
         codigo_postal=domicilio["codigo_postal"],
         estado=domicilio["estado"],
         municipio=domicilio["municipio"],
@@ -86,7 +90,7 @@ def _datos_alumno_demo(indice: int, domicilio: dict[str, str]) -> AltaIn:
         preparatoria="Preparatoria Demo",
         promedio=9.2 if indice % 2 else 8.4,
         celular_emergencia=f"781{indice:07d}",
-        correo_emergencia=f"contacto.demo{indice:05d}@example.test",
+        correo_emergencia=f"contacto.demo{indice:05d}@outlook.com",
         tipo_sangre="O+",
         alergias="Ninguna",
     )
@@ -122,6 +126,91 @@ def crear_alumnos_demo(cantidad: int, id_usuario: int) -> None:
     print(f"Periodo {settings.periodo}: {creados} alumnos demo nuevos.")
 
 
+def crear_alumnos_demo_reinscripcion(por_semestre: int) -> None:
+    if por_semestre < 1:
+        return
+
+    with engine.connect() as conn:
+        domicilio_catalogo = conn.execute(
+            text("""SELECT codigo_postal, estado, municipio, colonia
+                    FROM catalogo_codigos_postales
+                    ORDER BY codigo_postal, estado, municipio, colonia
+                    LIMIT 1"""),
+        ).mappings().first()
+        secretaria = conn.execute(
+            text("""SELECT u.id_usuario
+                    FROM usuarios u
+                    JOIN roles r ON r.id_rol = u.id_rol
+                    WHERE r.nombre_rol = :rol AND u.estatus = 'Activo'
+                    ORDER BY u.id_usuario
+                    LIMIT 1"""),
+            {"rol": ROL_SECRETARIA},
+        ).mappings().first()
+
+    if domicilio_catalogo is None:
+        raise RuntimeError(
+            "Importa el catálogo postal local antes de generar alumnos demo."
+        )
+    if secretaria is None:
+        raise RuntimeError(
+            "Crea primero una cuenta activa de Secretaría para registrar las altas demo."
+        )
+
+    creados = 0
+    corregidos = 0
+    indice = 101
+    for semestre in range(2, 11):
+        for _ in range(por_semestre):
+            datos = _datos_alumno_demo(
+                indice, dict(domicilio_catalogo), prefijo_ficha="8888",
+            )
+            alumno_existente = None
+            with engine.connect() as conn:
+                alumno_existente = conn.execute(
+                    text("""SELECT numero_control FROM alumnos
+                            WHERE numero_ficha = :ficha"""),
+                    {"ficha": datos.ficha},
+                ).mappings().first()
+
+            if alumno_existente is None:
+                duplicados = servicios.verificar_duplicados(
+                    datos.ficha, datos.curp, datos.nss, datos.rfc or "",
+                    datos.ine or "", datos.correo,
+                )
+                if any(duplicados.values()):
+                    raise RuntimeError(
+                        f"Los datos demo del registro {datos.ficha} ya existen "
+                        "con otra ficha; no se creó el alumno."
+                    )
+                resultado = servicios.registrar_alta(
+                    datos, {}, {"id_usuario": secretaria["id_usuario"]},
+                )
+                numero_control = resultado["numero_control"]
+                creados += 1
+            else:
+                numero_control = alumno_existente["numero_control"]
+
+            with engine.begin() as conn:
+                conn.execute(
+                    text("""UPDATE alumnos SET semestre_actual = :semestre
+                            WHERE numero_control = :numero
+                              AND estatus = 'Activo' AND eliminado = FALSE"""),
+                    {"semestre": semestre, "numero": numero_control},
+                )
+            if alumno_existente is not None:
+                corregidos += 1
+            print(
+                f"Alumno demo de reinscripción: {numero_control} "
+                f"- semestre {semestre} - ficha {datos.ficha}"
+            )
+            indice += 1
+
+    print(
+        f"Reinscripción demo: {creados} altas nuevas y {corregidos} "
+        f"registros verificados; {por_semestre} alumnos por semestre (2 a 10)."
+    )
+
+
 def pedir_password(usuario: str = "Secretaría") -> str:
     while True:
         p1 = getpass.getpass(f"Contraseña de {usuario} (mín. 10 caracteres): ")
@@ -148,16 +237,31 @@ def main() -> None:
         metavar="CANTIDAD",
         help="crear alumnos ficticios pendientes de asignar a un paquete (sin PDFs)",
     )
+    ap.add_argument(
+        "--alumnos-demo-reinscripcion",
+        type=int,
+        default=0,
+        metavar="POR_SEMESTRE",
+        help="crear alumnos ficticios por semestre (2 a 10) para probar reinscripciones",
+    )
     args = ap.parse_args()
     secretaria_datos = (args.correo, args.nombres, args.apellidos)
     if any(secretaria_datos) and not all(secretaria_datos):
         ap.error("--correo, --nombres y --apellidos deben indicarse juntos")
-    if not args.correo and not args.admin_correo:
+    if not args.correo and not args.admin_correo and not args.alumnos_demo_reinscripcion:
         ap.error("indica los datos de Secretaría o --admin-correo")
     if args.alumnos_demo and not args.correo:
         ap.error("--alumnos-demo requiere una cuenta de Secretaría")
-    if args.alumnos_demo < 0:
-        ap.error("--alumnos-demo debe ser cero o mayor")
+    if args.alumnos_demo < 0 or args.alumnos_demo_reinscripcion < 0:
+        ap.error("la cantidad de alumnos demo debe ser cero o mayor")
+    if args.alumnos_demo_reinscripcion:
+        if args.correo or args.admin_correo or args.alumnos_demo:
+            ap.error(
+                "--alumnos-demo-reinscripcion debe ejecutarse por separado; "
+                "no actualiza cuentas ni crea alumnos demo de primer semestre"
+            )
+        crear_alumnos_demo_reinscripcion(args.alumnos_demo_reinscripcion)
+        return
     password = None
     if args.correo:
         password = args.password or pedir_password()
@@ -223,7 +327,7 @@ def main() -> None:
                 )
                 print(f"Administrador creado: {admin_correo}")
 
-        servicios.cargar_catalogo_1isc(conn)
+        servicios.cargar_catalogo_horarios(conn)
 
     if args.alumnos_demo:
         crear_alumnos_demo(args.alumnos_demo, id_secretaria_usuario)

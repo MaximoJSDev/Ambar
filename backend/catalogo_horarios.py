@@ -1,4 +1,6 @@
-"""Horario publicado para primer semestre en agosto-diciembre de 2026."""
+"""Horarios publicados para agosto-diciembre de 2026."""
+
+from .catalogo_horarios_2_9 import CATALOGO_2_9
 
 PERIODO_1ISC = "AGO-DIC 2026"
 
@@ -102,3 +104,5 @@ CATALOGO_1ISC = {
          ("09:00-10:00", "09:00-10:00", "09:00-10:00", "09:00-10:00", None)),
     ],
 }
+
+CATALOGO_HORARIOS = {**CATALOGO_1ISC, **CATALOGO_2_9}
