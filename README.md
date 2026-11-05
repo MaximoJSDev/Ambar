@@ -121,8 +121,12 @@ Secretaría, pero conservan sus datos y documentos. Administración también tie
 acceso a **Modificación**, además de un inicio de sesión y una vista propios en
 **Historial de alumnos** para consultar las bajas y revisar las versiones
 anteriores de los datos junto con quién y cuándo hizo cada cambio. Al iniciar,
-el backend usa el esquema actual definido en `ambar-db.sql` y no aplica
-migraciones automáticas de versiones anteriores.
+el backend y los comandos de inicialización aplican migraciones pendientes,
+registradas en `ambar_schema_migrations`. Por ejemplo, si una base anterior
+todavía tiene `alumnos.domicilio`, conserva ese texto en `domicilios.calle` (sin
+reemplazar domicilios estructurados existentes) y elimina la columna antigua que
+impedía registrar alumnos. El usuario MySQL configurado debe tener permisos
+para crear tablas y alterar el esquema.
 
 Administración también puede crear cuentas de secretarias desde **Alta de
 secretaria** y revisar o dar de baja cuentas desde **Consulta de secretarias**.
@@ -137,12 +141,20 @@ registro docente y el correo debe ser único.
 Al iniciar el backend se carga de forma idempotente el horario publicado de
 primero a noveno semestre para **AGO-DIC 2026**, con los paquetes definidos en
 los horarios fuente. Se conservan las materias repetidas y la cantidad de filas
-de cada paquete. Al registrar un alumno, el horario queda pendiente; Secretaría
+de cada paquete. En la primera inicialización, también se crea una sola cuenta
+activa por cada docente nombrado en ese horario y se asignan las materias
+programadas; las materias sin docente indicado siguen sin asignar. Las
+asignaciones iniciales se registran como migración y no se sobrescriben en
+inicios posteriores. Las contraseñas aleatorias de las cuentas nuevas se
+guardan una sola vez en un CSV bajo `%USERPROFILE%\\.ambar\\credenciales` en
+Windows o `~/.ambar/credenciales` en otros sistemas; comparte ese archivo solo
+por un canal privado. Al registrar un alumno, el horario queda pendiente; Secretaría
 lo busca en **Consultas** y, si aún no tiene grupo, le asigna un paquete completo
 del mismo semestre. La asignación inscribe al alumno en todas las materias de esa
 sección y respeta los cupos. Desde **Consultas** también se descarga el horario
-individual con membrete. Desde **Grupos y horarios** se revisan las listas por sección, se
-descargan con membrete y se vinculan las cuentas de maestros a las materias.
+individual con membrete. En **Grupos y horarios**, Secretaría puede seleccionar
+el semestre del primero al noveno para consultar sus paquetes, listas y materias,
+descargarlas con membrete y vincular las cuentas de maestros.
 La asignación de docente se realiza por grupo y materia en **Grupos y horarios**.
 En **Mis grupos**, cada maestro consulta solo sus asignaciones y puede descargar
 con membrete su horario consolidado, la lista de alumnos de cada materia y su

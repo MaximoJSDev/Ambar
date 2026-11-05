@@ -290,12 +290,21 @@ def test_lista_de_grupo_de_secretaria_inicia_plegada_y_deja_descarga_visible():
         }],
     }
     with (
-        patch.object(main.api, "grupos_horario", return_value=[paquete]),
+        patch.object(main.api, "paquetes_horario", return_value=[paquete]) as cargar_paquetes,
         patch.object(main.api, "docentes_horario", return_value=[]),
         patch.object(main.api, "detalle_grupo_horario", return_value=detalle),
         patch.object(main.api, "lista_alumnos_grupo", return_value=lista),
     ):
         vista = main.build_grupos_horarios(Mock(), Mock())
+        controles = list(_controles(vista))
+        selector_semestre = next(
+            control for control in controles
+            if isinstance(control, main.ft.Dropdown) and control.label == "Semestre"
+        )
+        assert [opcion.text for opcion in selector_semestre.options] == [
+            f"{semestre}.º semestre" for semestre in range(1, 10)
+        ]
+        cargar_paquetes.assert_called_once_with(1)
 
     listas = [
         control for control in _controles(vista)
@@ -310,6 +319,54 @@ def test_lista_de_grupo_de_secretaria_inicia_plegada_y_deja_descarga_visible():
         and "Descargar lista PDF" in list(_textos(control))
     ]
     assert len(botones_descarga) == 1
+
+
+def test_grupos_y_horarios_cambia_el_semestre_y_carga_sus_paquetes():
+    paquete_primero = {
+        "id_paquete": 5,
+        "nombre": "1ISC1",
+        "turno": "Matutino",
+        "alumnos": 0,
+        "semestre": 1,
+        "periodo": "AGO-DIC 2026",
+        "cupo_maximo": 25,
+        "lugares": 25,
+    }
+    paquete_segundo = {**paquete_primero, "id_paquete": 6, "nombre": "2ISC1", "semestre": 2}
+
+    def paquetes_por_semestre(semestre):
+        return {1: [paquete_primero], 2: [paquete_segundo]}.get(semestre, [])
+
+    with (
+        patch.object(main.api, "paquetes_horario", side_effect=paquetes_por_semestre) as cargar_paquetes,
+        patch.object(main.api, "docentes_horario", return_value=[]),
+        patch.object(
+            main.api,
+            "detalle_grupo_horario",
+            side_effect=lambda id_paquete: {
+                "paquete": paquete_segundo if id_paquete == 6 else paquete_primero,
+                "materias": [],
+            },
+        ),
+        patch.object(main.api, "lista_alumnos_grupo", return_value={"alumnos": []}),
+    ):
+        vista = main.build_grupos_horarios(Mock(), Mock())
+        controles = list(_controles(vista))
+        selector_semestre = next(
+            control for control in controles
+            if isinstance(control, main.ft.Dropdown) and control.label == "Semestre"
+        )
+        selector_semestre.value = "2"
+        selector_semestre.on_select(type("Evento", (), {"control": selector_semestre})())
+
+    assert cargar_paquetes.call_args_list[0].args == (1,)
+    assert cargar_paquetes.call_args_list[1].args == (2,)
+    selector_paquete = next(
+        control for control in _controles(vista)
+        if isinstance(control, main.ft.Dropdown) and control.label == "Paquete / grupo"
+    )
+    assert selector_paquete.value == "6"
+    assert selector_paquete.options[0].text.startswith("2ISC1")
 
 
 def test_error_al_asignar_maestro_desplaza_la_vista_arriba():
@@ -333,7 +390,7 @@ def test_error_al_asignar_maestro_desplaza_la_vista_arriba():
         "horarios": [{"dia": "Lunes", "inicio": "10:00", "fin": "11:00"}],
     }
     with (
-        patch.object(main.api, "grupos_horario", return_value=[paquete]),
+        patch.object(main.api, "paquetes_horario", return_value=[paquete]),
         patch.object(main.api, "docentes_horario", return_value=[]),
         patch.object(
             main.api,
