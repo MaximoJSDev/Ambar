@@ -8,7 +8,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from ambar_common.logging_config import configure_file_logging
 
-from . import servicios
+from . import migraciones, servicios, sincronizacion_docentes
 from .config import engine, settings
 from .routers import admin, alumnos, auth, horarios, panel, personal, reinscripciones
 
@@ -30,8 +30,10 @@ async def _monitorear_avance_semestre() -> None:
 async def lifespan(_: FastAPI):
     settings.storage_dir.mkdir(parents=True, exist_ok=True)
     with engine.begin() as conn:
+        migraciones.aplicar_migraciones(conn)
         servicios.cargar_catalogo_horarios(conn)
         servicios.preparar_avances_semestre(conn)
+    sincronizacion_docentes.sincronizar_docentes_horario()
     monitor = asyncio.create_task(_monitorear_avance_semestre())
     try:
         yield

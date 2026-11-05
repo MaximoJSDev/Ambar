@@ -20,6 +20,7 @@ from sqlalchemy import text
 from ambar_common import validators as v
 
 from .config import engine, settings
+from .migraciones import aplicar_migraciones
 from .constantes import (
     ROL_ADMINISTRADOR,
     ROL_SECRETARIA,
@@ -260,6 +261,8 @@ def main() -> None:
                 "--alumnos-demo-reinscripcion debe ejecutarse por separado; "
                 "no actualiza cuentas ni crea alumnos demo de primer semestre"
             )
+        with engine.begin() as conn:
+            aplicar_migraciones(conn)
         crear_alumnos_demo_reinscripcion(args.alumnos_demo_reinscripcion)
         return
     password = None
@@ -274,6 +277,7 @@ def main() -> None:
             sys.exit("La contraseña de Administración debe tener al menos 10 caracteres.")
 
     with engine.begin() as conn:
+        aplicar_migraciones(conn)
         for rol in ROLES:
             conn.execute(text("INSERT IGNORE INTO roles (nombre_rol) VALUES (:r)"), {"r": rol})
         id_rol = {

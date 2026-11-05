@@ -1470,8 +1470,18 @@ def build_grupos_horarios(page: ft.Page, navegar) -> ft.Control:
     paquetes: list[dict] = []
     docentes: list[dict] = []
     paquete_seleccionado: int | None = None
+    semestre_seleccionado = 1
     panel_grupo = ft.Column(spacing=16)
     aviso = ft.Text("", size=13, color=WARN_FG, visible=False)
+    selector_semestre = ft.Dropdown(
+        label="Semestre",
+        width=180,
+        value=str(semestre_seleccionado),
+        options=[
+            ft.DropdownOption(key=str(semestre), text=f"{semestre}.º semestre")
+            for semestre in range(1, 10)
+        ],
+    )
     selector = ft.Dropdown(label="Paquete / grupo", width=300, options=[])
     vista: ft.Column | None = None
 
@@ -1656,11 +1666,17 @@ def build_grupos_horarios(page: ft.Page, navegar) -> ft.Control:
         paquete_seleccionado = int(e.control.value) if e.control.value else None
         cargar_paquete()
 
+    def cambiar_semestre(e):
+        nonlocal semestre_seleccionado, paquete_seleccionado
+        semestre_seleccionado = int(e.control.value)
+        paquete_seleccionado = None
+        cargar()
+
     def cargar(_=None):
         nonlocal paquetes, docentes, paquete_seleccionado
         aviso.visible = False
         try:
-            paquetes = api.grupos_horario()
+            paquetes = api.paquetes_horario(semestre_seleccionado)
             docentes = api.docentes_horario()
         except ApiError as ex:
             mostrar_error(ex)
@@ -1685,20 +1701,21 @@ def build_grupos_horarios(page: ft.Page, navegar) -> ft.Control:
             paquete_seleccionado = None
             selector.value = None
             panel_grupo.controls = [crear_tarjeta(ft.Text(
-                "No hay paquetes configurados para el periodo activo. "
-                "Reinicia el backend después de actualizar SIGE.",
+                f"No hay horarios configurados para el {semestre_seleccionado}.º semestre "
+                "en el periodo activo.",
                 color=MUTED,
             ))]
             page.update()
 
     selector.on_select = cambiar_paquete
+    selector_semestre.on_select = cambiar_semestre
     vista = ft.Column(expand=True, scroll=ft.ScrollMode.AUTO, spacing=20, controls=[
         titulo_pagina(
             "Grupos y horarios",
-            "Consulta las listas por sección y vincula las cuentas de maestros con el horario.",
+            "Consulta los horarios de cada semestre, las listas por sección y vincula las cuentas de maestros.",
         ),
-        ft.Row(alignment=ft.MainAxisAlignment.SPACE_BETWEEN, controls=[
-            selector,
+        ft.Row(wrap=True, alignment=ft.MainAxisAlignment.SPACE_BETWEEN, controls=[
+            ft.Row(wrap=True, controls=[selector_semestre, selector]),
             ft.OutlinedButton(
                 "Actualizar",
                 icon=ft.Icons.REFRESH,

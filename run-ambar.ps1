@@ -198,7 +198,7 @@ if ($newDatabase) {
 Write-Host "`nComprobando los alumnos demo de reinscripción..."
 & $venvPython -m backend.seed --alumnos-demo-reinscripcion 3
 if ($LASTEXITCODE -ne 0) {
-    throw "No se pudieron cargar los alumnos demo. Comprueba que exista una cuenta activa de Secretaría y que el catálogo postal esté cargado."
+    throw "No se pudieron cargar los alumnos demo. Revisa el error anterior; comprueba que exista una cuenta activa de Secretaría, que el catálogo postal esté cargado y que MySQL permita aplicar migraciones."
 }
 
 $backendProcess = Start-Process -FilePath "powershell.exe" `
