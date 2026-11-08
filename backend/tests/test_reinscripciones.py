@@ -17,214 +17,294 @@ class ReinscripcionesApiTests(unittest.TestCase):
     def tearDown(self):
         app.dependency_overrides.clear()
 
-    def test_busqueda_retorna_estado_y_paquetes_disponibles(self):
-        estado = {
+    def test_registra_reinscripcion_con_los_datos_solicitados(self):
+        datos = {
             "numero_control": "26320700",
-            "semestre": 4,
-            "periodo": "ENE-JUN 2027",
-            "asignado": False,
-            "paquetes": [{"id_paquete": 12}],
+            "nombre": "Ana",
+            "apellidos": "Prueba",
+            "semestre": 2,
         }
         with patch(
-            "backend.routers.reinscripciones.servicios.estado_reinscripcion_alumno",
-            return_value=estado,
-        ) as consultar:
-            respuesta = self.client.get(
-                "/reinscripciones/alumno",
-                params={"q": "26320700"},
-            )
-
-        self.assertEqual(respuesta.status_code, 200)
-        self.assertEqual(respuesta.json(), estado)
-        consultar.assert_called_once_with("26320700")
-
-    def test_busqueda_rechaza_semestre_fuera_del_rango(self):
-        with patch(
-            "backend.routers.reinscripciones.servicios.estado_reinscripcion_alumno",
-            side_effect=servicios.Conflicto("Disponible únicamente de 2 a 10."),
-        ):
-            respuesta = self.client.get(
-                "/reinscripciones/alumno", params={"q": "26320700"},
-            )
-
-        self.assertEqual(respuesta.status_code, 409)
-        self.assertEqual(respuesta.json()["detail"]["mensaje"], "Disponible únicamente de 2 a 10.")
-
-    def test_asignacion_envia_numero_y_paquete_al_servicio(self):
-        estado = {"asignado": True, "paquete": {"id_paquete": 12}}
-        with patch(
-            "backend.routers.reinscripciones.servicios.asignar_paquete_reinscripcion",
-            return_value=estado,
-        ) as asignar:
-            respuesta = self.client.post(
-                "/reinscripciones/alumnos/26320700/paquete",
-                json={"id_paquete": 12},
-            )
+            "backend.routers.reinscripciones.servicios.registrar_reinscripcion",
+            return_value=datos | {"paquete": "2ISC1"},
+        ) as registrar:
+            respuesta = self.client.post("/reinscripciones", json=datos)
 
         self.assertEqual(respuesta.status_code, 201)
-        self.assertEqual(respuesta.json(), estado)
-        asignar.assert_called_once_with("26320700", 12)
+        self.assertEqual(respuesta.json(), datos | {"paquete": "2ISC1"})
+        registrar.assert_called_once_with(datos)
+
+    def test_devuelve_error_de_numero_de_control_duplicado(self):
+        datos = {
+            "numero_control": "26320700",
+            "nombre": "Ana",
+            "apellidos": "Prueba",
+            "semestre": 2,
+        }
+        with patch(
+            "backend.routers.reinscripciones.servicios.registrar_reinscripcion",
+            side_effect=servicios.NumeroControlDuplicado(
+                "El número de control ya existe",
+                {"numero_control": "El número de control ya existe"},
+            ),
+        ):
+            respuesta = self.client.post("/reinscripciones", json=datos)
+
+        self.assertEqual(respuesta.status_code, 409)
+        self.assertEqual(
+            respuesta.json()["detail"]["errores"]["numero_control"],
+            "El número de control ya existe",
+        )
+
+    def test_valida_el_anio_del_numero_antes_de_persistir(self):
+        respuesta = self.client.post(
+            "/reinscripciones",
+            json={
+                "numero_control": "26320700",
+                "nombre": "Ana",
+                "apellidos": "Prueba",
+                "semestre": 3,
+            },
+        )
+
+        self.assertEqual(respuesta.status_code, 422)
+        self.assertIn("2025", respuesta.json()["detail"]["errores"]["numero_control"])
 
     def test_api_de_reinscripcion_solo_admite_secretaria(self):
         self.usuario["rol"] = "Administrador"
-        respuesta = self.client.get(
-            "/reinscripciones/alumno", params={"q": "26320700"},
+        respuesta = self.client.post(
+            "/reinscripciones",
+            json={
+                "numero_control": "26320700",
+                "nombre": "Ana",
+                "apellidos": "Prueba",
+                "semestre": 2,
+            },
         )
         self.assertEqual(respuesta.status_code, 403)
 
+    def test_busca_y_actualiza_los_datos_de_una_reinscripcion(self):
+        datos = {
+            "numero_control": "26320700",
+            "nombre": "Ana",
+            "apellidos": "Prueba",
+            "semestre": 2,
+        }
+        datos_actualizacion = datos | {"id_paquete": 11}
+        with (
+            patch(
+                "backend.routers.reinscripciones.servicios.obtener_reinscripcion",
+                return_value=datos,
+            ) as obtener,
+            patch(
+                "backend.routers.reinscripciones.servicios.modificar_reinscripcion",
+                return_value=datos,
+            ) as modificar,
+        ):
+            respuesta_get = self.client.get("/reinscripciones/26320700")
+            respuesta_put = self.client.put(
+                "/reinscripciones/26320700", json=datos_actualizacion,
+            )
+
+        self.assertEqual(respuesta_get.status_code, 200)
+        self.assertEqual(respuesta_put.status_code, 200)
+        obtener.assert_called_once_with("26320700")
+        modificar.assert_called_once_with("26320700", datos_actualizacion)
+
 
 class ReinscripcionesServiceTests(unittest.TestCase):
-    def test_estado_usa_semestre_guardado_y_periodo_activo(self):
-        alumno = MagicMock()
-        alumno.mappings.return_value.first.return_value = {
+    def setUp(self):
+        self.datos = {
             "numero_control": "26320700",
-            "nombres": "Ana",
-            "apellido_paterno": "Prueba",
-            "apellido_materno": None,
-            "semestre_actual": 4,
-            "estatus": "Activo",
-            "eliminado": 0,
+            "nombre": "Ana",
+            "apellidos": "Prueba",
+            "semestre": 2,
         }
-        existentes = MagicMock()
-        existentes.scalars.return_value.all.return_value = []
-        conn = MagicMock()
-        conn.execute.side_effect = [alumno, existentes]
 
-        with (
-            patch("backend.servicios.engine.connect") as conectar,
-            patch("backend.servicios.settings.periodo_escolar", "ENE-JUN 2027"),
-            patch(
-                "backend.servicios._resumen_paquetes_horario",
-                return_value=[{"id_paquete": 12}],
-            ) as resumen,
-        ):
-            conectar.return_value.__enter__.return_value = conn
-            estado = servicios.estado_reinscripcion_alumno(" 26320700 ")
-
-        self.assertEqual(estado["semestre"], 4)
-        self.assertEqual(estado["periodo"], "ENE-JUN 2027")
-        self.assertFalse(estado["asignado"])
-        self.assertEqual(estado["paquetes"], [{"id_paquete": 12}])
-        resumen.assert_called_once_with(conn, "ENE-JUN 2027", 4, solo_catalogo=False)
+    def test_valida_campos_y_anio_segun_semestre(self):
+        self.assertEqual(servicios.validar_reinscripcion(self.datos), {})
         self.assertEqual(
-            conn.execute.call_args_list[0].args[1]["consulta"],
-            "26320700",
+            servicios.validar_reinscripcion(self.datos | {"semestre": 3}),
+            {"numero_control": "Para 3° semestre, el número de control debe corresponder al año 2025"},
         )
+        self.assertEqual(
+            servicios.validar_reinscripcion(self.datos | {"numero_control": "abc"}),
+            {"numero_control": "Debe contener exactamente 8 dígitos"},
+        )
+        errores = servicios.validar_reinscripcion(
+            self.datos | {"nombre": "A1", "apellidos": "", "semestre": 4}
+        )
+        self.assertEqual(set(errores), {"nombre", "apellidos", "semestre"})
 
-    def test_estado_rechaza_alumno_fuera_de_semestres_2_a_10(self):
-        resultado = MagicMock()
-        resultado.mappings.return_value.first.return_value = {
-            "numero_control": "26320700",
-            "nombres": "Ana",
-            "apellido_paterno": "Prueba",
-            "apellido_materno": None,
-            "semestre_actual": 1,
-            "estatus": "Activo",
-            "eliminado": 0,
-        }
-        conn = MagicMock()
-        conn.execute.return_value = resultado
-
-        with patch("backend.servicios.engine.connect") as conectar:
-            conectar.return_value.__enter__.return_value = conn
-            with self.assertRaisesRegex(servicios.Conflicto, "semestres 2 a 10"):
-                servicios.estado_reinscripcion_alumno("26320700")
-
-        conn.execute.assert_called_once()
-
-    def test_asignacion_inscribe_todos_los_grupos_y_no_cambia_semestre(self):
-        alumno = MagicMock()
-        alumno.mappings.return_value.first.return_value = {
-            "semestre_actual": 4,
-            "estatus": "Activo",
-            "eliminado": 0,
-        }
-        paquete = MagicMock()
-        paquete.mappings.return_value.first.return_value = {"id_paquete": 12}
-        existentes = MagicMock()
-        existentes.scalars.return_value.all.return_value = []
-        grupos = MagicMock()
-        grupos.mappings.return_value.all.return_value = [
-            {"id_grupo": 30, "turno": "Matutino", "cupo_disponible": 3},
-            {"id_grupo": 31, "turno": "Matutino", "cupo_disponible": 1},
+    def test_inserta_reinscripcion_si_el_numero_no_existe(self):
+        consulta_alumnos = MagicMock()
+        consulta_alumnos.scalar_one_or_none.return_value = None
+        consulta_reinscripciones = MagicMock()
+        consulta_reinscripciones.scalar_one_or_none.return_value = None
+        paquetes = MagicMock()
+        paquetes.mappings.return_value.all.return_value = [
+            {"nombre_paquete": "2ISC1", "id_grupo": grupo, "cupo_disponible": 3}
+            for grupo in range(30, 35)
         ]
         conn = MagicMock()
         conn.execute.side_effect = [
-            alumno, paquete, existentes, grupos, MagicMock(), MagicMock(),
+            consulta_alumnos,
+            consulta_reinscripciones,
+            paquetes,
+            MagicMock(),
+            MagicMock(),
         ]
-        estado_final = {"asignado": True}
 
+        bloqueo = MagicMock()
+        bloqueo.execute.return_value.scalar.return_value = 1
         with (
+            patch("backend.servicios.engine.connect") as connect,
             patch("backend.servicios.engine.begin") as begin,
-            patch("backend.servicios.settings.periodo_escolar", "ENE-JUN 2027"),
-            patch(
-                "backend.servicios.estado_reinscripcion_alumno",
-                return_value=estado_final,
-            ),
         ):
+            connect.return_value.__enter__.return_value = bloqueo
             begin.return_value.__enter__.return_value = conn
-            resultado = servicios.asignar_paquete_reinscripcion("26320700", 12)
+            resultado = servicios.registrar_reinscripcion(self.datos)
 
-        self.assertEqual(resultado, estado_final)
-        insercion = conn.execute.call_args_list[4]
-        self.assertEqual(insercion.args[1], [
-            {"numero": "26320700", "grupo": 30},
-            {"numero": "26320700", "grupo": 31},
-        ])
-        consulta_periodo = " ".join(
-            str(llamada.args[0]) for llamada in conn.execute.call_args_list
+        self.assertEqual(resultado, self.datos | {"paquete": "2ISC1"})
+        self.assertEqual(conn.execute.call_count, 5)
+        self.assertEqual(conn.execute.call_args_list[3].args[1], self.datos)
+        self.assertEqual(
+            conn.execute.call_args_list[4].args[1],
+            [{"numero": "26320700", "grupo": grupo} for grupo in range(30, 35)],
         )
-        self.assertIn("periodo_escolar = :periodo", consulta_periodo)
-        self.assertNotIn("UPDATE alumnos SET semestre_actual", consulta_periodo)
 
-    def test_asignacion_impide_duplicar_paquete_en_el_periodo(self):
-        alumno = MagicMock()
-        alumno.mappings.return_value.first.return_value = {
-            "semestre_actual": 4,
-            "estatus": "Activo",
-            "eliminado": 0,
-        }
-        paquete = MagicMock()
-        paquete.mappings.return_value.first.return_value = {"id_paquete": 12}
-        existentes = MagicMock()
-        existentes.scalars.return_value.all.return_value = ["4ISC1"]
+    def test_rechaza_numero_de_control_que_ya_esta_en_alumnos(self):
+        existente = MagicMock()
+        existente.scalar_one_or_none.return_value = "26320700"
         conn = MagicMock()
-        conn.execute.side_effect = [alumno, paquete, existentes]
+        conn.execute.side_effect = [existente, MagicMock()]
+        bloqueo = MagicMock()
+        bloqueo.execute.return_value.scalar.return_value = 1
 
         with (
+            patch("backend.servicios.engine.connect") as connect,
             patch("backend.servicios.engine.begin") as begin,
-            patch("backend.servicios.settings.periodo_escolar", "ENE-JUN 2027"),
+            self.assertRaisesRegex(servicios.Conflicto, "El número de control ya existe"),
         ):
+            connect.return_value.__enter__.return_value = bloqueo
             begin.return_value.__enter__.return_value = conn
-            with self.assertRaisesRegex(servicios.Conflicto, "ya tiene un paquete asignado"):
-                servicios.asignar_paquete_reinscripcion("26320700", 12)
+            servicios.registrar_reinscripcion(self.datos)
 
-        self.assertEqual(conn.execute.call_count, 3)
+        self.assertEqual(conn.execute.call_count, 2)
 
-    def test_asignacion_rechaza_paquete_sin_cupo(self):
-        alumno = MagicMock()
-        alumno.mappings.return_value.first.return_value = {
-            "semestre_actual": 4,
-            "estatus": "Activo",
-            "eliminado": 0,
-        }
-        paquete = MagicMock()
-        paquete.mappings.return_value.first.return_value = {"id_paquete": 12}
-        existentes = MagicMock()
-        existentes.scalars.return_value.all.return_value = []
-        grupos = MagicMock()
-        grupos.mappings.return_value.all.return_value = [
-            {"id_grupo": 30, "turno": "Matutino", "cupo_disponible": 0},
+    def test_elige_el_primer_paquete_completo_con_cupo(self):
+        resultado = MagicMock()
+        resultado.mappings.return_value.all.return_value = [
+            {"nombre_paquete": "2ISC1", "id_grupo": 10, "cupo_disponible": 0},
+            {"nombre_paquete": "2ISC1", "id_grupo": 11, "cupo_disponible": 3},
+            {"nombre_paquete": "2ISC1", "id_grupo": 12, "cupo_disponible": 3},
+            {"nombre_paquete": "2ISC1", "id_grupo": 13, "cupo_disponible": 3},
+            {"nombre_paquete": "2ISC1", "id_grupo": 14, "cupo_disponible": 3},
+            {"nombre_paquete": "2ISC2", "id_grupo": 20, "cupo_disponible": 2},
         ]
         conn = MagicMock()
-        conn.execute.side_effect = [alumno, paquete, existentes, grupos]
+        conn.execute.return_value = resultado
+
+        grupos = servicios._grupos_paquete_reinscripcion(conn, 2)
+
+        self.assertEqual([grupo["id_grupo"] for grupo in grupos], [20])
+
+    def test_selecciona_el_paquete_solicitado_para_reinscripcion(self):
+        resultado = MagicMock()
+        resultado.mappings.return_value.all.return_value = [
+            {"nombre_paquete": "2ISC1", "id_grupo": 10, "cupo_disponible": 3},
+            {"nombre_paquete": "2ISC2", "id_grupo": 20, "cupo_disponible": 2},
+        ]
+        conn = MagicMock()
+        conn.execute.return_value = resultado
+
+        grupos = servicios._grupos_paquete_reinscripcion(conn, 2, id_paquete=22)
+
+        self.assertEqual([grupo["id_grupo"] for grupo in grupos], [20])
+        self.assertEqual(conn.execute.call_args.args[1]["id_paquete"], 22)
+
+    def test_modifica_datos_sin_perder_el_horario_existente(self):
+        anterior = MagicMock()
+        anterior.mappings.return_value.first.return_value = {
+            "numero_control": "26320700",
+            "semestre": 2,
+        }
+        duplicado = MagicMock()
+        duplicado.scalar_one_or_none.return_value = None
+        horario = MagicMock()
+        horario.mappings.return_value.one.return_value = {
+            "inscripciones": 5,
+            "calificaciones": 0,
+        }
+        conn = MagicMock()
+        conn.execute.side_effect = [anterior, duplicado, horario, MagicMock()]
+        bloqueo = MagicMock()
+        bloqueo.execute.return_value.scalar.return_value = 1
 
         with (
+            patch("backend.servicios.engine.connect") as connect,
             patch("backend.servicios.engine.begin") as begin,
-            patch("backend.servicios.settings.periodo_escolar", "ENE-JUN 2027"),
         ):
+            connect.return_value.__enter__.return_value = bloqueo
             begin.return_value.__enter__.return_value = conn
-            with self.assertRaises(servicios.CupoLleno):
-                servicios.asignar_paquete_reinscripcion("26320700", 12)
+            resultado = servicios.modificar_reinscripcion("26320700", self.datos)
 
+        self.assertEqual(resultado, self.datos)
         self.assertEqual(conn.execute.call_count, 4)
+        self.assertIn(
+            "UPDATE reinscripciones",
+            str(conn.execute.call_args_list[-1].args[0]),
+        )
+
+    def test_lista_de_grupo_incluye_reinscritos(self):
+        resumen = MagicMock()
+        resumen.mappings.return_value.all.return_value = [{
+            "id_paquete": 20,
+            "nombre": "2ISC2",
+        }]
+        reinscritos = MagicMock()
+        reinscritos.mappings.return_value.all.return_value = [{
+            "numero_control": "26320700",
+            "nombres": "Ana",
+            "apellido_paterno": "Prueba",
+            "apellido_materno": None,
+            "correo_institucional": None,
+        }]
+        conn = MagicMock()
+        conn.execute.side_effect = [resumen, reinscritos]
+
+        with patch("backend.servicios.engine.connect") as connect:
+            connect.return_value.__enter__.return_value = conn
+            resultado = servicios.lista_alumnos_paquete(20)
+
+        self.assertEqual(resultado["alumnos"][0]["numero_control"], "26320700")
+        consulta = str(conn.execute.call_args_list[1].args[0])
+        self.assertIn("LEFT JOIN reinscripciones r", consulta)
+        self.assertIn("COALESCE(a.nombres, r.nombre)", consulta)
+
+    def test_consulta_de_horario_reconoce_reinscritos(self):
+        registro = MagicMock()
+        registro.mappings.return_value.first.return_value = {
+            "numero_control": "26320700",
+            "nombres": "Ana",
+            "apellido_paterno": "Prueba",
+            "apellido_materno": None,
+            "semestre_actual": 2,
+            "estatus": "Activo",
+            "eliminado": 0,
+        }
+        grupos = MagicMock()
+        grupos.scalars.return_value.all.return_value = []
+        conn = MagicMock()
+        conn.execute.side_effect = [registro, grupos]
+
+        with patch("backend.servicios.engine.connect") as connect:
+            connect.return_value.__enter__.return_value = conn
+            estado = servicios.estado_horario_alumno("26320700")
+
+        self.assertEqual(estado["semestre"], 2)
+        self.assertFalse(estado["asignado"])
+        self.assertIn(
+            "FROM reinscripciones WHERE numero_control = :numero",
+            str(conn.execute.call_args_list[0].args[0]),
+        )

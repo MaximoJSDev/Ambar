@@ -52,11 +52,11 @@ class ApiClientTests(unittest.TestCase):
             ("GET", "/alumnos/26320700/historial"),
         ])
 
-    def test_reinscripcion_usa_consulta_y_asignacion_dedicadas(self):
+    def test_reinscripcion_se_registra_con_el_endpoint_dedicado(self):
         solicitudes = []
 
         def responder(request: httpx.Request) -> httpx.Response:
-            solicitudes.append((request.method, request.url.path, dict(request.url.params)))
+            solicitudes.append((request.method, request.url.path, json.loads(request.read())))
             return httpx.Response(200, json={"ok": True})
 
         cliente = ApiClient()
@@ -66,14 +66,50 @@ class ApiClientTests(unittest.TestCase):
             transport=httpx.MockTransport(responder),
         )
         try:
-            cliente.estado_reinscripcion("CURP123")
-            cliente.asignar_paquete_reinscripcion("26320700", 12)
+            datos = {
+                "numero_control": "26320700",
+                "nombre": "Ana",
+                "apellidos": "Prueba",
+                "semestre": 2,
+            }
+            cliente.registrar_reinscripcion(datos)
         finally:
             cliente._http.close()
 
         self.assertEqual(solicitudes, [
-            ("GET", "/reinscripciones/alumno", {"q": "CURP123"}),
-            ("POST", "/reinscripciones/alumnos/26320700/paquete", {}),
+            ("POST", "/reinscripciones", datos),
+        ])
+
+    def test_busqueda_y_modificacion_de_reinscripcion_usan_sus_endpoints(self):
+        solicitudes = []
+
+        def responder(request: httpx.Request) -> httpx.Response:
+            solicitudes.append((request.method, request.url.path))
+            return httpx.Response(200, json={"ok": True})
+
+        cliente = ApiClient()
+        cliente._http.close()
+        cliente._http = httpx.Client(
+            base_url="http://test",
+            transport=httpx.MockTransport(responder),
+        )
+        try:
+            cliente.reinscripcion("26320700")
+            cliente.modificar_reinscripcion(
+                "26320700",
+                {
+                    "numero_control": "26320700",
+                    "nombre": "Ana",
+                    "apellidos": "Prueba",
+                    "semestre": 2,
+                },
+            )
+        finally:
+            cliente._http.close()
+
+        self.assertEqual(solicitudes, [
+            ("GET", "/reinscripciones/26320700"),
+            ("PUT", "/reinscripciones/26320700"),
         ])
 
     def test_actualizar_documentos_envia_pdf_en_multipart(self):

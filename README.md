@@ -105,10 +105,10 @@ seed asigna números de control y correos institucionales mediante el flujo norm
 de altas; al no crear PDF, sus documentos aparecerán pendientes. Secretaría les
 puede asignar un paquete desde **Consultas**. Los registros demo usan fichas
 `9999-NNNNN` y se omiten si ya existen al volver a ejecutar la seed.
-Para probar reinscripciones en la base de desarrollo, ejecuta
+Para poblar la base de desarrollo con alumnos ficticios de semestres 2 a 10, ejecuta
 `python -m backend.seed --alumnos-demo-reinscripcion 3`. Crea tres alumnos
-ficticios por semestre del 2.º al 10.º (27 en total), usando el flujo normal de
-alta y una cuenta de Secretaría activa ya existente, sin cambiar sus credenciales.
+ficticios por semestre (27 en total), usando el flujo normal de alta y una cuenta
+de Secretaría activa ya existente, sin cambiar sus credenciales.
 Los registros usan fichas `8888-NNNNN`; si el comando se repite, conserva esos
 alumnos en su semestre en lugar de duplicarlos. `run-ambar.bat` ejecuta esta
 comprobación en cada inicio, por lo que también crea cualquier demo que aún falte
@@ -164,12 +164,15 @@ apellido paterno, apellido materno y nombre(s).
 En el panel de Secretaría, la actividad muestra el número de control, se
 recorre en páginas de 10 alumnos y permite abrir directamente cada expediente
 en **Consultas**. El panel ya no muestra la sección de pendientes.
-En **Reinscripción**, Secretaría busca al alumno por número de control o CURP
-y le asigna un paquete completo correspondiente al `semestre_actual` guardado
-(semestres 2 a 10) para el periodo activo. La asignación valida los lugares
-disponibles, evita duplicados en ese periodo y no modifica el semestre ni
-depende de las calificaciones. Los paquetes deben estar cargados para el
-periodo activo configurado en el backend.
+En **Reinscripción**, Secretaría registra por separado el número de control,
+nombre, apellidos y semestre (segundo o tercero). El número debe tener 8 dígitos,
+ser único entre alumnos y reinscripciones, y comenzar con `26` para segundo
+semestre o `25` para tercero. El sistema asigna automáticamente el primer
+paquete completo con cupo disponible y muestra al reinscrito en las listas del
+grupo y de calificaciones. Estos datos se pueden buscar y modificar desde
+**Reinscripción**; si ya tiene horario, no se permite cambiar el semestre para
+conservar sus inscripciones y calificaciones. El registro no crea un expediente
+completo de nuevo ingreso.
 
 Administración configura en **Periodos escolares** la fecha de inicio de la
 semana 1 para cada periodo; el sistema habilita la captura al comenzar las

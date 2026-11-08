@@ -1,6 +1,6 @@
-"""Reinscripción de alumnos de segundo a décimo semestre."""
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel, Field
+"""Registro de reinscripciones de segundo y tercer semestre."""
+from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel, ConfigDict
 
 from .. import servicios
 from ..constantes import ROL_SECRETARIA
@@ -10,41 +10,82 @@ router = APIRouter(prefix="/reinscripciones", tags=["Reinscripciones"])
 solo_secretaria = requiere_roles(ROL_SECRETARIA)
 
 
-class AsignarPaqueteIn(BaseModel):
-    id_paquete: int = Field(gt=0)
+class ReinscripcionIn(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
+
+    numero_control: str
+    nombre: str
+    apellidos: str
+    semestre: int
 
 
-def _not_found():
-    raise HTTPException(404, {"mensaje": "No se encontró el alumno, paquete o grupo solicitado"})
+class ModificarReinscripcionIn(ReinscripcionIn):
+    id_paquete: int | None = None
 
 
-@router.get("/alumno")
-def estado_reinscripcion(
-    q: str = Query(..., min_length=1, max_length=100),
+@router.post("", status_code=status.HTTP_201_CREATED)
+def registrar_reinscripcion(
+    datos: ReinscripcionIn,
     _: dict = Depends(solo_secretaria),
 ):
     try:
-        return servicios.estado_reinscripcion_alumno(q)
-    except servicios.NoEncontrado:
-        _not_found()
+        return servicios.registrar_reinscripcion(datos.model_dump())
+    except servicios.NumeroControlDuplicado as ex:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            {"mensaje": ex.mensaje, "errores": ex.errores},
+        )
     except servicios.Conflicto as ex:
-        raise HTTPException(409, {"mensaje": ex.mensaje})
-
-
-@router.post(
-    "/alumnos/{numero_control}/paquete",
-    status_code=status.HTTP_201_CREATED,
-)
-def asignar_paquete(
-    numero_control: str,
-    datos: AsignarPaqueteIn,
-    _: dict = Depends(solo_secretaria),
-):
-    try:
-        return servicios.asignar_paquete_reinscripcion(numero_control, datos.id_paquete)
-    except servicios.NoEncontrado:
-        _not_found()
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            {"mensaje": ex.mensaje, "errores": ex.errores},
+        )
+    except servicios.Ocupado:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            {"mensaje": "El servidor está procesando otra alta. Intenta de nuevo."},
+        )
     except servicios.CupoLleno as ex:
-        raise HTTPException(409, {"mensaje": str(ex)})
+        raise HTTPException(status.HTTP_409_CONFLICT, {"mensaje": str(ex)})
+
+
+@router.get("/{numero_control}")
+def obtener_reinscripcion(
+    numero_control: str,
+    _: dict = Depends(solo_secretaria),
+):
+    try:
+        return servicios.obtener_reinscripcion(numero_control)
+    except servicios.NoEncontrado:
+        raise HTTPException(404, {"mensaje": "No se encontró la reinscripción"})
+
+
+@router.put("/{numero_control}")
+def modificar_reinscripcion(
+    numero_control: str,
+    datos: ModificarReinscripcionIn,
+    _: dict = Depends(solo_secretaria),
+):
+    try:
+        return servicios.modificar_reinscripcion(
+            numero_control, datos.model_dump(exclude_none=True),
+        )
+    except servicios.NoEncontrado:
+        raise HTTPException(404, {"mensaje": "No se encontró la reinscripción"})
+    except servicios.NumeroControlDuplicado as ex:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            {"mensaje": ex.mensaje, "errores": ex.errores},
+        )
     except servicios.Conflicto as ex:
-        raise HTTPException(409, {"mensaje": ex.mensaje})
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            {"mensaje": ex.mensaje, "errores": ex.errores},
+        )
+    except servicios.Ocupado:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            {"mensaje": "El servidor está procesando otra alta. Intenta de nuevo."},
+        )
+    except servicios.CupoLleno as ex:
+        raise HTTPException(status.HTTP_409_CONFLICT, {"mensaje": str(ex)})

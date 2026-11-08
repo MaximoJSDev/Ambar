@@ -25,6 +25,12 @@ def resumen(_: dict = Depends(requiere_roles(ROL_SECRETARIA))):
             {"p": settings.periodo},
         ).scalar_one()
 
+        reinscripciones = conn.execute(
+            text("""SELECT COUNT(*) FROM reinscripciones
+                    WHERE creado_en >= CURRENT_DATE
+                      AND creado_en < CURRENT_DATE + INTERVAL 1 DAY"""),
+        ).scalar_one()
+
         recientes = conn.execute(
             text("""SELECT a.numero_control,
                            CONCAT_WS(
@@ -47,7 +53,7 @@ def resumen(_: dict = Depends(requiere_roles(ROL_SECRETARIA))):
     return {
         "alumnos_nuevo_ingreso": nuevos,
         "grupos": grupos,
-        "reinscripciones_hoy": 0,       # aún no existe tabla/módulo de reinscripciones
+        "reinscripciones_hoy": reinscripciones,
         "actividad": [
             {"numero_control": f["numero_control"],
              "alumno": f["alumno"],

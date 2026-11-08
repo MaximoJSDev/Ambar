@@ -371,9 +371,11 @@ class HorariosTests(unittest.TestCase):
         self.assertEqual(conn.execute.call_args_list[1].args[1]["usuario"], 42)
         self.assertIn("g.id_docente = d.id_docente", str(conn.execute.call_args_list[1].args[0]))
         self.assertIn(
-            "ORDER BY i.id_grupo, a.apellido_paterno, a.apellido_materno",
+            "ORDER BY i.id_grupo, COALESCE(a.apellido_paterno, r.apellidos)",
             str(conn.execute.call_args_list[2].args[0]),
         )
+        self.assertIn("LEFT JOIN reinscripciones r", str(conn.execute.call_args_list[2].args[0]))
+        self.assertIn("i.numero_control", str(conn.execute.call_args_list[2].args[0]))
 
     def test_secretaria_puede_consultar_paquetes_del_semestre(self):
         paquetes = [{"id_paquete": 5, "nombre": "1ISC1", "semestre": 1}]
