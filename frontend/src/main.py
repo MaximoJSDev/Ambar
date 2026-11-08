@@ -648,7 +648,7 @@ def build_panel(page: ft.Page, navegar, consultar_alumno=None) -> ft.Control:
         ft.ResponsiveRow(spacing=20, run_spacing=20, controls=[
             acceso("Inscribir alumno", "Registra un nuevo ingreso.", "/altas", "Altas"),
             acceso("Consultar expediente", "Consulta datos y documentos.", "/consultas", "Consultas"),
-            acceso("Reinscribir alumno", "Asigna grupo y horario.", "/reinscripcion", "Reinscripción"),
+            acceso("Reinscribir alumno", "Registra datos de segundo o tercer semestre.", "/reinscripcion", "Reinscripción"),
         ]),
         actividad,
     ])
@@ -1731,206 +1731,174 @@ def build_grupos_horarios(page: ft.Page, navegar) -> ft.Control:
 
 
 def build_reinscripcion(page: ft.Page, navegar) -> ft.Control:
-    entrada = crear_campo_texto(
-        "Número de control o CURP",
-        capitalization=ft.TextCapitalization.CHARACTERS,
+    numero = crear_campo_texto(
+        "8 dígitos",
+        keyboard_type=ft.KeyboardType.NUMBER,
+        input_filter=ft.NumbersOnlyInputFilter(),
+        max_length=8,
     )
-    boton_buscar = ft.FilledButton(
-        "Buscar", style=estilo_boton_primario(), height=46,
-    )
-    aviso = ft.Text("", size=13, color=WARN_FG, visible=False)
-    resultado = ft.Column(spacing=16)
-    selector_paquete = ft.Dropdown(
-        label="Paquete del semestre",
-        options=[],
+    nombre = crear_campo_texto("Nombre(s)", max_length=50)
+    apellidos = crear_campo_texto("Apellidos", max_length=100)
+    semestre = ft.Dropdown(
+        label="Semestre",
+        options=[
+            ft.DropdownOption(key="2", text="Segundo semestre"),
+            ft.DropdownOption(key="3", text="Tercer semestre"),
+        ],
         expand=True,
     )
-    resumen_paquete = ft.Text("", size=13, color=MUTED)
-    boton_asignar = ft.FilledButton(
-        "Asignar paquete completo",
+    aviso = ft.Text("", size=13, color=WARN_FG, visible=False)
+    boton_registrar = ft.FilledButton(
+        "Registrar reinscripción",
         icon=ft.Icons.CHECK_CIRCLE_OUTLINE,
         style=estilo_boton_primario(),
-        disabled=True,
     )
-    estado: dict | None = None
-    id_paquete_seleccionado: int | None = None
+    boton_buscar = ft.OutlinedButton("Buscar para modificar")
+    boton_cancelar = ft.TextButton("Cancelar modificación", visible=False)
+    numero_original: str | None = None
 
-    def paquete_seleccionado():
-        return next(
-            (
-                paquete for paquete in (estado or {}).get("paquetes", [])
-                if paquete["id_paquete"] == id_paquete_seleccionado
-            ),
-            None,
-        )
-
-    def actualizar_resumen(_=None):
-        paquete = paquete_seleccionado()
-        if paquete is None:
-            resumen_paquete.value = "Selecciona un paquete disponible."
-            boton_asignar.disabled = True
-        else:
-            resumen_paquete.value = (
-                f"{paquete['total_materias']} materias · {paquete['turno']} · "
-                f"{paquete['lugares']} lugares disponibles"
-            )
-            boton_asignar.disabled = paquete["lugares"] <= 0
-        page.update()
-
-    def mostrar_estado():
-        nonlocal id_paquete_seleccionado
-        resultado.controls.clear()
-        if estado is None:
-            page.update()
-            return
-
-        resultado.controls.append(crear_tarjeta(ft.ResponsiveRow(controls=[
-            ft.Container(col={"xs": 12, "md": 6}, content=ft.Column(spacing=4, controls=[
-                ft.Text("Alumno", size=12, color=MUTED),
-                ft.Text(estado["nombre_completo"], size=15, weight=ft.FontWeight.BOLD, color=NAVY),
-                ft.Text(estado["numero_control"], size=13, color=TEXT),
-            ])),
-            ft.Container(col={"xs": 6, "md": 3}, content=ft.Column(spacing=4, controls=[
-                ft.Text("Semestre actual", size=12, color=MUTED),
-                ft.Text(str(estado["semestre"]), size=15, weight=ft.FontWeight.BOLD, color=NAVY),
-            ])),
-            ft.Container(col={"xs": 6, "md": 3}, content=ft.Column(spacing=4, controls=[
-                ft.Text("Periodo activo", size=12, color=MUTED),
-                ft.Text(estado["periodo"], size=15, weight=ft.FontWeight.BOLD, color=NAVY),
-            ])),
-        ]), padding=18))
-
-        if estado["asignado"]:
-            paquete = estado["paquete"]
-            resultado.controls.append(crear_tarjeta(ft.Column(spacing=10, controls=[
-                ft.Text(
-                    f"Ya tiene asignado el paquete {paquete['nombre']}.",
-                    size=16, weight=ft.FontWeight.BOLD, color=NAVY,
-                ),
-                *[
-                    ft.Text(f"• {materia['nombre_materia']}", size=13, color=TEXT)
-                    for materia in estado["materias"]
-                ],
-            ]), padding=18))
-        elif not estado["paquetes"]:
-            resultado.controls.append(crear_tarjeta(ft.Text(
-                f"No hay paquetes de {estado['semestre']}° semestre cargados "
-                f"para el periodo {estado['periodo']}.",
-                color=MUTED,
-            ), padding=18))
-        else:
-            opciones = estado["paquetes"]
-            ids = {paquete["id_paquete"] for paquete in opciones}
-            if id_paquete_seleccionado not in ids:
-                id_paquete_seleccionado = opciones[0]["id_paquete"]
-            selector_paquete.options = [
-                ft.DropdownOption(
-                    key=str(paquete["id_paquete"]),
-                    text=(
-                        f"{paquete['nombre']} · {paquete['turno']} · "
-                        f"{paquete['total_materias']} materias · "
-                        f"{paquete['lugares']} lugares"
-                    ),
-                )
-                for paquete in opciones
-            ]
-            selector_paquete.value = str(id_paquete_seleccionado)
-            resultado.controls.append(crear_tarjeta(ft.Column(spacing=12, controls=[
-                ft.Text(
-                    "La asignación incluye todos los grupos del paquete.",
-                    size=14, color=TEXT,
-                ),
-                selector_paquete,
-                resumen_paquete,
-                ft.Row(controls=[boton_asignar]),
-            ]), padding=18))
-            actualizar_resumen()
-        page.update()
-
-    def buscar(_=None):
-        nonlocal estado, id_paquete_seleccionado
-        consulta = (entrada.value or "").strip()
-        if not consulta:
-            entrada.error = "Escribe un número de control o una CURP"
-            page.update()
-            return
-        entrada.error = None
+    def limpiar_errores():
+        for campo in (numero, nombre, apellidos):
+            campo.error = None
+        semestre.error_text = None
         aviso.visible = False
-        boton_buscar.disabled = True
+
+    def semestre_seleccionado(_):
+        semestre.error_text = None
         page.update()
+
+    def reiniciar_formulario():
+        nonlocal numero_original
+        numero_original = None
+        numero.value = ""
+        nombre.value = ""
+        apellidos.value = ""
+        semestre.value = None
+        boton_registrar.content = "Registrar reinscripción"
+        boton_buscar.visible = True
+        boton_cancelar.visible = False
+        limpiar_errores()
+        page.update()
+
+    def buscar_reinscripcion(_=None):
+        nonlocal numero_original
+        limpiar_errores()
+        consulta = (numero.value or "").strip()
+        if not re.fullmatch(r"\d{8}", consulta):
+            numero.error = "Escribe un número de control de 8 dígitos"
+            page.update()
+            return
         try:
-            estado = api.estado_reinscripcion(consulta)
-            id_paquete_seleccionado = None
+            registro = api.reinscripcion(consulta)
         except ApiError as ex:
-            estado = None
             if ex.status == 401:
                 navegar("/secretaria")
                 return
             aviso.value = ex.mensaje
             aviso.visible = True
-            resultado.controls.clear()
-        finally:
-            boton_buscar.disabled = False
-        mostrar_estado()
+        else:
+            numero_original = registro["numero_control"]
+            numero.value = registro["numero_control"]
+            nombre.value = registro["nombre"]
+            apellidos.value = registro["apellidos"]
+            semestre.value = str(registro["semestre"])
+            boton_registrar.content = "Actualizar reinscripción"
+            boton_buscar.visible = False
+            boton_cancelar.visible = True
+        page.update()
 
-    def asignar(_=None):
-        paquete = paquete_seleccionado()
-        if estado is None or paquete is None or paquete["lugares"] <= 0:
+    def validar():
+        datos = {
+            "numero_control": (numero.value or "").strip(),
+            "nombre": (nombre.value or "").strip(),
+            "apellidos": (apellidos.value or "").strip(),
+            "semestre": int(semestre.value) if semestre.value else None,
+        }
+        errores = {}
+        if not re.fullmatch(r"\d{8}", datos["numero_control"]):
+            errores["numero_control"] = "Debe contener exactamente 8 dígitos"
+        if error := v.validar_nombre_personal(datos["nombre"], "Nombre", maximo=50):
+            errores["nombre"] = error
+        if error := v.validar_nombre_personal(datos["apellidos"], "Apellidos", maximo=100):
+            errores["apellidos"] = error
+        if datos["semestre"] not in (2, 3):
+            errores["semestre"] = "Selecciona segundo o tercer semestre"
+        elif re.fullmatch(r"\d{8}", datos["numero_control"]):
+            prefijo = "26" if datos["semestre"] == 2 else "25"
+            if not datos["numero_control"].startswith(prefijo):
+                anio = "2026" if datos["semestre"] == 2 else "2025"
+                errores["numero_control"] = (
+                    f"Para {datos['semestre']}° semestre, el número de control debe corresponder al año {anio}"
+                )
+        return datos, errores
+
+    def registrar(_=None):
+        limpiar_errores()
+        datos, errores = validar()
+        if errores:
+            numero.error = errores.get("numero_control")
+            nombre.error = errores.get("nombre")
+            apellidos.error = errores.get("apellidos")
+            semestre.error_text = errores.get("semestre")
+            page.update()
             return
 
-        def confirmar(_):
-            nonlocal estado
-            page.pop_dialog()
-            boton_asignar.disabled = True
+        boton_registrar.disabled = True
+        page.update()
+        try:
+            if numero_original:
+                api.modificar_reinscripcion(numero_original, datos)
+                resultado = None
+            else:
+                resultado = api.registrar_reinscripcion(datos)
+        except ApiError as ex:
+            if ex.status == 401:
+                navegar("/secretaria")
+                return
+            for campo, mensaje in ex.errores.items():
+                control = {
+                    "numero_control": numero,
+                    "nombre": nombre,
+                    "apellidos": apellidos,
+                    "semestre": semestre,
+                }.get(campo)
+                if isinstance(control, ft.Dropdown):
+                    control.error_text = mensaje
+                elif control is not None:
+                    control.error = mensaje
+            aviso.value = ex.mensaje
+            aviso.visible = True
+        else:
+            actualizando = numero_original is not None
+            reiniciar_formulario()
+            snackbar(
+                page,
+                "Reinscripción actualizada correctamente." if actualizando
+                else f"Reinscripción registrada. Horario asignado al grupo {resultado['paquete']}.",
+            )
+        finally:
+            boton_registrar.disabled = False
             page.update()
-            try:
-                estado = api.asignar_paquete_reinscripcion(
-                    estado["numero_control"], paquete["id_paquete"],
-                )
-                snackbar(page, "Paquete de reinscripción asignado correctamente.")
-            except ApiError as ex:
-                if ex.status == 401:
-                    navegar("/secretaria")
-                    return
-                aviso.value = ex.mensaje
-                aviso.visible = True
-            mostrar_estado()
 
-        page.show_dialog(ft.AlertDialog(
-            title=ft.Text("Confirmar reinscripción"),
-            content=ft.Text(
-                f"¿Asignar el paquete {paquete['nombre']} completo a "
-                f"{estado['nombre_completo']} para {estado['periodo']}?"
-            ),
-            actions=[
-                ft.TextButton("Cancelar", on_click=lambda _: page.pop_dialog()),
-                ft.FilledButton("Confirmar", on_click=confirmar),
-            ],
-        ))
-
-    def cambiar_paquete(e):
-        nonlocal id_paquete_seleccionado
-        id_paquete_seleccionado = int(e.control.value) if e.control.value else None
-        actualizar_resumen()
-
-    boton_buscar.on_click = buscar
-    entrada.on_submit = buscar
-    selector_paquete.on_select = cambiar_paquete
-    boton_asignar.on_click = asignar
+    boton_registrar.on_click = registrar
+    boton_buscar.on_click = buscar_reinscripcion
+    boton_cancelar.on_click = lambda _: reiniciar_formulario()
+    semestre.on_select = semestre_seleccionado
     vista = ft.Column(expand=True, scroll=ft.ScrollMode.AUTO, spacing=20, controls=[
         titulo_pagina(
             "Reinscripción",
-            "Busca al alumno y asigna un paquete completo del semestre registrado "
-            "para el periodo activo.",
+            "Registra reinscritos con horario automático o busca su número de control para modificar sus datos.",
         ),
-        crear_tarjeta(ft.Column(spacing=8, controls=[
-            ft.Row(vertical_alignment=ft.CrossAxisAlignment.END, spacing=16, controls=[
-                crear_campo_etiquetado("Número de control o CURP", entrada),
-                boton_buscar,
+        crear_tarjeta(ft.Column(spacing=16, controls=[
+            ft.ResponsiveRow(spacing=12, run_spacing=12, controls=[
+                ft.Container(col={"xs": 12, "md": 6}, content=crear_campo_etiquetado("Número de control", numero)),
+                ft.Container(col={"xs": 12, "md": 6}, content=crear_campo_etiquetado("Semestre", semestre)),
+                ft.Container(col={"xs": 12, "md": 6}, content=crear_campo_etiquetado("Nombre", nombre)),
+                ft.Container(col={"xs": 12, "md": 6}, content=crear_campo_etiquetado("Apellidos", apellidos)),
             ]),
             aviso,
+            ft.Row(controls=[boton_buscar, boton_cancelar, boton_registrar]),
         ]), padding=ft.Padding.symmetric(horizontal=20, vertical=16)),
-        resultado,
     ])
     return vista
 
@@ -3168,6 +3136,7 @@ class ConsultaExpediente:
         self.modo_bajas = modo_bajas
         self.navegar = navegar
         self.datos: dict | None = None
+        self.reinscripcion_data: dict | None = None
         self.incluir_bajas = False
         self.historial: list[dict] = []
         self.error_historial: str | None = None
@@ -3240,7 +3209,17 @@ class ConsultaExpediente:
         self.boton.disabled = True
         self.page.update()
         try:
-            self.datos = api.expediente(q, self.es_admin and self.incluir_bajas)
+            self.reinscripcion_data = None
+            if self.modo_modificacion and re.fullmatch(r"\d{8}", q):
+                try:
+                    self.reinscripcion_data = api.reinscripcion(q)
+                except ApiError as ex:
+                    if ex.status != 404:
+                        raise
+            if self.reinscripcion_data is None:
+                self.datos = api.expediente(q, self.es_admin and self.incluir_bajas)
+            else:
+                self.datos = None
             self.seccion = "personales"
             self.historial = []
             self.error_historial = None
@@ -3248,6 +3227,8 @@ class ConsultaExpediente:
             self.paquetes_horario = []
             self.error_horario = None
             if (
+                self.datos is not None
+                and
                 self.usuario["rol"] == "Secretaría"
                 and not self.modo_modificacion
                 and not self.modo_bajas
@@ -3271,6 +3252,7 @@ class ConsultaExpediente:
                     self.error_historial = ex.mensaje
         except ApiError as ex:
             self.datos = None
+            self.reinscripcion_data = None
             self.horario = None
             if ex.status == 401:            # El manejador de rutas redirige al login cuando la sesión vence.
                 self.navegar("/consultas")
@@ -3576,6 +3558,9 @@ class ConsultaExpediente:
 
     # --- vista ----------------------------------------------------------
     def _pintar(self):
+        if self.modo_modificacion and self.reinscripcion_data is not None:
+            self.resultado.controls = [self._encabezado_reinscripcion()]
+            return
         if self.datos is None:
             self.resultado.controls = [crear_tarjeta(
                 ft.Text("Busca un alumno por número de control o CURP para ver su expediente.",
@@ -3593,6 +3578,218 @@ class ConsultaExpediente:
             self._pestanas(),
             *([self._panel_historial()] if self.es_admin else []),
         ]
+
+    def _encabezado_reinscripcion(self) -> ft.Control:
+        registro = self.reinscripcion_data
+        return crear_tarjeta(ft.Column(spacing=16, controls=[
+            ft.Row(alignment=ft.MainAxisAlignment.SPACE_BETWEEN, controls=[
+                ft.Column(spacing=4, controls=[
+                    ft.Text("Datos de reinscripción", size=19, weight=ft.FontWeight.BOLD, color=NAVY),
+                    ft.Text(registro["numero_control"], size=13, color=MUTED),
+                ]),
+                ft.OutlinedButton(
+                    "Modificar reinscripción",
+                    style=estilo_boton_secundario(),
+                    on_click=self._editar_reinscripcion,
+                ),
+            ]),
+            ft.ResponsiveRow(spacing=12, run_spacing=8, controls=[
+                ft.Container(col={"xs": 12, "md": 6}, content=ft.Column(spacing=3, controls=[
+                    ft.Text("Nombre", size=12, color=MUTED),
+                    ft.Text(registro["nombre"], size=14, color=TEXT),
+                ])),
+                ft.Container(col={"xs": 12, "md": 6}, content=ft.Column(spacing=3, controls=[
+                    ft.Text("Apellidos", size=12, color=MUTED),
+                    ft.Text(registro["apellidos"], size=14, color=TEXT),
+                ])),
+                ft.Container(col={"xs": 6, "md": 3}, content=ft.Column(spacing=3, controls=[
+                    ft.Text("Semestre", size=12, color=MUTED),
+                    ft.Text(ordinal_semestre(registro["semestre"]), size=14, color=TEXT),
+                ])),
+                ft.Container(col={"xs": 6, "md": 3}, content=ft.Column(spacing=3, controls=[
+                    ft.Text("Paquete asignado", size=12, color=MUTED),
+                    ft.Text(registro["paquete"] or "Sin paquete", size=14, color=TEXT),
+                ])),
+            ]),
+        ]), padding=20)
+
+    def _editar_reinscripcion(self, e=None):
+        registro = self.reinscripcion_data
+        numero = crear_campo_texto(
+            value=registro["numero_control"],
+            label="Número de control",
+            keyboard_type=ft.KeyboardType.NUMBER,
+            input_filter=ft.NumbersOnlyInputFilter(),
+            max_length=8,
+        )
+        nombre = crear_campo_texto(value=registro["nombre"], label="Nombre", max_length=50)
+        apellidos = crear_campo_texto(
+            value=registro["apellidos"], label="Apellidos", max_length=100,
+        )
+        semestre = ft.Dropdown(
+            label="Semestre",
+            value=str(registro["semestre"]),
+            options=[
+                ft.DropdownOption(key="2", text="Segundo semestre"),
+                ft.DropdownOption(key="3", text="Tercer semestre"),
+            ],
+            expand=True,
+        )
+        try:
+            paquetes_horario = api.paquetes_horario(registro["semestre"])
+        except ApiError as ex:
+            if ex.status == 401:
+                self.navegar("/consultas")
+                return
+            snackbar(self.page, ex.mensaje)
+            return
+
+        def opciones_paquete(paquetes, id_actual=None):
+            disponibles = [
+                item for item in paquetes
+                if item["lugares"] > 0 or item["id_paquete"] == id_actual
+            ]
+            if id_actual is not None and not any(
+                item["id_paquete"] == id_actual for item in disponibles
+            ):
+                disponibles.append({
+                    "id_paquete": id_actual,
+                    "nombre": registro["paquete"] or "Paquete actual",
+                    "turno": "",
+                    "lugares": 0,
+                })
+            return [
+                ft.DropdownOption(
+                    key=str(item["id_paquete"]),
+                    text=(
+                        f"{item['nombre']} · {item['turno']} · "
+                        f"{item['lugares']} lugares"
+                        if item["id_paquete"] != id_actual
+                        else f"{item['nombre']} · paquete actual"
+                    ),
+                )
+                for item in disponibles
+            ]
+
+        paquete = ft.Dropdown(
+            label="Paquete asignado",
+            value=str(registro["id_paquete"]) if registro.get("id_paquete") is not None else None,
+            options=opciones_paquete(paquetes_horario, registro.get("id_paquete")),
+            expand=True,
+        )
+        aviso = ft.Text("", size=13, color=ft.Colors.RED_700, visible=False)
+
+        def cambiar_semestre(_):
+            try:
+                nuevos_paquetes = api.paquetes_horario(int(semestre.value))
+            except ApiError as ex:
+                if ex.status == 401:
+                    self.navegar("/consultas")
+                    return
+                aviso.value = ex.mensaje
+                aviso.visible = True
+                paquete.options = []
+                paquete.value = None
+                self.page.update()
+                return
+            paquete.options = opciones_paquete(nuevos_paquetes)
+            paquete.value = None
+            paquete.error_text = None
+            aviso.visible = False
+            self.page.update()
+
+        semestre.on_change = cambiar_semestre
+        campos = {
+            "numero_control": numero,
+            "nombre": nombre,
+            "apellidos": apellidos,
+            "semestre": semestre,
+            "id_paquete": paquete,
+        }
+
+        def guardar(_):
+            datos = {
+                "numero_control": (numero.value or "").strip(),
+                "nombre": (nombre.value or "").strip(),
+                "apellidos": (apellidos.value or "").strip(),
+                "semestre": int(semestre.value) if semestre.value else None,
+                "id_paquete": int(paquete.value) if paquete.value else None,
+            }
+            errores = {}
+            if not re.fullmatch(r"\d{8}", datos["numero_control"]):
+                errores["numero_control"] = "Debe contener exactamente 8 dígitos"
+            if error := v.validar_nombre_personal(datos["nombre"], "Nombre", maximo=50):
+                errores["nombre"] = error
+            if error := v.validar_nombre_personal(datos["apellidos"], "Apellidos", maximo=100):
+                errores["apellidos"] = error
+            if datos["semestre"] not in (2, 3):
+                errores["semestre"] = "Selecciona segundo o tercer semestre"
+            elif re.fullmatch(r"\d{8}", datos["numero_control"]):
+                prefijo = "26" if datos["semestre"] == 2 else "25"
+                if not datos["numero_control"].startswith(prefijo):
+                    anio = "2026" if datos["semestre"] == 2 else "2025"
+                    errores["numero_control"] = (
+                        f"Para {datos['semestre']}° semestre, el número de control "
+                        f"debe corresponder al año {anio}"
+                    )
+            if datos["id_paquete"] is None:
+                errores["id_paquete"] = "Selecciona un paquete con lugares disponibles"
+            for campo, mensaje in errores.items():
+                control = campos[campo]
+                if isinstance(control, ft.Dropdown):
+                    control.error_text = mensaje
+                else:
+                    control.error = mensaje
+            if errores:
+                self.page.update()
+                return
+
+            try:
+                api.modificar_reinscripcion(registro["numero_control"], datos)
+                actualizada = api.reinscripcion(datos["numero_control"])
+            except ApiError as ex:
+                if ex.status == 401:
+                    self.navegar("/consultas")
+                    return
+                for campo, mensaje in ex.errores.items():
+                    if campo in campos:
+                        control = campos[campo]
+                        if isinstance(control, ft.Dropdown):
+                            control.error_text = mensaje
+                        else:
+                            control.error = mensaje
+                aviso.value = ex.mensaje
+                aviso.visible = True
+                self.page.update()
+                return
+            self.page.pop_dialog()
+            self.reinscripcion_data = actualizada
+            self.entrada.value = actualizada["numero_control"]
+            self._pintar()
+            self.page.update()
+            snackbar(self.page, "Los datos de reinscripción se actualizaron.")
+
+        self.page.show_dialog(ft.AlertDialog(
+            modal=True,
+            bgcolor=WHITE,
+            title=ft.Text("Modificar reinscripción"),
+            content=ft.Container(
+                width=560,
+                content=ft.Column(
+                    tight=True,
+                    spacing=12,
+                    controls=[aviso, numero, nombre, apellidos, semestre, paquete],
+                ),
+            ),
+            actions=[
+                ft.TextButton("Cancelar", on_click=lambda _: self.page.pop_dialog()),
+                ft.FilledButton(
+                    "Actualizar reinscripción",
+                    style=estilo_boton_primario(),
+                    on_click=guardar,
+                ),
+            ],
+        ))
 
     def _encabezado(self) -> ft.Control:
         d = self.datos

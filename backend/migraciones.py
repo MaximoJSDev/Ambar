@@ -7,6 +7,8 @@ from sqlalchemy.engine import Connection
 log = logging.getLogger("sige")
 
 _MIGRACION_DOMICILIO_ESTRUCTURADO = "2026_11_04_domicilio_estructurado"
+_MIGRACION_REGISTRO_REINSCRIPCIONES = "2026_11_08_registro_reinscripciones"
+_MIGRACION_REINSCRIPCIONES_EN_GRUPOS = "2026_11_08_reinscripciones_en_grupos"
 
 
 def _migrar_domicilio_estructurado(conn: Connection) -> None:
@@ -52,12 +54,53 @@ def aplicar_migraciones(conn: Connection) -> None:
                 WHERE version = :version"""),
         {"version": _MIGRACION_DOMICILIO_ESTRUCTURADO},
     ).scalar_one_or_none()
-    if aplicada is not None:
-        return
+    if aplicada is None:
+        _migrar_domicilio_estructurado(conn)
+        conn.execute(
+            text("INSERT INTO ambar_schema_migrations (version) VALUES (:version)"),
+            {"version": _MIGRACION_DOMICILIO_ESTRUCTURADO},
+        )
+        log.info("Migración de base de datos aplicada: %s", _MIGRACION_DOMICILIO_ESTRUCTURADO)
 
-    _migrar_domicilio_estructurado(conn)
-    conn.execute(
-        text("INSERT INTO ambar_schema_migrations (version) VALUES (:version)"),
-        {"version": _MIGRACION_DOMICILIO_ESTRUCTURADO},
-    )
-    log.info("Migración de base de datos aplicada: %s", _MIGRACION_DOMICILIO_ESTRUCTURADO)
+    aplicada = conn.execute(
+        text("""SELECT version FROM ambar_schema_migrations
+                WHERE version = :version"""),
+        {"version": _MIGRACION_REGISTRO_REINSCRIPCIONES},
+    ).scalar_one_or_none()
+    if aplicada is None:
+        conn.execute(text("""CREATE TABLE IF NOT EXISTS reinscripciones (
+            numero_control VARCHAR(20) PRIMARY KEY,
+            nombre VARCHAR(50) NOT NULL,
+            apellidos VARCHAR(100) NOT NULL,
+            semestre TINYINT NOT NULL,
+            creado_en TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            CONSTRAINT chk_reinscripcion_semestre CHECK (semestre IN (2, 3))
+        ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"""))
+        conn.execute(
+            text("INSERT INTO ambar_schema_migrations (version) VALUES (:version)"),
+            {"version": _MIGRACION_REGISTRO_REINSCRIPCIONES},
+        )
+        log.info("Migración de base de datos aplicada: %s", _MIGRACION_REGISTRO_REINSCRIPCIONES)
+
+    aplicada = conn.execute(
+        text("""SELECT version FROM ambar_schema_migrations
+                WHERE version = :version"""),
+        {"version": _MIGRACION_REINSCRIPCIONES_EN_GRUPOS},
+    ).scalar_one_or_none()
+    if aplicada is None:
+        if inspector.has_table("inscripciones_grupos"):
+            for llave in inspector.get_foreign_keys("inscripciones_grupos"):
+                if (
+                    llave.get("referred_table") == "alumnos"
+                    and "numero_control" in llave.get("constrained_columns", [])
+                    and llave.get("name")
+                ):
+                    nombre = llave["name"].replace("`", "``")
+                    conn.execute(
+                        text(f"ALTER TABLE inscripciones_grupos DROP FOREIGN KEY `{nombre}`")
+                    )
+        conn.execute(
+            text("INSERT INTO ambar_schema_migrations (version) VALUES (:version)"),
+            {"version": _MIGRACION_REINSCRIPCIONES_EN_GRUPOS},
+        )
+        log.info("Migración de base de datos aplicada: %s", _MIGRACION_REINSCRIPCIONES_EN_GRUPOS)

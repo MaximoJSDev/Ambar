@@ -10,6 +10,8 @@ class PanelTests(unittest.TestCase):
         nuevos.scalar_one.return_value = 23
         grupos = MagicMock()
         grupos.scalar_one.return_value = 2
+        reinscripciones = MagicMock()
+        reinscripciones.scalar_one.return_value = 3
         actividad = MagicMock()
         actividad.mappings.return_value.all.return_value = [
             {
@@ -30,7 +32,7 @@ class PanelTests(unittest.TestCase):
             },
         ]
         conn = MagicMock()
-        conn.execute.side_effect = [nuevos, grupos, actividad]
+        conn.execute.side_effect = [nuevos, grupos, reinscripciones, actividad]
 
         with patch("backend.routers.panel.engine.connect") as connect:
             connect.return_value.__enter__.return_value = conn
@@ -38,6 +40,7 @@ class PanelTests(unittest.TestCase):
 
         self.assertEqual(resultado["alumnos_nuevo_ingreso"], 23)
         self.assertEqual(resultado["grupos"], 2)
+        self.assertEqual(resultado["reinscripciones_hoy"], 3)
         self.assertEqual(resultado["actividad"], [
             {
                 "numero_control": "26320700",
@@ -54,7 +57,7 @@ class PanelTests(unittest.TestCase):
         ])
         self.assertNotIn("pendientes", resultado)
         self.assertNotIn("expedientes_pendientes", resultado)
-        consulta = str(conn.execute.call_args_list[2].args[0])
+        consulta = str(conn.execute.call_args_list[3].args[0])
         self.assertIn("a.numero_control", consulta)
         self.assertIn("ORDER BY a.apellido_paterno, a.apellido_materno, a.nombres", consulta)
         self.assertNotIn("LIMIT", consulta.upper())

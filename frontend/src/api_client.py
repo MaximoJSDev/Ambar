@@ -254,16 +254,17 @@ class ApiClient:
             json={"id_paquete": id_paquete},
         )
 
-    def estado_reinscripcion(self, consulta: str) -> dict:
+    def registrar_reinscripcion(self, datos: dict) -> dict:
         return self._request(
-            "GET", "/reinscripciones/alumno", params={"q": consulta},
+            "POST", "/reinscripciones", json=datos,
         )
 
-    def asignar_paquete_reinscripcion(self, numero_control: str, id_paquete: int) -> dict:
+    def reinscripcion(self, numero_control: str) -> dict:
+        return self._request("GET", f"/reinscripciones/{numero_control}")
+
+    def modificar_reinscripcion(self, numero_original: str, datos: dict) -> dict:
         return self._request(
-            "POST",
-            f"/reinscripciones/alumnos/{numero_control}/paquete",
-            json={"id_paquete": id_paquete},
+            "PUT", f"/reinscripciones/{numero_original}", json=datos,
         )
 
     def descargar_horario_alumno(self, numero_control: str) -> bytes:

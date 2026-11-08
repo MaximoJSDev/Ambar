@@ -31,7 +31,11 @@ class MigracionesTests(unittest.TestCase):
         inspector = MagicMock()
         inspector.has_table.return_value = True
         resultado = MagicMock()
-        resultado.scalar_one_or_none.return_value = "2026_11_04_domicilio_estructurado"
+        resultado.scalar_one_or_none.side_effect = [
+            "2026_11_04_domicilio_estructurado",
+            "2026_11_08_registro_reinscripciones",
+            "2026_11_08_reinscripciones_en_grupos",
+        ]
         conn = MagicMock()
         conn.execute.return_value = resultado
 
@@ -40,6 +44,54 @@ class MigracionesTests(unittest.TestCase):
 
         consultas = [str(llamada.args[0]) for llamada in conn.execute.call_args_list]
         self.assertFalse(any("ALTER TABLE alumnos" in sql for sql in consultas))
+        self.assertFalse(any("CREATE TABLE IF NOT EXISTS reinscripciones" in sql for sql in consultas))
+
+    def test_aplica_migracion_de_reinscripciones_a_esquema_actualizado(self):
+        inspector = MagicMock()
+        inspector.has_table.return_value = True
+        resultado = MagicMock()
+        resultado.scalar_one_or_none.side_effect = [
+            "2026_11_04_domicilio_estructurado",
+            None,
+            None,
+        ]
+        conn = MagicMock()
+        conn.execute.return_value = resultado
+
+        with patch("backend.migraciones.inspect", return_value=inspector):
+            migraciones.aplicar_migraciones(conn)
+
+        consultas = [str(llamada.args[0]) for llamada in conn.execute.call_args_list]
+        tabla = next(sql for sql in consultas if "CREATE TABLE IF NOT EXISTS reinscripciones" in sql)
+        self.assertIn("semestre IN (2, 3)", tabla)
+        self.assertTrue(any("2026_11_08_registro_reinscripciones" in str(llamada.args[1])
+                            for llamada in conn.execute.call_args_list if len(llamada.args) > 1))
+
+    def test_quita_fk_de_alumnos_para_permitir_reinscritos_en_grupos(self):
+        inspector = MagicMock()
+        inspector.has_table.return_value = True
+        inspector.get_foreign_keys.return_value = [{
+            "name": "inscripciones_grupos_ibfk_1",
+            "referred_table": "alumnos",
+            "constrained_columns": ["numero_control"],
+        }]
+        resultado = MagicMock()
+        resultado.scalar_one_or_none.side_effect = [
+            "2026_11_04_domicilio_estructurado",
+            "2026_11_08_registro_reinscripciones",
+            None,
+        ]
+        conn = MagicMock()
+        conn.execute.return_value = resultado
+
+        with patch("backend.migraciones.inspect", return_value=inspector):
+            migraciones.aplicar_migraciones(conn)
+
+        consultas = [str(llamada.args[0]) for llamada in conn.execute.call_args_list]
+        self.assertIn(
+            "ALTER TABLE inscripciones_grupos DROP FOREIGN KEY `inscripciones_grupos_ibfk_1`",
+            consultas,
+        )
 
     def test_falla_con_error_claro_si_falta_la_tabla_alumnos(self):
         inspector = MagicMock()

@@ -73,6 +73,15 @@ CREATE TABLE alumnos (
     INDEX idx_alumnos_estatus (estatus)
 );
 
+CREATE TABLE reinscripciones (
+    numero_control VARCHAR(20) PRIMARY KEY,
+    nombre VARCHAR(50) NOT NULL,
+    apellidos VARCHAR(100) NOT NULL,
+    semestre TINYINT NOT NULL,
+    creado_en TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT chk_reinscripcion_semestre CHECK (semestre IN (2, 3))
+);
+
 CREATE TABLE catalogo_codigos_postales (
     codigo_postal CHAR(5) NOT NULL,
     estado VARCHAR(100) NOT NULL,
@@ -173,8 +182,6 @@ CREATE TABLE inscripciones_grupos (
     id_inscripcion INT AUTO_INCREMENT PRIMARY KEY,
     numero_control VARCHAR(20) NOT NULL,
     id_grupo INT NOT NULL,
-    FOREIGN KEY (numero_control) REFERENCES alumnos(numero_control)
-        ON UPDATE CASCADE,
     FOREIGN KEY (id_grupo) REFERENCES grupos(id_grupo),
     UNIQUE (numero_control, id_grupo)        -- evita doble inscripción al mismo grupo
 );
