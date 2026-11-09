@@ -69,7 +69,8 @@ class ApiClientTests(unittest.TestCase):
             datos = {
                 "numero_control": "26320700",
                 "nombre": "Ana",
-                "apellidos": "Prueba",
+                "apellido_paterno": "Prueba",
+                "apellido_materno": "Ejemplo",
                 "semestre": 2,
                 "id_paquete": 10,
             }
@@ -102,7 +103,8 @@ class ApiClientTests(unittest.TestCase):
                 {
                     "numero_control": "26320700",
                     "nombre": "Ana",
-                    "apellidos": "Prueba",
+                    "apellido_paterno": "Prueba",
+                    "apellido_materno": "Ejemplo",
                     "semestre": 2,
                 },
             )

@@ -36,6 +36,7 @@ class MigracionesTests(unittest.TestCase):
             "2026_11_08_registro_reinscripciones",
             "2026_11_08_reinscripciones_en_grupos",
             "2026_11_08_bajas_reinscripciones",
+            "2026_11_09_apellidos_reinscripciones",
         ]
         conn = MagicMock()
         conn.execute.return_value = resultado
@@ -53,6 +54,7 @@ class MigracionesTests(unittest.TestCase):
         resultado = MagicMock()
         resultado.scalar_one_or_none.side_effect = [
             "2026_11_04_domicilio_estructurado",
+            None,
             None,
             None,
             None,
@@ -87,6 +89,7 @@ class MigracionesTests(unittest.TestCase):
             "2026_11_08_registro_reinscripciones",
             "2026_11_08_reinscripciones_en_grupos",
             None,
+            None,
         ]
         conn = MagicMock()
         conn.execute.return_value = resultado
@@ -110,6 +113,51 @@ class MigracionesTests(unittest.TestCase):
             consultas,
         )
 
+    def test_separa_apellidos_anteriores_y_elimina_la_columna_legada(self):
+        inspector = MagicMock()
+        inspector.has_table.return_value = True
+        inspector.get_columns.return_value = [
+            {"name": "numero_control"},
+            {"name": "nombre"},
+            {"name": "apellidos"},
+            {"name": "semestre"},
+        ]
+        resultado = MagicMock()
+        resultado.scalar_one_or_none.side_effect = [
+            "2026_11_04_domicilio_estructurado",
+            "2026_11_08_registro_reinscripciones",
+            "2026_11_08_reinscripciones_en_grupos",
+            "2026_11_08_bajas_reinscripciones",
+            None,
+        ]
+        conn = MagicMock()
+        conn.execute.return_value = resultado
+
+        with patch("backend.migraciones.inspect", return_value=inspector):
+            migraciones.aplicar_migraciones(conn)
+
+        consultas = [str(llamada.args[0]) for llamada in conn.execute.call_args_list]
+        agregar_paterno = next(
+            indice for indice, consulta in enumerate(consultas)
+            if "ADD COLUMN apellido_paterno" in consulta
+        )
+        agregar_materno = next(
+            indice for indice, consulta in enumerate(consultas)
+            if "ADD COLUMN apellido_materno" in consulta
+        )
+        separar_apellidos = next(
+            indice for indice, consulta in enumerate(consultas)
+            if "SUBSTRING_INDEX(TRIM(apellidos)" in consulta
+        )
+        eliminar_legado = next(
+            indice for indice, consulta in enumerate(consultas)
+            if "DROP COLUMN apellidos" in consulta
+        )
+        self.assertLess(agregar_paterno, separar_apellidos)
+        self.assertLess(agregar_materno, separar_apellidos)
+        self.assertLess(separar_apellidos, eliminar_legado)
+        self.assertIn("LOCATE(' ', TRIM(apellidos))", consultas[separar_apellidos])
+
     def test_quita_fk_de_alumnos_para_permitir_reinscritos_en_grupos(self):
         inspector = MagicMock()
         inspector.has_table.return_value = True
@@ -122,6 +170,7 @@ class MigracionesTests(unittest.TestCase):
         resultado.scalar_one_or_none.side_effect = [
             "2026_11_04_domicilio_estructurado",
             "2026_11_08_registro_reinscripciones",
+            None,
             None,
             None,
         ]

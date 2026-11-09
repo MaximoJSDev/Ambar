@@ -49,10 +49,62 @@ class ReinscripcionFormTests(unittest.TestCase):
 
         self.assertEqual(selector_semestre.error_text, "Selecciona segundo o tercer semestre")
 
-    def test_paquete_es_obligatorio_antes_de_registrar(self):
-        self.campo("8 dígitos").value = "26320700"
+    def test_busqueda_incluye_icono_y_campos_separados_de_apellidos(self):
+        boton_buscar = self.boton("Buscar para modificar")
+
+        self.assertEqual(boton_buscar.icon, ft.Icons.SEARCH)
+        self.assertIsNotNone(self.campo("Apellido paterno"))
+        self.assertIsNotNone(self.campo("Apellido materno"))
+
+    def test_validacion_marca_por_separado_los_apellidos_vacios(self):
+        self.campo("8 dígitos").value = "26320200"
         self.campo("Nombre(s)").value = "Ana"
-        self.campo("Apellidos").value = "Prueba"
+        self.campo("Apellido paterno").value = ""
+        self.campo("Apellido materno").value = ""
+        selector_semestre = next(
+            control for control in self.controles
+            if isinstance(control, ft.Dropdown) and control.label == "Semestre"
+        )
+        selector_paquete = next(
+            control for control in self.controles
+            if isinstance(control, ft.Dropdown) and control.label == "Paquete asignado"
+        )
+        selector_semestre.value = "2"
+        selector_paquete.value = "10"
+
+        self.boton("Registrar reinscripción").on_click(None)
+
+        self.assertIsNotNone(self.campo("Apellido paterno").error)
+        self.assertIsNotNone(self.campo("Apellido materno").error)
+
+    def test_numero_control_rechaza_sufijo_fuera_de_los_periodos_permitidos(self):
+        self.campo("8 dígitos").value = "26320900"
+        self.campo("Nombre(s)").value = "Ana"
+        self.campo("Apellido paterno").value = "Prueba"
+        self.campo("Apellido materno").value = "Ejemplo"
+        selector_semestre = next(
+            control for control in self.controles
+            if isinstance(control, ft.Dropdown) and control.label == "Semestre"
+        )
+        selector_semestre.value = "2"
+        selector_paquete = next(
+            control for control in self.controles
+            if isinstance(control, ft.Dropdown) and control.label == "Paquete asignado"
+        )
+        selector_paquete.value = "10"
+
+        self.boton("Registrar reinscripción").on_click(None)
+
+        self.assertIn(
+            "001 y 299",
+            self.campo("8 dígitos").error,
+        )
+
+    def test_paquete_es_obligatorio_antes_de_registrar(self):
+        self.campo("8 dígitos").value = "26320200"
+        self.campo("Nombre(s)").value = "Ana"
+        self.campo("Apellido paterno").value = "Prueba"
+        self.campo("Apellido materno").value = "Ejemplo"
         selector_semestre = next(
             control for control in self.controles
             if isinstance(control, ft.Dropdown) and control.label == "Semestre"
@@ -73,9 +125,10 @@ class ReinscripcionFormTests(unittest.TestCase):
 
     def test_busqueda_cambia_boton_y_actualizacion_muestra_toast(self):
         registro = {
-            "numero_control": "26320700",
+            "numero_control": "26320200",
             "nombre": "Ana",
-            "apellidos": "Prueba",
+            "apellido_paterno": "Prueba",
+            "apellido_materno": "Ejemplo",
             "semestre": 2,
             "id_paquete": 10,
             "paquete": "2ISC1",
@@ -86,7 +139,7 @@ class ReinscripcionFormTests(unittest.TestCase):
         ), patch.object(
             main.api, "modificar_reinscripcion", return_value=registro,
         ) as modificar:
-            self.campo("8 dígitos").value = "26320700"
+            self.campo("8 dígitos").value = "26320200"
             self.boton("Buscar para modificar").on_click(None)
             actualizar = self.boton("Actualizar reinscripción")
             self.assertEqual(actualizar.content, "Actualizar reinscripción")
@@ -96,11 +149,12 @@ class ReinscripcionFormTests(unittest.TestCase):
             actualizar.on_click(None)
 
         modificar.assert_called_once_with(
-            "26320700",
+            "26320200",
             {
-                "numero_control": "26320700",
+                "numero_control": "26320200",
                 "nombre": "Ana María",
-                "apellidos": "Prueba",
+                "apellido_paterno": "Prueba",
+                "apellido_materno": "Ejemplo",
                 "semestre": 2,
                 "id_paquete": 10,
             },
@@ -109,9 +163,10 @@ class ReinscripcionFormTests(unittest.TestCase):
 
     def test_registro_muestra_toast_con_el_paquete_de_horario(self):
         resultado = {
-            "numero_control": "26320700",
+            "numero_control": "26320200",
             "nombre": "Ana",
-            "apellidos": "Prueba",
+            "apellido_paterno": "Prueba",
+            "apellido_materno": "Ejemplo",
             "semestre": 2,
             "id_paquete": 11,
             "paquete": "2ISC1",
@@ -125,9 +180,10 @@ class ReinscripcionFormTests(unittest.TestCase):
         ), patch.object(
             main.api, "registrar_reinscripcion", return_value=resultado,
         ) as registrar:
-            self.campo("8 dígitos").value = "26320700"
+            self.campo("8 dígitos").value = "26320200"
             self.campo("Nombre(s)").value = "Ana"
-            self.campo("Apellidos").value = "Prueba"
+            self.campo("Apellido paterno").value = "Prueba"
+            self.campo("Apellido materno").value = "Ejemplo"
             selector_semestre = next(
                 control for control in self.controles
                 if isinstance(control, ft.Dropdown) and control.label == "Semestre"
@@ -144,9 +200,10 @@ class ReinscripcionFormTests(unittest.TestCase):
             self.boton("Registrar reinscripción").on_click(None)
 
         registrar.assert_called_once_with({
-            "numero_control": "26320700",
+            "numero_control": "26320200",
             "nombre": "Ana",
-            "apellidos": "Prueba",
+            "apellido_paterno": "Prueba",
+            "apellido_materno": "Ejemplo",
             "semestre": 2,
             "id_paquete": 11,
         })
@@ -154,9 +211,10 @@ class ReinscripcionFormTests(unittest.TestCase):
 
     def test_modificacion_muestra_paquetes_en_desplegable_y_envia_la_seleccion(self):
         registro = {
-            "numero_control": "26320700",
+            "numero_control": "26320200",
             "nombre": "Ana",
-            "apellidos": "Prueba",
+            "apellido_paterno": "Prueba",
+            "apellido_materno": "Ejemplo",
             "semestre": 2,
             "id_paquete": 10,
             "paquete": "2ISC1",
@@ -207,15 +265,16 @@ class ReinscripcionFormTests(unittest.TestCase):
 
     def test_consultas_y_bajas_muestran_reinscripciones_por_numero_de_control(self):
         registro = {
-            "numero_control": "26320700",
+            "numero_control": "26320200",
             "nombre": "Ana",
-            "apellidos": "Prueba",
+            "apellido_paterno": "Prueba",
+            "apellido_materno": "Ejemplo",
             "semestre": 2,
             "id_paquete": 10,
             "paquete": "2ISC1",
         }
         horario = {
-            "numero_control": "26320700",
+            "numero_control": "26320200",
             "semestre": 2,
             "periodo": "AGO-DIC 2026",
             "asignado": True,
@@ -250,7 +309,7 @@ class ReinscripcionFormTests(unittest.TestCase):
                 expediente.error_horario = None
                 expediente.seccion = "personales"
                 expediente.resultado = ft.Column(spacing=20)
-                expediente.entrada = ft.TextField(value="26320700")
+                expediente.entrada = ft.TextField(value="26320200")
                 expediente.boton = ft.FilledButton("Buscar")
                 expediente.aviso = ft.Text("", visible=False)
 
@@ -264,7 +323,7 @@ class ReinscripcionFormTests(unittest.TestCase):
                 self.assertEqual(expediente.reinscripcion_data, registro)
                 buscar_expediente.assert_not_called()
                 if not modo_bajas:
-                    obtener_horario.assert_called_once_with("26320700")
+                    obtener_horario.assert_called_once_with("26320200")
                 else:
                     obtener_horario.assert_not_called()
                 textos = {
@@ -273,7 +332,8 @@ class ReinscripcionFormTests(unittest.TestCase):
                 }
                 self.assertIn("Ana", textos)
                 self.assertIn("Prueba", textos)
-                self.assertIn("26320700", textos)
+                self.assertIn("Ejemplo", textos)
+                self.assertIn("26320200", textos)
                 if not modo_bajas:
                     self.assertIn(
                         f"Horario y grupo · {main.ordinal_semestre(2)}",
@@ -286,9 +346,10 @@ class ReinscripcionFormTests(unittest.TestCase):
         expediente = main.ConsultaExpediente.__new__(main.ConsultaExpediente)
         expediente.page = MagicMock()
         expediente.reinscripcion_data = {
-            "numero_control": "26320700",
+            "numero_control": "26320200",
             "nombre": "Ana",
-            "apellidos": "Prueba",
+            "apellido_paterno": "Prueba",
+            "apellido_materno": "Ejemplo",
             "semestre": 2,
             "paquete": "2ISC1",
             "eliminado": False,
@@ -297,7 +358,7 @@ class ReinscripcionFormTests(unittest.TestCase):
         expediente.modo_modificacion = False
         expediente.horario = None
         expediente.resultado = ft.Column(spacing=20)
-        expediente.entrada = ft.TextField(value="26320700")
+        expediente.entrada = ft.TextField(value="26320200")
         expediente._pintar()
         boton_baja = next(
             control for control in controles(expediente.resultado)
@@ -313,7 +374,7 @@ class ReinscripcionFormTests(unittest.TestCase):
             )
             confirmar.on_click(None)
 
-        eliminar.assert_called_once_with("26320700")
+        eliminar.assert_called_once_with("26320200")
         self.assertTrue(expediente.reinscripcion_data["eliminado"])
         textos = {
             control.value for control in controles(expediente.resultado)

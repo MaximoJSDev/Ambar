@@ -437,6 +437,26 @@ def generar_numero_control(
     )
 
 
+def validar_periodo_numero_control(numero_control: str, semestre: int) -> str | None:
+    if not re.fullmatch(r"\d{8}", numero_control):
+        return None
+    sufijo_periodo = int(numero_control[-3:])
+    if semestre == 2:
+        minimo, maximo = 1, 299
+        periodo = "ENE-JUN"
+    elif semestre == 3:
+        minimo, maximo = 300, 899
+        periodo = "AGO-DIC"
+    else:
+        return None
+    if minimo <= sufijo_periodo <= maximo:
+        return None
+    return (
+        f"Para {semestre}° semestre ({periodo}), los últimos 3 dígitos "
+        f"deben estar entre {minimo:03d} y {maximo:03d}"
+    )
+
+
 def correo_institucional(numero_control: str, dominio: str = "acapulco.tecnm.mx") -> str:
     return f"al{numero_control}@{dominio}"
 

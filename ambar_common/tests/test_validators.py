@@ -6,6 +6,7 @@ from ambar_common.validators import (
     generar_numero_control,
     prefijo_control,
     siguiente_carrera_secuencia,
+    validar_periodo_numero_control,
 )
 
 
@@ -27,6 +28,22 @@ class NumeroControlTests(unittest.TestCase):
     def test_no_reutiliza_huecos_y_respeta_la_carrera_inicial(self):
         self.assertEqual(siguiente_carrera_secuencia(701, 7), (7, 2))
         self.assertEqual(siguiente_carrera_secuencia(699, 7), (7, 0))
+
+    def test_valida_rangos_de_periodo_segun_semestre(self):
+        for semestre, sufijos in ((2, ("001", "299")), (3, ("300", "899"))):
+            for sufijo in sufijos:
+                with self.subTest(semestre=semestre, sufijo=sufijo):
+                    self.assertIsNone(
+                        validar_periodo_numero_control(f"26320{sufijo}", semestre),
+                    )
+        for semestre, sufijos in ((2, ("000", "300", "899")), (3, ("001", "299", "900"))):
+            for sufijo in sufijos:
+                with self.subTest(semestre=semestre, sufijo=sufijo):
+                    self.assertIsNotNone(
+                        validar_periodo_numero_control(f"26320{sufijo}", semestre),
+                    )
+        self.assertIsNone(validar_periodo_numero_control("26320", 2))
+        self.assertIsNone(validar_periodo_numero_control("26320900", 4))
 
     def test_rechaza_agotamiento_del_campo_de_carrera(self):
         with self.assertRaises(OverflowError):

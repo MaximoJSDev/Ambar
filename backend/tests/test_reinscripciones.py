@@ -19,9 +19,10 @@ class ReinscripcionesApiTests(unittest.TestCase):
 
     def test_registra_reinscripcion_con_los_datos_solicitados(self):
         datos = {
-            "numero_control": "26320700",
+            "numero_control": "26320200",
             "nombre": "Ana",
-            "apellidos": "Prueba",
+            "apellido_paterno": "Prueba",
+            "apellido_materno": "Ejemplo",
             "semestre": 2,
             "id_paquete": 10,
         }
@@ -37,9 +38,10 @@ class ReinscripcionesApiTests(unittest.TestCase):
 
     def test_devuelve_error_de_numero_de_control_duplicado(self):
         datos = {
-            "numero_control": "26320700",
+            "numero_control": "26320200",
             "nombre": "Ana",
-            "apellidos": "Prueba",
+            "apellido_paterno": "Prueba",
+            "apellido_materno": "Ejemplo",
             "semestre": 2,
             "id_paquete": 10,
         }
@@ -62,9 +64,10 @@ class ReinscripcionesApiTests(unittest.TestCase):
         respuesta = self.client.post(
             "/reinscripciones",
             json={
-                "numero_control": "26320700",
+                "numero_control": "26320200",
                 "nombre": "Ana",
-                "apellidos": "Prueba",
+                "apellido_paterno": "Prueba",
+                "apellido_materno": "Ejemplo",
                 "semestre": 3,
                 "id_paquete": 10,
             },
@@ -78,9 +81,10 @@ class ReinscripcionesApiTests(unittest.TestCase):
         respuesta = self.client.post(
             "/reinscripciones",
             json={
-                "numero_control": "26320700",
+                "numero_control": "26320200",
                 "nombre": "Ana",
-                "apellidos": "Prueba",
+                "apellido_paterno": "Prueba",
+                "apellido_materno": "Ejemplo",
                 "semestre": 2,
                 "id_paquete": 10,
             },
@@ -91,19 +95,35 @@ class ReinscripcionesApiTests(unittest.TestCase):
         respuesta = self.client.post(
             "/reinscripciones",
             json={
-                "numero_control": "26320700",
+                "numero_control": "26320200",
                 "nombre": "Ana",
-                "apellidos": "Prueba",
+                "apellido_paterno": "Prueba",
+                "apellido_materno": "Ejemplo",
                 "semestre": 2,
             },
         )
         self.assertEqual(respuesta.status_code, 422)
 
+    def test_api_exige_apellidos_separados(self):
+        respuesta = self.client.post(
+            "/reinscripciones",
+            json={
+                "numero_control": "26320200",
+                "nombre": "Ana",
+                "apellido_paterno": "Prueba",
+                "semestre": 2,
+                "id_paquete": 10,
+            },
+        )
+
+        self.assertEqual(respuesta.status_code, 422)
+
     def test_busca_y_actualiza_los_datos_de_una_reinscripcion(self):
         datos = {
-            "numero_control": "26320700",
+            "numero_control": "26320200",
             "nombre": "Ana",
-            "apellidos": "Prueba",
+            "apellido_paterno": "Prueba",
+            "apellido_materno": "Ejemplo",
             "semestre": 2,
         }
         datos_actualizacion = datos | {"id_paquete": 11}
@@ -117,32 +137,33 @@ class ReinscripcionesApiTests(unittest.TestCase):
                 return_value=datos,
             ) as modificar,
         ):
-            respuesta_get = self.client.get("/reinscripciones/26320700")
+            respuesta_get = self.client.get("/reinscripciones/26320200")
             respuesta_put = self.client.put(
-                "/reinscripciones/26320700", json=datos_actualizacion,
+                "/reinscripciones/26320200", json=datos_actualizacion,
             )
 
         self.assertEqual(respuesta_get.status_code, 200)
         self.assertEqual(respuesta_put.status_code, 200)
-        obtener.assert_called_once_with("26320700")
-        modificar.assert_called_once_with("26320700", datos_actualizacion)
+        obtener.assert_called_once_with("26320200")
+        modificar.assert_called_once_with("26320200", datos_actualizacion)
 
     def test_administracion_puede_consultar_reinscripcion(self):
         self.usuario["rol"] = "Administrador"
         with patch(
             "backend.routers.reinscripciones.servicios.obtener_reinscripcion",
-            return_value={"numero_control": "26320700"},
+            return_value={"numero_control": "26320200"},
         ), patch(
             "backend.routers.reinscripciones.servicios.modificar_reinscripcion",
-            return_value={"numero_control": "26320700"},
+            return_value={"numero_control": "26320200"},
         ):
-            respuesta = self.client.get("/reinscripciones/26320700")
+            respuesta = self.client.get("/reinscripciones/26320200")
             actualizacion = self.client.put(
-                "/reinscripciones/26320700",
+                "/reinscripciones/26320200",
                 json={
-                    "numero_control": "26320700",
+                    "numero_control": "26320200",
                     "nombre": "Ana",
-                    "apellidos": "Prueba",
+                    "apellido_paterno": "Prueba",
+                    "apellido_materno": "Ejemplo",
                     "semestre": 2,
                 },
             )
@@ -150,34 +171,63 @@ class ReinscripcionesApiTests(unittest.TestCase):
         self.assertEqual(actualizacion.status_code, 200)
 
     def test_baja_reinscripcion_conserva_el_registro_y_requiere_autorizacion(self):
-        resultado = {"numero_control": "26320700", "eliminado": True}
+        resultado = {"numero_control": "26320200", "eliminado": True}
         with patch(
             "backend.routers.reinscripciones.servicios.eliminar_reinscripcion",
             return_value=resultado,
         ) as eliminar:
-            respuesta = self.client.delete("/reinscripciones/26320700")
+            respuesta = self.client.delete("/reinscripciones/26320200")
 
         self.assertEqual(respuesta.status_code, 200)
         self.assertEqual(respuesta.json(), resultado)
-        eliminar.assert_called_once_with("26320700", 1)
+        eliminar.assert_called_once_with("26320200", 1)
 
         self.usuario["rol"] = "Docente"
-        no_autorizado = self.client.delete("/reinscripciones/26320700")
+        no_autorizado = self.client.delete("/reinscripciones/26320200")
         self.assertEqual(no_autorizado.status_code, 403)
 
 
 class ReinscripcionesServiceTests(unittest.TestCase):
     def setUp(self):
         self.datos = {
-            "numero_control": "26320700",
+            "numero_control": "26320200",
             "nombre": "Ana",
-            "apellidos": "Prueba",
+            "apellido_paterno": "Prueba",
+            "apellido_materno": "Ejemplo",
             "semestre": 2,
             "id_paquete": 30,
         }
 
     def test_valida_campos_y_anio_segun_semestre(self):
         self.assertEqual(servicios.validar_reinscripcion(self.datos), {})
+        for numero_control, semestre in (
+            ("26320001", 2),
+            ("26320299", 2),
+            ("25200300", 3),
+            ("25200899", 3),
+        ):
+            with self.subTest(numero_control=numero_control, semestre=semestre):
+                self.assertNotIn(
+                    "numero_control",
+                    servicios.validar_reinscripcion(
+                        self.datos | {
+                            "numero_control": numero_control,
+                            "semestre": semestre,
+                        },
+                    ),
+                )
+        self.assertIn(
+            "001 y 299",
+            servicios.validar_reinscripcion(
+                self.datos | {"numero_control": "26320300"},
+            )["numero_control"],
+        )
+        self.assertIn(
+            "300 y 899",
+            servicios.validar_reinscripcion(
+                self.datos | {"numero_control": "25200299", "semestre": 3},
+            )["numero_control"],
+        )
         self.assertEqual(
             servicios.validar_reinscripcion(self.datos | {"semestre": 3}),
             {"numero_control": "Para 3° semestre, el número de control debe corresponder al año 2025"},
@@ -186,10 +236,25 @@ class ReinscripcionesServiceTests(unittest.TestCase):
             servicios.validar_reinscripcion(self.datos | {"numero_control": "abc"}),
             {"numero_control": "Debe contener exactamente 8 dígitos"},
         )
-        errores = servicios.validar_reinscripcion(
-            self.datos | {"nombre": "A1", "apellidos": "", "semestre": 4}
+        self.assertIn(
+            "001 y 299",
+            servicios.validar_reinscripcion(
+                self.datos | {"numero_control": "26320900"},
+            )["numero_control"],
         )
-        self.assertEqual(set(errores), {"nombre", "apellidos", "semestre"})
+        errores = servicios.validar_reinscripcion(
+            self.datos | {
+                "nombre": "A1",
+                "apellido_paterno": "",
+                "apellido_materno": "",
+                "semestre": 4,
+            }
+        )
+        self.assertEqual(
+            set(errores), {
+                "nombre", "apellido_paterno", "apellido_materno", "semestre",
+            },
+        )
 
     def test_inserta_reinscripcion_si_el_numero_no_existe(self):
         consulta_alumnos = MagicMock()
@@ -227,7 +292,8 @@ class ReinscripcionesServiceTests(unittest.TestCase):
             {
                 "numero_control": self.datos["numero_control"],
                 "nombre": self.datos["nombre"],
-                "apellidos": self.datos["apellidos"],
+                "apellido_paterno": self.datos["apellido_paterno"],
+                "apellido_materno": self.datos["apellido_materno"],
                 "semestre": self.datos["semestre"],
             },
         )
@@ -237,12 +303,12 @@ class ReinscripcionesServiceTests(unittest.TestCase):
         )
         self.assertEqual(
             conn.execute.call_args_list[4].args[1],
-            [{"numero": "26320700", "grupo": grupo} for grupo in range(30, 35)],
+            [{"numero": "26320200", "grupo": grupo} for grupo in range(30, 35)],
         )
 
     def test_rechaza_numero_de_control_que_ya_esta_en_alumnos(self):
         existente = MagicMock()
-        existente.scalar_one_or_none.return_value = "26320700"
+        existente.scalar_one_or_none.return_value = "26320200"
         conn = MagicMock()
         conn.execute.side_effect = [existente, MagicMock()]
         bloqueo = MagicMock()
@@ -307,7 +373,7 @@ class ReinscripcionesServiceTests(unittest.TestCase):
     def test_rechaza_numero_de_control_modificado(self):
         anterior = MagicMock()
         anterior.mappings.return_value.first.return_value = {
-            "numero_control": "26320700",
+            "numero_control": "26320200",
             "semestre": 2,
             "eliminado": False,
         }
@@ -324,8 +390,8 @@ class ReinscripcionesServiceTests(unittest.TestCase):
             connect.return_value.__enter__.return_value = bloqueo
             begin.return_value.__enter__.return_value = conn
             servicios.modificar_reinscripcion(
-                "26320700",
-                self.datos | {"numero_control": "26320701"},
+                "26320200",
+                self.datos | {"numero_control": "26320201"},
             )
 
         self.assertEqual(conn.execute.call_count, 1)
@@ -333,7 +399,7 @@ class ReinscripcionesServiceTests(unittest.TestCase):
     def test_baja_logica_registra_actor_y_no_elimina_inscripciones(self):
         fila = MagicMock()
         fila.mappings.return_value.first.return_value = {
-            "numero_control": "26320700",
+            "numero_control": "26320200",
             "eliminado": False,
         }
         conn = MagicMock()
@@ -341,23 +407,23 @@ class ReinscripcionesServiceTests(unittest.TestCase):
 
         with patch("backend.servicios.engine.begin") as begin:
             begin.return_value.__enter__.return_value = conn
-            resultado = servicios.eliminar_reinscripcion("26320700", 7)
+            resultado = servicios.eliminar_reinscripcion("26320200", 7)
 
         self.assertEqual(
             resultado,
-            {"numero_control": "26320700", "eliminado": True},
+            {"numero_control": "26320200", "eliminado": True},
         )
         self.assertIn("UPDATE reinscripciones", str(conn.execute.call_args_list[1].args[0]))
         self.assertEqual(
             conn.execute.call_args_list[1].args[1],
-            {"usuario": 7, "numero": "26320700"},
+            {"usuario": 7, "numero": "26320200"},
         )
         self.assertEqual(conn.execute.call_count, 2)
 
     def test_rechaza_dar_de_baja_una_reinscripcion_ya_inactiva(self):
         fila = MagicMock()
         fila.mappings.return_value.first.return_value = {
-            "numero_control": "26320700",
+            "numero_control": "26320200",
             "eliminado": True,
         }
         conn = MagicMock()
@@ -368,14 +434,14 @@ class ReinscripcionesServiceTests(unittest.TestCase):
             self.assertRaisesRegex(servicios.Conflicto, "ya se encuentra dada de baja"),
         ):
             begin.return_value.__enter__.return_value = conn
-            servicios.eliminar_reinscripcion("26320700", 7)
+            servicios.eliminar_reinscripcion("26320200", 7)
 
         self.assertEqual(conn.execute.call_count, 1)
 
     def test_modifica_datos_sin_perder_el_horario_existente(self):
         anterior = MagicMock()
         anterior.mappings.return_value.first.return_value = {
-            "numero_control": "26320700",
+            "numero_control": "26320200",
             "semestre": 2,
             "eliminado": False,
         }
@@ -402,7 +468,7 @@ class ReinscripcionesServiceTests(unittest.TestCase):
                 if clave != "id_paquete"
             }
             resultado = servicios.modificar_reinscripcion(
-                "26320700", datos_modificacion,
+                "26320200", datos_modificacion,
             )
 
         self.assertEqual(resultado, datos_modificacion)
@@ -420,7 +486,7 @@ class ReinscripcionesServiceTests(unittest.TestCase):
         }]
         reinscritos = MagicMock()
         reinscritos.mappings.return_value.all.return_value = [{
-            "numero_control": "26320700",
+            "numero_control": "26320200",
             "nombres": "Ana",
             "apellido_paterno": "Prueba",
             "apellido_materno": None,
@@ -433,7 +499,7 @@ class ReinscripcionesServiceTests(unittest.TestCase):
             connect.return_value.__enter__.return_value = conn
             resultado = servicios.lista_alumnos_paquete(20)
 
-        self.assertEqual(resultado["alumnos"][0]["numero_control"], "26320700")
+        self.assertEqual(resultado["alumnos"][0]["numero_control"], "26320200")
         consulta = str(conn.execute.call_args_list[1].args[0])
         self.assertIn("LEFT JOIN reinscripciones r", consulta)
         self.assertIn("COALESCE(a.nombres, r.nombre)", consulta)
@@ -442,7 +508,7 @@ class ReinscripcionesServiceTests(unittest.TestCase):
     def test_consulta_de_horario_reconoce_reinscritos(self):
         registro = MagicMock()
         registro.mappings.return_value.first.return_value = {
-            "numero_control": "26320700",
+            "numero_control": "26320200",
             "nombres": "Ana",
             "apellido_paterno": "Prueba",
             "apellido_materno": None,
@@ -457,7 +523,7 @@ class ReinscripcionesServiceTests(unittest.TestCase):
 
         with patch("backend.servicios.engine.connect") as connect:
             connect.return_value.__enter__.return_value = conn
-            estado = servicios.estado_horario_alumno("26320700")
+            estado = servicios.estado_horario_alumno("26320200")
 
         self.assertEqual(estado["semestre"], 2)
         self.assertFalse(estado["asignado"])
