@@ -1,13 +1,14 @@
 """Registro de reinscripciones de segundo y tercer semestre."""
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from .. import servicios
-from ..constantes import ROL_SECRETARIA
+from ..constantes import ROL_ADMINISTRADOR, ROL_SECRETARIA
 from ..deps import requiere_roles
 
 router = APIRouter(prefix="/reinscripciones", tags=["Reinscripciones"])
 solo_secretaria = requiere_roles(ROL_SECRETARIA)
+secretaria_o_administrador = requiere_roles(ROL_SECRETARIA, ROL_ADMINISTRADOR)
 
 
 class ReinscripcionIn(BaseModel):
@@ -19,13 +20,17 @@ class ReinscripcionIn(BaseModel):
     semestre: int
 
 
+class RegistrarReinscripcionIn(ReinscripcionIn):
+    id_paquete: int = Field(gt=0)
+
+
 class ModificarReinscripcionIn(ReinscripcionIn):
     id_paquete: int | None = None
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
 def registrar_reinscripcion(
-    datos: ReinscripcionIn,
+    datos: RegistrarReinscripcionIn,
     _: dict = Depends(solo_secretaria),
 ):
     try:
@@ -52,7 +57,7 @@ def registrar_reinscripcion(
 @router.get("/{numero_control}")
 def obtener_reinscripcion(
     numero_control: str,
-    _: dict = Depends(solo_secretaria),
+    _: dict = Depends(secretaria_o_administrador),
 ):
     try:
         return servicios.obtener_reinscripcion(numero_control)
@@ -64,7 +69,7 @@ def obtener_reinscripcion(
 def modificar_reinscripcion(
     numero_control: str,
     datos: ModificarReinscripcionIn,
-    _: dict = Depends(solo_secretaria),
+    _: dict = Depends(secretaria_o_administrador),
 ):
     try:
         return servicios.modificar_reinscripcion(

@@ -167,11 +167,14 @@ en **Consultas**. El panel ya no muestra la sección de pendientes.
 En **Reinscripción**, Secretaría registra por separado el número de control,
 nombre, apellidos y semestre (segundo o tercero). El número debe tener 8 dígitos,
 ser único entre alumnos y reinscripciones, y comenzar con `26` para segundo
-semestre o `25` para tercero. El sistema asigna automáticamente el primer
-paquete completo con cupo disponible y muestra al reinscrito en las listas del
-grupo y de calificaciones. Estos datos se pueden buscar y modificar desde
-**Reinscripción**; si ya tiene horario, no se permite cambiar el semestre para
-conservar sus inscripciones y calificaciones. El registro no crea un expediente
+semestre o `25` para tercero. Secretaría selecciona un paquete del semestre
+con cupo disponible; el servidor comprueba que esté completo antes de inscribir
+al alumno en todos sus grupos. El reinscrito aparece en las listas del grupo y
+de calificaciones. Estos datos se pueden buscar y modificar desde
+**Reinscripción**, pero el número de control no se puede cambiar. Tampoco se
+permite cambiar el semestre o el paquete cuando ya hay calificaciones, para
+conservar sus inscripciones. Las reinscripciones también aparecen al buscar por
+número de control en **Consultas** y **Bajas**. El registro no crea un expediente
 completo de nuevo ingreso.
 
 Administración configura en **Periodos escolares** la fecha de inicio de la
