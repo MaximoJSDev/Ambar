@@ -71,6 +71,7 @@ class ApiClientTests(unittest.TestCase):
                 "nombre": "Ana",
                 "apellidos": "Prueba",
                 "semestre": 2,
+                "id_paquete": 10,
             }
             cliente.registrar_reinscripcion(datos)
         finally:

@@ -1747,6 +1747,18 @@ def build_reinscripcion(page: ft.Page, navegar) -> ft.Control:
         ],
         expand=True,
     )
+    paquete = ft.Dropdown(
+        label="Paquete asignado",
+        options=[],
+        expand=True,
+        visible=False,
+    )
+    aviso_paquete = ft.Text(
+        "No hay paquetes con lugares disponibles para este semestre.",
+        size=12,
+        color=WARN_FG,
+        visible=False,
+    )
     aviso = ft.Text("", size=13, color=WARN_FG, visible=False)
     boton_registrar = ft.FilledButton(
         "Registrar reinscripción",
@@ -1761,10 +1773,63 @@ def build_reinscripcion(page: ft.Page, navegar) -> ft.Control:
         for campo in (numero, nombre, apellidos):
             campo.error = None
         semestre.error_text = None
+        paquete.error_text = None
         aviso.visible = False
+
+    def actualizar_paquetes(valor_semestre, id_actual=None):
+        if not valor_semestre:
+            paquete.options = []
+            paquete.value = None
+            paquete.visible = False
+            aviso_paquete.visible = False
+            return True
+        try:
+            paquetes = api.paquetes_horario(int(valor_semestre))
+        except ApiError as ex:
+            if ex.status == 401:
+                navegar("/secretaria")
+                return False
+            paquete.options = []
+            paquete.value = None
+            paquete.visible = True
+            aviso_paquete.value = ex.mensaje
+            aviso_paquete.visible = True
+            return False
+
+        disponibles = [
+            item for item in paquetes
+            if item["lugares"] > 0 or item["id_paquete"] == id_actual
+        ]
+        if id_actual is not None and not any(
+            item["id_paquete"] == id_actual for item in disponibles
+        ):
+            disponibles.append({
+                "id_paquete": id_actual,
+                "nombre": "Paquete actual",
+                "turno": "",
+                "lugares": 0,
+            })
+        paquete.options = [
+            ft.DropdownOption(
+                key=str(item["id_paquete"]),
+                text=(
+                    f"{item['nombre']} · {item['turno']} · {item['lugares']} lugares"
+                    if item["id_paquete"] != id_actual
+                    else f"{item['nombre']} · paquete actual"
+                ),
+            )
+            for item in disponibles
+        ]
+        paquete.value = str(id_actual) if id_actual is not None else None
+        paquete.visible = True
+        aviso_paquete.visible = not disponibles
+        return True
 
     def semestre_seleccionado(_):
         semestre.error_text = None
+        paquete.error_text = None
+        aviso_paquete.visible = False
+        actualizar_paquetes(semestre.value)
         page.update()
 
     def reiniciar_formulario():
@@ -1774,6 +1839,11 @@ def build_reinscripcion(page: ft.Page, navegar) -> ft.Control:
         nombre.value = ""
         apellidos.value = ""
         semestre.value = None
+        numero.read_only = False
+        paquete.options = []
+        paquete.value = None
+        paquete.visible = False
+        aviso_paquete.visible = False
         boton_registrar.content = "Registrar reinscripción"
         boton_buscar.visible = True
         boton_cancelar.visible = False
@@ -1799,9 +1869,13 @@ def build_reinscripcion(page: ft.Page, navegar) -> ft.Control:
         else:
             numero_original = registro["numero_control"]
             numero.value = registro["numero_control"]
+            numero.read_only = True
             nombre.value = registro["nombre"]
             apellidos.value = registro["apellidos"]
             semestre.value = str(registro["semestre"])
+            if not actualizar_paquetes(registro["semestre"], registro.get("id_paquete")):
+                aviso.value = "No se pudieron cargar las opciones de paquete."
+                aviso.visible = True
             boton_registrar.content = "Actualizar reinscripción"
             boton_buscar.visible = False
             boton_cancelar.visible = True
@@ -1813,6 +1887,7 @@ def build_reinscripcion(page: ft.Page, navegar) -> ft.Control:
             "nombre": (nombre.value or "").strip(),
             "apellidos": (apellidos.value or "").strip(),
             "semestre": int(semestre.value) if semestre.value else None,
+            "id_paquete": int(paquete.value) if paquete.value else None,
         }
         errores = {}
         if not re.fullmatch(r"\d{8}", datos["numero_control"]):
@@ -1830,6 +1905,8 @@ def build_reinscripcion(page: ft.Page, navegar) -> ft.Control:
                 errores["numero_control"] = (
                     f"Para {datos['semestre']}° semestre, el número de control debe corresponder al año {anio}"
                 )
+        if datos["id_paquete"] is None:
+            errores["id_paquete"] = "Selecciona un paquete con lugares disponibles"
         return datos, errores
 
     def registrar(_=None):
@@ -1840,6 +1917,7 @@ def build_reinscripcion(page: ft.Page, navegar) -> ft.Control:
             nombre.error = errores.get("nombre")
             apellidos.error = errores.get("apellidos")
             semestre.error_text = errores.get("semestre")
+            paquete.error_text = errores.get("id_paquete")
             page.update()
             return
 
@@ -1861,6 +1939,7 @@ def build_reinscripcion(page: ft.Page, navegar) -> ft.Control:
                     "nombre": nombre,
                     "apellidos": apellidos,
                     "semestre": semestre,
+                    "id_paquete": paquete,
                 }.get(campo)
                 if isinstance(control, ft.Dropdown):
                     control.error_text = mensaje
@@ -1887,7 +1966,7 @@ def build_reinscripcion(page: ft.Page, navegar) -> ft.Control:
     vista = ft.Column(expand=True, scroll=ft.ScrollMode.AUTO, spacing=20, controls=[
         titulo_pagina(
             "Reinscripción",
-            "Registra reinscritos con horario automático o busca su número de control para modificar sus datos.",
+            "Registra reinscritos con el paquete de horario elegido o busca su número de control para modificar sus datos.",
         ),
         crear_tarjeta(ft.Column(spacing=16, controls=[
             ft.ResponsiveRow(spacing=12, run_spacing=12, controls=[
@@ -1896,6 +1975,7 @@ def build_reinscripcion(page: ft.Page, navegar) -> ft.Control:
                 ft.Container(col={"xs": 12, "md": 6}, content=crear_campo_etiquetado("Nombre", nombre)),
                 ft.Container(col={"xs": 12, "md": 6}, content=crear_campo_etiquetado("Apellidos", apellidos)),
             ]),
+            ft.Column(spacing=4, controls=[paquete, aviso_paquete]),
             aviso,
             ft.Row(controls=[boton_buscar, boton_cancelar, boton_registrar]),
         ]), padding=ft.Padding.symmetric(horizontal=20, vertical=16)),
@@ -3210,7 +3290,10 @@ class ConsultaExpediente:
         self.page.update()
         try:
             self.reinscripcion_data = None
-            if self.modo_modificacion and re.fullmatch(r"\d{8}", q):
+            if (
+                self.usuario["rol"] in {"Secretaría", "Administrador"}
+                and re.fullmatch(r"\d{8}", q)
+            ):
                 try:
                     self.reinscripcion_data = api.reinscripcion(q)
                 except ApiError as ex:
@@ -3242,7 +3325,7 @@ class ConsultaExpediente:
                         self.navegar("/consultas")
                         return
                     self.error_horario = ex.mensaje
-            if self.es_admin:
+            if self.es_admin and self.reinscripcion_data is None:
                 try:
                     self.historial = api.historial_alumno(self.datos["numero_control"])
                 except ApiError as ex:
@@ -3558,7 +3641,7 @@ class ConsultaExpediente:
 
     # --- vista ----------------------------------------------------------
     def _pintar(self):
-        if self.modo_modificacion and self.reinscripcion_data is not None:
+        if self.reinscripcion_data is not None:
             self.resultado.controls = [self._encabezado_reinscripcion()]
             return
         if self.datos is None:
@@ -3587,11 +3670,13 @@ class ConsultaExpediente:
                     ft.Text("Datos de reinscripción", size=19, weight=ft.FontWeight.BOLD, color=NAVY),
                     ft.Text(registro["numero_control"], size=13, color=MUTED),
                 ]),
-                ft.OutlinedButton(
-                    "Modificar reinscripción",
-                    style=estilo_boton_secundario(),
-                    on_click=self._editar_reinscripcion,
-                ),
+                *([
+                    ft.OutlinedButton(
+                        "Modificar reinscripción",
+                        style=estilo_boton_secundario(),
+                        on_click=self._editar_reinscripcion,
+                    ),
+                ] if self.modo_modificacion else []),
             ]),
             ft.ResponsiveRow(spacing=12, run_spacing=8, controls=[
                 ft.Container(col={"xs": 12, "md": 6}, content=ft.Column(spacing=3, controls=[
@@ -3621,6 +3706,7 @@ class ConsultaExpediente:
             keyboard_type=ft.KeyboardType.NUMBER,
             input_filter=ft.NumbersOnlyInputFilter(),
             max_length=8,
+            read_only=True,
         )
         nombre = crear_campo_texto(value=registro["nombre"], label="Nombre", max_length=50)
         apellidos = crear_campo_texto(

@@ -107,6 +107,8 @@ def validar_reinscripcion(datos: dict) -> dict[str, str]:
 def registrar_reinscripcion(datos: dict) -> dict:
     datos = {**datos, "numero_control": datos["numero_control"].strip()}
     errores = validar_reinscripcion(datos)
+    if type(datos.get("id_paquete")) is not int or datos["id_paquete"] <= 0:
+        errores["id_paquete"] = "Selecciona un paquete con lugares disponibles"
     if errores:
         raise Conflicto("Revisa los datos capturados", errores)
 
@@ -131,7 +133,9 @@ def registrar_reinscripcion(datos: dict) -> dict:
                             "El número de control ya existe",
                             {"numero_control": "El número de control ya existe"},
                         )
-                    grupos_paquete = _grupos_paquete_reinscripcion(conn, datos["semestre"])
+                    grupos_paquete = _grupos_paquete_reinscripcion(
+                        conn, datos["semestre"], datos["id_paquete"],
+                    )
                     conn.execute(
                         text("""INSERT INTO reinscripciones
                                     (numero_control, nombre, apellidos, semestre)
@@ -242,6 +246,11 @@ def modificar_reinscripcion(numero_original: str, datos: dict) -> dict:
                     ).mappings().first()
                     if anterior is None:
                         raise NoEncontrado()
+                    if numero_original != datos["numero_control"]:
+                        raise Conflicto(
+                            "No se puede modificar el número de control de una reinscripción.",
+                            {"numero_control": "El número de control no se puede modificar"},
+                        )
                     duplicado = conn.execute(
                         text("""SELECT 1 FROM alumnos WHERE numero_control = :numero
                                 UNION ALL
@@ -302,12 +311,6 @@ def modificar_reinscripcion(numero_original: str, datos: dict) -> dict:
                             )
                     else:
                         grupos = []
-                    if numero_original != datos["numero_control"] and not cambio_semestre:
-                        conn.execute(
-                            text("""UPDATE inscripciones_grupos SET numero_control = :nuevo
-                                    WHERE numero_control = :anterior"""),
-                            {"nuevo": datos["numero_control"], "anterior": numero_original},
-                        )
                     conn.execute(
                         text("""UPDATE reinscripciones
                                 SET numero_control = :numero, nombre = :nombre,
