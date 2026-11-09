@@ -267,6 +267,9 @@ class ApiClient:
             "PUT", f"/reinscripciones/{numero_original}", json=datos,
         )
 
+    def eliminar_reinscripcion(self, numero_control: str) -> dict:
+        return self._request("DELETE", f"/reinscripciones/{numero_control}")
+
     def descargar_horario_alumno(self, numero_control: str) -> bytes:
         return self._descargar_pdf(f"/horarios/alumnos/{numero_control}/pdf")
 

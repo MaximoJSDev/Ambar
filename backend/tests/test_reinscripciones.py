@@ -149,6 +149,22 @@ class ReinscripcionesApiTests(unittest.TestCase):
         self.assertEqual(respuesta.status_code, 200)
         self.assertEqual(actualizacion.status_code, 200)
 
+    def test_baja_reinscripcion_conserva_el_registro_y_requiere_autorizacion(self):
+        resultado = {"numero_control": "26320700", "eliminado": True}
+        with patch(
+            "backend.routers.reinscripciones.servicios.eliminar_reinscripcion",
+            return_value=resultado,
+        ) as eliminar:
+            respuesta = self.client.delete("/reinscripciones/26320700")
+
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertEqual(respuesta.json(), resultado)
+        eliminar.assert_called_once_with("26320700", 1)
+
+        self.usuario["rol"] = "Docente"
+        no_autorizado = self.client.delete("/reinscripciones/26320700")
+        self.assertEqual(no_autorizado.status_code, 403)
+
 
 class ReinscripcionesServiceTests(unittest.TestCase):
     def setUp(self):
@@ -293,6 +309,7 @@ class ReinscripcionesServiceTests(unittest.TestCase):
         anterior.mappings.return_value.first.return_value = {
             "numero_control": "26320700",
             "semestre": 2,
+            "eliminado": False,
         }
         conn = MagicMock()
         conn.execute.return_value = anterior
@@ -313,11 +330,54 @@ class ReinscripcionesServiceTests(unittest.TestCase):
 
         self.assertEqual(conn.execute.call_count, 1)
 
+    def test_baja_logica_registra_actor_y_no_elimina_inscripciones(self):
+        fila = MagicMock()
+        fila.mappings.return_value.first.return_value = {
+            "numero_control": "26320700",
+            "eliminado": False,
+        }
+        conn = MagicMock()
+        conn.execute.side_effect = [fila, MagicMock()]
+
+        with patch("backend.servicios.engine.begin") as begin:
+            begin.return_value.__enter__.return_value = conn
+            resultado = servicios.eliminar_reinscripcion("26320700", 7)
+
+        self.assertEqual(
+            resultado,
+            {"numero_control": "26320700", "eliminado": True},
+        )
+        self.assertIn("UPDATE reinscripciones", str(conn.execute.call_args_list[1].args[0]))
+        self.assertEqual(
+            conn.execute.call_args_list[1].args[1],
+            {"usuario": 7, "numero": "26320700"},
+        )
+        self.assertEqual(conn.execute.call_count, 2)
+
+    def test_rechaza_dar_de_baja_una_reinscripcion_ya_inactiva(self):
+        fila = MagicMock()
+        fila.mappings.return_value.first.return_value = {
+            "numero_control": "26320700",
+            "eliminado": True,
+        }
+        conn = MagicMock()
+        conn.execute.return_value = fila
+
+        with (
+            patch("backend.servicios.engine.begin") as begin,
+            self.assertRaisesRegex(servicios.Conflicto, "ya se encuentra dada de baja"),
+        ):
+            begin.return_value.__enter__.return_value = conn
+            servicios.eliminar_reinscripcion("26320700", 7)
+
+        self.assertEqual(conn.execute.call_count, 1)
+
     def test_modifica_datos_sin_perder_el_horario_existente(self):
         anterior = MagicMock()
         anterior.mappings.return_value.first.return_value = {
             "numero_control": "26320700",
             "semestre": 2,
+            "eliminado": False,
         }
         duplicado = MagicMock()
         duplicado.scalar_one_or_none.return_value = None
@@ -377,6 +437,7 @@ class ReinscripcionesServiceTests(unittest.TestCase):
         consulta = str(conn.execute.call_args_list[1].args[0])
         self.assertIn("LEFT JOIN reinscripciones r", consulta)
         self.assertIn("COALESCE(a.nombres, r.nombre)", consulta)
+        self.assertIn("r.eliminado = FALSE", consulta)
 
     def test_consulta_de_horario_reconoce_reinscritos(self):
         registro = MagicMock()
@@ -401,6 +462,6 @@ class ReinscripcionesServiceTests(unittest.TestCase):
         self.assertEqual(estado["semestre"], 2)
         self.assertFalse(estado["asignado"])
         self.assertIn(
-            "FROM reinscripciones WHERE numero_control = :numero",
+            "FROM reinscripciones\n                    WHERE numero_control = :numero AND eliminado = FALSE",
             str(conn.execute.call_args_list[0].args[0]),
         )

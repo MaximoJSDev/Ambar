@@ -65,6 +65,24 @@ def obtener_reinscripcion(
         raise HTTPException(404, {"mensaje": "No se encontró la reinscripción"})
 
 
+@router.delete("/{numero_control}")
+def eliminar_reinscripcion(
+    numero_control: str,
+    usuario: dict = Depends(secretaria_o_administrador),
+):
+    try:
+        return servicios.eliminar_reinscripcion(
+            numero_control, usuario["id_usuario"],
+        )
+    except servicios.NoEncontrado:
+        raise HTTPException(404, {"mensaje": "No se encontró la reinscripción"})
+    except servicios.Conflicto as ex:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            {"mensaje": ex.mensaje},
+        )
+
+
 @router.put("/{numero_control}")
 def modificar_reinscripcion(
     numero_control: str,
