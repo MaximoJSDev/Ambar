@@ -173,9 +173,12 @@ al alumno en todos sus grupos. El reinscrito aparece en las listas del grupo y
 de calificaciones. Estos datos se pueden buscar y modificar desde
 **Reinscripción**, pero el número de control no se puede cambiar. Tampoco se
 permite cambiar el semestre o el paquete cuando ya hay calificaciones, para
-conservar sus inscripciones. Las reinscripciones también aparecen al buscar por
-número de control en **Consultas** y **Bajas**. El registro no crea un expediente
-completo de nuevo ingreso.
+conservar sus inscripciones. En **Consultas** se muestra el paquete desglosado
+por materia y horario, indicando el semestre. En **Bajas** se permite dar de
+baja la reinscripción; se conserva el historial académico, pero deja de aparecer
+en las listas activas. Las reinscripciones aparecen al buscar por número de
+control en **Consultas** y **Bajas**. El registro no crea un expediente completo
+de nuevo ingreso.
 
 Administración configura en **Periodos escolares** la fecha de inicio de la
 semana 1 para cada periodo; el sistema habilita la captura al comenzar las

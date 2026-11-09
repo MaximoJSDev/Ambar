@@ -96,6 +96,7 @@ class ApiClientTests(unittest.TestCase):
         )
         try:
             cliente.reinscripcion("26320700")
+            cliente.eliminar_reinscripcion("26320700")
             cliente.modificar_reinscripcion(
                 "26320700",
                 {
@@ -110,6 +111,7 @@ class ApiClientTests(unittest.TestCase):
 
         self.assertEqual(solicitudes, [
             ("GET", "/reinscripciones/26320700"),
+            ("DELETE", "/reinscripciones/26320700"),
             ("PUT", "/reinscripciones/26320700"),
         ])
 

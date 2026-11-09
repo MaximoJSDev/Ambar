@@ -4,12 +4,13 @@ from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
 from .. import reportes, servicios
-from ..constantes import ROL_DOCENTE, ROL_SECRETARIA
+from ..constantes import ROL_ADMINISTRADOR, ROL_DOCENTE, ROL_SECRETARIA
 from ..deps import requiere_roles
 from ..esquemas import CalificacionIn
 
 router = APIRouter(prefix="/horarios", tags=["Horarios y grupos"])
 solo_secretaria = requiere_roles(ROL_SECRETARIA)
+secretaria_o_administrador = requiere_roles(ROL_SECRETARIA, ROL_ADMINISTRADOR)
 solo_docente = requiere_roles(ROL_DOCENTE)
 
 
@@ -34,7 +35,10 @@ def listar_paquetes(
 
 
 @router.get("/alumnos/{numero_control}")
-def estado_horario(numero_control: str, _: dict = Depends(solo_secretaria)):
+def estado_horario(
+    numero_control: str,
+    _: dict = Depends(secretaria_o_administrador),
+):
     try:
         return servicios.estado_horario_alumno(numero_control)
     except servicios.NoEncontrado:
@@ -60,7 +64,10 @@ def asignar_paquete(
 
 
 @router.get("/alumnos/{numero_control}/pdf")
-def descargar_horario_alumno(numero_control: str, _: dict = Depends(solo_secretaria)):
+def descargar_horario_alumno(
+    numero_control: str,
+    _: dict = Depends(secretaria_o_administrador),
+):
     try:
         horario = servicios.estado_horario_alumno(numero_control)
     except servicios.NoEncontrado:

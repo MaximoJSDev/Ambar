@@ -418,6 +418,25 @@ class HorariosTests(unittest.TestCase):
         self.assertEqual(respuesta.status_code, 200)
         self.assertFalse(respuesta.json()["asignado"])
 
+    def test_administracion_puede_consultar_horario_desglosado(self):
+        self.usuario["rol"] = "Administrador"
+        estado = {
+            "numero_control": "26320700",
+            "semestre": 2,
+            "periodo": PERIODO_1ISC,
+            "asignado": True,
+            "paquete": {"id_paquete": 12, "nombre": "2ISC1"},
+            "materias": [{"nombre_materia": "Matemáticas"}],
+        }
+        with patch(
+            "backend.routers.horarios.servicios.estado_horario_alumno",
+            return_value=estado,
+        ):
+            respuesta = self.client.get("/horarios/alumnos/26320700")
+
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertEqual(respuesta.json()["materias"], estado["materias"])
+
     def test_secretaria_asigna_un_paquete_completo(self):
         estado = {
             "numero_control": "26320700",

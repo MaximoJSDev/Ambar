@@ -214,7 +214,24 @@ class ReinscripcionFormTests(unittest.TestCase):
             "id_paquete": 10,
             "paquete": "2ISC1",
         }
-        for rol, modo_bajas in (("Secretaría", False), ("Administrador", True)):
+        horario = {
+            "numero_control": "26320700",
+            "semestre": 2,
+            "periodo": "AGO-DIC 2026",
+            "asignado": True,
+            "paquete": {"nombre": "2ISC1", "periodo": "AGO-DIC 2026"},
+            "materias": [{
+                "nombre_materia": "Matemáticas",
+                "horarios": [{"dia": "Lunes", "inicio": "07:00", "fin": "08:00"}],
+                "aula": "G301",
+                "docente": "Docente Prueba",
+            }],
+        }
+        for rol, modo_bajas in (
+            ("Secretaría", False),
+            ("Administrador", False),
+            ("Administrador", True),
+        ):
             with self.subTest(rol=rol, modo_bajas=modo_bajas):
                 expediente = main.ConsultaExpediente.__new__(main.ConsultaExpediente)
                 expediente.page = MagicMock()
@@ -238,12 +255,18 @@ class ReinscripcionFormTests(unittest.TestCase):
                 expediente.aviso = ft.Text("", visible=False)
 
                 with patch.object(main.api, "reinscripcion", return_value=registro), patch.object(
+                    main.api, "estado_horario", return_value=horario,
+                ) as obtener_horario, patch.object(
                     main.api, "expediente",
                 ) as buscar_expediente:
                     expediente.buscar()
 
                 self.assertEqual(expediente.reinscripcion_data, registro)
                 buscar_expediente.assert_not_called()
+                if not modo_bajas:
+                    obtener_horario.assert_called_once_with("26320700")
+                else:
+                    obtener_horario.assert_not_called()
                 textos = {
                     control.value for control in controles(expediente.resultado)
                     if isinstance(control, ft.Text)
@@ -251,6 +274,56 @@ class ReinscripcionFormTests(unittest.TestCase):
                 self.assertIn("Ana", textos)
                 self.assertIn("Prueba", textos)
                 self.assertIn("26320700", textos)
+                if not modo_bajas:
+                    self.assertIn(
+                        f"Horario y grupo · {main.ordinal_semestre(2)}",
+                        textos,
+                    )
+                    self.assertIn("Matemáticas", textos)
+                    self.assertIn("Lun 07:00-08:00", textos)
+
+    def test_bajas_permite_dar_de_baja_y_muestra_el_estado(self):
+        expediente = main.ConsultaExpediente.__new__(main.ConsultaExpediente)
+        expediente.page = MagicMock()
+        expediente.reinscripcion_data = {
+            "numero_control": "26320700",
+            "nombre": "Ana",
+            "apellidos": "Prueba",
+            "semestre": 2,
+            "paquete": "2ISC1",
+            "eliminado": False,
+        }
+        expediente.modo_bajas = True
+        expediente.modo_modificacion = False
+        expediente.horario = None
+        expediente.resultado = ft.Column(spacing=20)
+        expediente.entrada = ft.TextField(value="26320700")
+        expediente._pintar()
+        boton_baja = next(
+            control for control in controles(expediente.resultado)
+            if isinstance(control, ft.OutlinedButton) and control.content == "Dar de baja"
+        )
+
+        with patch.object(main.api, "eliminar_reinscripcion") as eliminar:
+            boton_baja.on_click(None)
+            dialogo = expediente.page.show_dialog.call_args.args[0]
+            confirmar = next(
+                control for control in dialogo.actions
+                if isinstance(control, ft.FilledButton) and control.content == "Confirmar baja"
+            )
+            confirmar.on_click(None)
+
+        eliminar.assert_called_once_with("26320700")
+        self.assertTrue(expediente.reinscripcion_data["eliminado"])
+        textos = {
+            control.value for control in controles(expediente.resultado)
+            if isinstance(control, ft.Text)
+        }
+        self.assertIn("Dado de baja", textos)
+        self.assertNotIn("Dar de baja", {
+            control.content for control in controles(expediente.resultado)
+            if isinstance(control, ft.OutlinedButton)
+        })
 
 
 if __name__ == "__main__":

@@ -211,6 +211,7 @@ def obtener_reinscripcion(numero_control: str) -> dict:
     with engine.connect() as conn:
         fila = conn.execute(
             text("""SELECT DISTINCT r.numero_control, r.nombre, r.apellidos, r.semestre,
+                           r.eliminado, r.baja_en, r.baja_id_usuario,
                            p.id_paquete, p.nombre_paquete AS paquete
                     FROM reinscripciones r
                     LEFT JOIN inscripciones_grupos i ON i.numero_control = r.numero_control
@@ -222,6 +223,30 @@ def obtener_reinscripcion(numero_control: str) -> dict:
     if fila is None:
         raise NoEncontrado()
     return dict(fila)
+
+
+def eliminar_reinscripcion(numero_control: str, id_usuario: int) -> dict:
+    with engine.begin() as conn:
+        fila = conn.execute(
+            text("""SELECT numero_control, eliminado FROM reinscripciones
+                    WHERE numero_control = :numero FOR UPDATE"""),
+            {"numero": numero_control.strip()},
+        ).mappings().first()
+        if fila is None:
+            raise NoEncontrado()
+        if fila["eliminado"]:
+            raise Conflicto("La reinscripción ya se encuentra dada de baja.")
+        conn.execute(
+            text("""UPDATE reinscripciones
+                    SET eliminado = TRUE, baja_en = CURRENT_TIMESTAMP,
+                        baja_id_usuario = :usuario
+                    WHERE numero_control = :numero"""),
+            {"usuario": id_usuario, "numero": fila["numero_control"]},
+        )
+    return {
+        "numero_control": fila["numero_control"],
+        "eliminado": True,
+    }
 
 
 def modificar_reinscripcion(numero_original: str, datos: dict) -> dict:
@@ -240,12 +265,14 @@ def modificar_reinscripcion(numero_original: str, datos: dict) -> dict:
             try:
                 with engine.begin() as conn:
                     anterior = conn.execute(
-                        text("""SELECT numero_control, semestre FROM reinscripciones
+                        text("""SELECT numero_control, semestre, eliminado FROM reinscripciones
                                 WHERE numero_control = :numero FOR UPDATE"""),
                         {"numero": numero_original},
                     ).mappings().first()
                     if anterior is None:
                         raise NoEncontrado()
+                    if anterior["eliminado"]:
+                        raise Conflicto("No se puede modificar una reinscripción dada de baja.")
                     if numero_original != datos["numero_control"]:
                         raise Conflicto(
                             "No se puede modificar el número de control de una reinscripción.",
@@ -1219,7 +1246,7 @@ def _resumen_paquetes_horario(
                        COUNT(DISTINCT CASE
                            WHEN (a.numero_control IS NOT NULL
                                  AND a.estatus = 'Activo' AND a.eliminado = FALSE)
-                             OR r.numero_control IS NOT NULL
+                             OR (r.numero_control IS NOT NULL AND r.eliminado = FALSE)
                            THEN i.numero_control END) AS alumnos,
                        MIN(g.turno) AS turno,
                        MIN(g.cupo_maximo) AS cupo_maximo,
@@ -1322,8 +1349,9 @@ def estado_horario_alumno(numero_control: str) -> dict:
                     UNION ALL
                     SELECT numero_control, nombre AS nombres, apellidos AS apellido_paterno,
                            NULL AS apellido_materno, semestre AS semestre_actual,
-                           'Activo' AS estatus, FALSE AS eliminado
-                    FROM reinscripciones WHERE numero_control = :numero
+                           'Activo' AS estatus, eliminado
+                    FROM reinscripciones
+                    WHERE numero_control = :numero AND eliminado = FALSE
                     LIMIT 1"""),
             {"numero": numero_control},
         ).mappings().first()
@@ -1576,7 +1604,8 @@ def lista_alumnos_paquete(id_paquete: int) -> dict:
                     LEFT JOIN reinscripciones r ON r.numero_control = i.numero_control
                     WHERE g.id_paquete = :paquete AND g.periodo_escolar = :periodo
                       AND ((a.numero_control IS NOT NULL AND a.estatus = 'Activo'
-                            AND a.eliminado = FALSE) OR r.numero_control IS NOT NULL)
+                            AND a.eliminado = FALSE)
+                           OR (r.numero_control IS NOT NULL AND r.eliminado = FALSE))
                     ORDER BY apellido_paterno, a.apellido_materno, nombres,
                              i.numero_control"""),
             {"paquete": id_paquete, "periodo": PERIODO_1ISC},
@@ -1817,7 +1846,8 @@ def listar_grupos_docente(id_usuario: int) -> list[dict]:
                     LEFT JOIN calificaciones c ON c.id_inscripcion = i.id_inscripcion
                     WHERE i.id_grupo IN :grupos
                       AND ((a.numero_control IS NOT NULL AND a.estatus = 'Activo'
-                            AND a.eliminado = FALSE) OR r.numero_control IS NOT NULL)
+                            AND a.eliminado = FALSE)
+                           OR (r.numero_control IS NOT NULL AND r.eliminado = FALSE))
                     GROUP BY i.id_grupo, i.numero_control, a.numero_control, r.nombre,
                              a.nombres, r.apellidos, a.apellido_paterno, a.apellido_materno
                     ORDER BY i.id_grupo, COALESCE(a.apellido_paterno, r.apellidos),
@@ -1862,7 +1892,8 @@ def _inscripcion_docente_bloqueada(conn, id_usuario: int, id_grupo: int, numero_
                   AND g.periodo_escolar = :periodo
                   AND i.numero_control = :numero
                   AND ((a.numero_control IS NOT NULL AND a.estatus = 'Activo'
-                        AND a.eliminado = FALSE) OR r.numero_control IS NOT NULL)
+                        AND a.eliminado = FALSE)
+                       OR (r.numero_control IS NOT NULL AND r.eliminado = FALSE))
                 FOR UPDATE"""),
         {
             "usuario": id_usuario,

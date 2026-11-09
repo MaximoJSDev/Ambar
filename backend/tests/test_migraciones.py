@@ -35,6 +35,7 @@ class MigracionesTests(unittest.TestCase):
             "2026_11_04_domicilio_estructurado",
             "2026_11_08_registro_reinscripciones",
             "2026_11_08_reinscripciones_en_grupos",
+            "2026_11_08_bajas_reinscripciones",
         ]
         conn = MagicMock()
         conn.execute.return_value = resultado
@@ -54,6 +55,7 @@ class MigracionesTests(unittest.TestCase):
             "2026_11_04_domicilio_estructurado",
             None,
             None,
+            None,
         ]
         conn = MagicMock()
         conn.execute.return_value = resultado
@@ -66,6 +68,47 @@ class MigracionesTests(unittest.TestCase):
         self.assertIn("semestre IN (2, 3)", tabla)
         self.assertTrue(any("2026_11_08_registro_reinscripciones" in str(llamada.args[1])
                             for llamada in conn.execute.call_args_list if len(llamada.args) > 1))
+        self.assertIn("eliminado BOOLEAN NOT NULL DEFAULT FALSE", tabla)
+
+    def test_migra_columnas_para_baja_logica_de_reinscripciones(self):
+        inspector = MagicMock()
+        inspector.has_table.return_value = True
+        inspector.get_columns.return_value = [
+            {"name": "numero_control"},
+            {"name": "nombre"},
+            {"name": "apellidos"},
+            {"name": "semestre"},
+            {"name": "creado_en"},
+        ]
+        inspector.get_foreign_keys.return_value = []
+        resultado = MagicMock()
+        resultado.scalar_one_or_none.side_effect = [
+            "2026_11_04_domicilio_estructurado",
+            "2026_11_08_registro_reinscripciones",
+            "2026_11_08_reinscripciones_en_grupos",
+            None,
+        ]
+        conn = MagicMock()
+        conn.execute.return_value = resultado
+
+        with patch("backend.migraciones.inspect", return_value=inspector):
+            migraciones.aplicar_migraciones(conn)
+
+        consultas = [str(llamada.args[0]) for llamada in conn.execute.call_args_list]
+        self.assertIn(
+            "ALTER TABLE reinscripciones ADD COLUMN eliminado BOOLEAN NOT NULL DEFAULT FALSE",
+            consultas,
+        )
+        self.assertIn("ALTER TABLE reinscripciones ADD COLUMN baja_en TIMESTAMP NULL", consultas)
+        self.assertIn(
+            "ALTER TABLE reinscripciones ADD COLUMN baja_id_usuario INT NULL",
+            consultas,
+        )
+        self.assertIn(
+            "ALTER TABLE reinscripciones ADD CONSTRAINT fk_reinscripciones_baja_usuario "
+            "FOREIGN KEY (baja_id_usuario) REFERENCES usuarios(id_usuario)",
+            consultas,
+        )
 
     def test_quita_fk_de_alumnos_para_permitir_reinscritos_en_grupos(self):
         inspector = MagicMock()
@@ -79,6 +122,7 @@ class MigracionesTests(unittest.TestCase):
         resultado.scalar_one_or_none.side_effect = [
             "2026_11_04_domicilio_estructurado",
             "2026_11_08_registro_reinscripciones",
+            None,
             None,
         ]
         conn = MagicMock()

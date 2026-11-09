@@ -3310,6 +3310,21 @@ class ConsultaExpediente:
             self.paquetes_horario = []
             self.error_horario = None
             if (
+                self.reinscripcion_data is not None
+                and not self.reinscripcion_data.get("eliminado", False)
+                and not self.modo_modificacion
+                and not self.modo_bajas
+            ):
+                try:
+                    self.horario = api.estado_horario(
+                        self.reinscripcion_data["numero_control"],
+                    )
+                except ApiError as ex:
+                    if ex.status == 401:
+                        self.navegar("/consultas")
+                        return
+                    self.error_horario = ex.mensaje
+            if (
                 self.datos is not None
                 and
                 self.usuario["rol"] == "Secretaría"
@@ -3539,6 +3554,20 @@ class ConsultaExpediente:
             ), padding=20)
 
         if not self.horario["asignado"]:
+            if self.usuario["rol"] != "Secretaría":
+                return crear_tarjeta(ft.Column(spacing=8, controls=[
+                    ft.Text(
+                        f"Horario y grupo · {ordinal_semestre(self.horario['semestre'])}",
+                        size=19,
+                        weight=ft.FontWeight.BOLD,
+                        color=NAVY,
+                    ),
+                    ft.Text(
+                        "El alumno no tiene un paquete asignado en este periodo.",
+                        size=14,
+                        color=TEXT,
+                    ),
+                ]), padding=20)
             selector = ft.Dropdown(
                 label=f"Grupo destino para semestre {self.horario['semestre']}",
                 options=[
@@ -3620,7 +3649,12 @@ class ConsultaExpediente:
         return crear_tarjeta(ft.Column(spacing=12, controls=[
             ft.Row(alignment=ft.MainAxisAlignment.SPACE_BETWEEN, controls=[
                 ft.Column(spacing=4, controls=[
-                    ft.Text("Horario y grupo", size=19, weight=ft.FontWeight.BOLD, color=NAVY),
+                    ft.Text(
+                        f"Horario y grupo · {ordinal_semestre(self.horario['semestre'])}",
+                        size=19,
+                        weight=ft.FontWeight.BOLD,
+                        color=NAVY,
+                    ),
                     ft.Text(
                         f"{paquete['nombre']} · {paquete['periodo']} · "
                         f"{len(materias)} materias",
@@ -3643,6 +3677,15 @@ class ConsultaExpediente:
     def _pintar(self):
         if self.reinscripcion_data is not None:
             self.resultado.controls = [self._encabezado_reinscripcion()]
+            if (
+                not self.modo_modificacion
+                and not self.modo_bajas
+                and (
+                    self.horario is not None
+                    or self.error_horario is not None
+                )
+            ):
+                self.resultado.controls.append(self._panel_horario())
             return
         if self.datos is None:
             self.resultado.controls = [crear_tarjeta(
@@ -3670,13 +3713,22 @@ class ConsultaExpediente:
                     ft.Text("Datos de reinscripción", size=19, weight=ft.FontWeight.BOLD, color=NAVY),
                     ft.Text(registro["numero_control"], size=13, color=MUTED),
                 ]),
-                *([
-                    ft.OutlinedButton(
-                        "Modificar reinscripción",
-                        style=estilo_boton_secundario(),
-                        on_click=self._editar_reinscripcion,
-                    ),
-                ] if self.modo_modificacion else []),
+                ft.Row(spacing=8, controls=[
+                    *([
+                        ft.OutlinedButton(
+                            "Modificar reinscripción",
+                            style=estilo_boton_secundario(),
+                            on_click=self._editar_reinscripcion,
+                        ),
+                    ] if self.modo_modificacion and not registro.get("eliminado") else []),
+                    *([
+                        ft.OutlinedButton(
+                            "Dar de baja",
+                            style=estilo_boton_secundario(),
+                            on_click=self._confirmar_baja_reinscripcion,
+                        ),
+                    ] if self.modo_bajas and not registro.get("eliminado") else []),
+                ]),
             ]),
             ft.ResponsiveRow(spacing=12, run_spacing=8, controls=[
                 ft.Container(col={"xs": 12, "md": 6}, content=ft.Column(spacing=3, controls=[
@@ -3695,8 +3747,54 @@ class ConsultaExpediente:
                     ft.Text("Paquete asignado", size=12, color=MUTED),
                     ft.Text(registro["paquete"] or "Sin paquete", size=14, color=TEXT),
                 ])),
+                ft.Container(col={"xs": 6, "md": 3}, content=ft.Column(spacing=3, controls=[
+                    ft.Text("Estado", size=12, color=MUTED),
+                    ft.Text(
+                        "Dado de baja" if registro.get("eliminado") else "Activo",
+                        size=14,
+                        color=TEXT,
+                    ),
+                ])),
             ]),
         ]), padding=20)
+
+    def _confirmar_baja_reinscripcion(self, e=None):
+        registro = self.reinscripcion_data
+        self.page.show_dialog(ft.AlertDialog(
+            modal=True,
+            title=ft.Text("Dar de baja la reinscripción"),
+            content=ft.Text(
+                "La reinscripción dejará de aparecer en las listas activas. "
+                "Se conservarán sus inscripciones y calificaciones históricas."
+            ),
+            actions=[
+                ft.TextButton("Cancelar", on_click=lambda _: self.page.pop_dialog()),
+                ft.FilledButton(
+                    "Confirmar baja",
+                    style=estilo_boton_primario(),
+                    on_click=self._dar_baja_reinscripcion,
+                ),
+            ],
+        ))
+
+    def _dar_baja_reinscripcion(self, e=None):
+        numero_control = self.reinscripcion_data["numero_control"]
+        try:
+            api.eliminar_reinscripcion(numero_control)
+        except ApiError as ex:
+            if ex.status == 401:
+                self.navegar("/consultas")
+                return
+            snackbar(self.page, ex.mensaje)
+            return
+
+        self.page.pop_dialog()
+        self.reinscripcion_data["eliminado"] = True
+        self.reinscripcion_data["baja_en"] = None
+        self.horario = None
+        self._pintar()
+        self.page.update()
+        snackbar(self.page, f"Reinscripción {numero_control} dada de baja.")
 
     def _editar_reinscripcion(self, e=None):
         registro = self.reinscripcion_data

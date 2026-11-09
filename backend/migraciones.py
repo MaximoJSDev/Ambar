@@ -9,6 +9,7 @@ log = logging.getLogger("sige")
 _MIGRACION_DOMICILIO_ESTRUCTURADO = "2026_11_04_domicilio_estructurado"
 _MIGRACION_REGISTRO_REINSCRIPCIONES = "2026_11_08_registro_reinscripciones"
 _MIGRACION_REINSCRIPCIONES_EN_GRUPOS = "2026_11_08_reinscripciones_en_grupos"
+_MIGRACION_BAJAS_REINSCRIPCIONES = "2026_11_08_bajas_reinscripciones"
 
 
 def _migrar_domicilio_estructurado(conn: Connection) -> None:
@@ -74,6 +75,9 @@ def aplicar_migraciones(conn: Connection) -> None:
             apellidos VARCHAR(100) NOT NULL,
             semestre TINYINT NOT NULL,
             creado_en TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            eliminado BOOLEAN NOT NULL DEFAULT FALSE,
+            baja_en TIMESTAMP NULL,
+            baja_id_usuario INT NULL,
             CONSTRAINT chk_reinscripcion_semestre CHECK (semestre IN (2, 3))
         ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"""))
         conn.execute(
@@ -104,3 +108,44 @@ def aplicar_migraciones(conn: Connection) -> None:
             {"version": _MIGRACION_REINSCRIPCIONES_EN_GRUPOS},
         )
         log.info("Migración de base de datos aplicada: %s", _MIGRACION_REINSCRIPCIONES_EN_GRUPOS)
+
+    aplicada = conn.execute(
+        text("""SELECT version FROM ambar_schema_migrations
+                WHERE version = :version"""),
+        {"version": _MIGRACION_BAJAS_REINSCRIPCIONES},
+    ).scalar_one_or_none()
+    if aplicada is None:
+        if inspector.has_table("reinscripciones"):
+            columnas = {
+                columna["name"]
+                for columna in inspect(conn).get_columns("reinscripciones")
+            }
+            if "eliminado" not in columnas:
+                conn.execute(text(
+                    "ALTER TABLE reinscripciones "
+                    "ADD COLUMN eliminado BOOLEAN NOT NULL DEFAULT FALSE"
+                ))
+            if "baja_en" not in columnas:
+                conn.execute(text(
+                    "ALTER TABLE reinscripciones ADD COLUMN baja_en TIMESTAMP NULL"
+                ))
+            if "baja_id_usuario" not in columnas:
+                conn.execute(text(
+                    "ALTER TABLE reinscripciones ADD COLUMN baja_id_usuario INT NULL"
+                ))
+            llaves = inspect(conn).get_foreign_keys("reinscripciones")
+            if not any(
+                llave.get("referred_table") == "usuarios"
+                and "baja_id_usuario" in llave.get("constrained_columns", [])
+                for llave in llaves
+            ):
+                conn.execute(text(
+                    "ALTER TABLE reinscripciones "
+                    "ADD CONSTRAINT fk_reinscripciones_baja_usuario "
+                    "FOREIGN KEY (baja_id_usuario) REFERENCES usuarios(id_usuario)"
+                ))
+        conn.execute(
+            text("INSERT INTO ambar_schema_migrations (version) VALUES (:version)"),
+            {"version": _MIGRACION_BAJAS_REINSCRIPCIONES},
+        )
+        log.info("Migración de base de datos aplicada: %s", _MIGRACION_BAJAS_REINSCRIPCIONES)

@@ -79,6 +79,10 @@ CREATE TABLE reinscripciones (
     apellidos VARCHAR(100) NOT NULL,
     semestre TINYINT NOT NULL,
     creado_en TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    eliminado BOOLEAN NOT NULL DEFAULT FALSE,
+    baja_en TIMESTAMP NULL,
+    baja_id_usuario INT NULL,
+    FOREIGN KEY (baja_id_usuario) REFERENCES usuarios(id_usuario),
     CONSTRAINT chk_reinscripcion_semestre CHECK (semestre IN (2, 3))
 );
 
