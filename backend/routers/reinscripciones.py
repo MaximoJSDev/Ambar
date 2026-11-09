@@ -16,7 +16,8 @@ class ReinscripcionIn(BaseModel):
 
     numero_control: str
     nombre: str
-    apellidos: str
+    apellido_paterno: str
+    apellido_materno: str
     semestre: int
 
 

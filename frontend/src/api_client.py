@@ -366,7 +366,7 @@ class ApiClient:
         )
 
     def registrar_alta(self, registro: dict) -> dict:
-        """Envía el registro de FormAltas.registro(): datos en JSON y los PDF en multipart
+        """Envía FormAltas.construir_datos_de_inscripcion(): JSON y PDF multipart
         (se leen del disco por bloques, no se cargan completos en memoria)."""
         datos = {k: val for k, val in registro.items() if k not in ("documentos", "nombre_completo")}
         datos["fecha_nacimiento"] = registro["fecha_nacimiento"].isoformat()

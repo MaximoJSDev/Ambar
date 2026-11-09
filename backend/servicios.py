@@ -83,24 +83,33 @@ def validar_reinscripcion(datos: dict) -> dict[str, str]:
     errores: dict[str, str] = {}
     numero = datos["numero_control"]
     nombre = datos["nombre"]
-    apellidos = datos["apellidos"]
+    apellido_paterno = datos["apellido_paterno"]
+    apellido_materno = datos["apellido_materno"]
     semestre = datos["semestre"]
 
     if not re.fullmatch(r"\d{8}", numero):
         errores["numero_control"] = "Debe contener exactamente 8 dígitos"
     if error := v.validar_nombre_personal(nombre, "Nombre", maximo=50):
         errores["nombre"] = error
-    if error := v.validar_nombre_personal(apellidos, "Apellidos", maximo=100):
-        errores["apellidos"] = error
+    if error := v.validar_nombre_personal(
+        apellido_paterno, "Apellido paterno", maximo=50,
+    ):
+        errores["apellido_paterno"] = error
+    if error := v.validar_nombre_personal(
+        apellido_materno, "Apellido materno", maximo=50,
+    ):
+        errores["apellido_materno"] = error
     if semestre not in (2, 3):
         errores["semestre"] = "Selecciona segundo o tercer semestre"
-    elif re.fullmatch(r"\d{8}", numero):
+    elif "numero_control" not in errores and re.fullmatch(r"\d{8}", numero):
         anio_esperado = "26" if semestre == 2 else "25"
         if not numero.startswith(anio_esperado):
             anio = "2026" if semestre == 2 else "2025"
             errores["numero_control"] = (
                 f"Para {semestre}° semestre, el número de control debe corresponder al año {anio}"
             )
+        elif error := v.validar_periodo_numero_control(numero, semestre):
+            errores["numero_control"] = error
     return errores
 
 
@@ -138,12 +147,15 @@ def registrar_reinscripcion(datos: dict) -> dict:
                     )
                     conn.execute(
                         text("""INSERT INTO reinscripciones
-                                    (numero_control, nombre, apellidos, semestre)
-                                VALUES (:numero_control, :nombre, :apellidos, :semestre)"""),
+                                    (numero_control, nombre, apellido_paterno,
+                                     apellido_materno, semestre)
+                                VALUES (:numero_control, :nombre, :apellido_paterno,
+                                        :apellido_materno, :semestre)"""),
                         {
                             "numero_control": datos["numero_control"],
                             "nombre": datos["nombre"],
-                            "apellidos": datos["apellidos"],
+                            "apellido_paterno": datos["apellido_paterno"],
+                            "apellido_materno": datos["apellido_materno"],
                             "semestre": datos["semestre"],
                         },
                     )
@@ -210,7 +222,8 @@ def _grupos_paquete_reinscripcion(
 def obtener_reinscripcion(numero_control: str) -> dict:
     with engine.connect() as conn:
         fila = conn.execute(
-            text("""SELECT DISTINCT r.numero_control, r.nombre, r.apellidos, r.semestre,
+            text("""SELECT DISTINCT r.numero_control, r.nombre, r.apellido_paterno,
+                           r.apellido_materno, r.semestre,
                            r.eliminado, r.baja_en, r.baja_id_usuario,
                            p.id_paquete, p.nombre_paquete AS paquete
                     FROM reinscripciones r
@@ -341,12 +354,15 @@ def modificar_reinscripcion(numero_original: str, datos: dict) -> dict:
                     conn.execute(
                         text("""UPDATE reinscripciones
                                 SET numero_control = :numero, nombre = :nombre,
-                                    apellidos = :apellidos, semestre = :semestre
+                                    apellido_paterno = :apellido_paterno,
+                                    apellido_materno = :apellido_materno,
+                                    semestre = :semestre
                                 WHERE numero_control = :original"""),
                         {
                             "numero": datos["numero_control"],
                             "nombre": datos["nombre"],
-                            "apellidos": datos["apellidos"],
+                            "apellido_paterno": datos["apellido_paterno"],
+                            "apellido_materno": datos["apellido_materno"],
                             "semestre": datos["semestre"],
                             "original": numero_original,
                         },
@@ -1347,8 +1363,8 @@ def estado_horario_alumno(numero_control: str) -> dict:
                            semestre_actual, estatus, eliminado
                     FROM alumnos WHERE numero_control = :numero
                     UNION ALL
-                    SELECT numero_control, nombre AS nombres, apellidos AS apellido_paterno,
-                           NULL AS apellido_materno, semestre AS semestre_actual,
+                    SELECT numero_control, nombre AS nombres, apellido_paterno,
+                           apellido_materno, semestre AS semestre_actual,
                            'Activo' AS estatus, eliminado
                     FROM reinscripciones
                     WHERE numero_control = :numero AND eliminado = FALSE
@@ -1596,8 +1612,9 @@ def lista_alumnos_paquete(id_paquete: int) -> dict:
         alumnos = conn.execute(
             text("""SELECT DISTINCT i.numero_control,
                            COALESCE(a.nombres, r.nombre) AS nombres,
-                           COALESCE(a.apellido_paterno, r.apellidos) AS apellido_paterno,
-                           a.apellido_materno, a.correo_institucional
+                           COALESCE(a.apellido_paterno, r.apellido_paterno) AS apellido_paterno,
+                           COALESCE(a.apellido_materno, r.apellido_materno) AS apellido_materno,
+                           a.correo_institucional
                     FROM inscripciones_grupos i
                     JOIN grupos g ON g.id_grupo = i.id_grupo
                     LEFT JOIN alumnos a ON a.numero_control = i.numero_control
@@ -1606,7 +1623,7 @@ def lista_alumnos_paquete(id_paquete: int) -> dict:
                       AND ((a.numero_control IS NOT NULL AND a.estatus = 'Activo'
                             AND a.eliminado = FALSE)
                            OR (r.numero_control IS NOT NULL AND r.eliminado = FALSE))
-                    ORDER BY apellido_paterno, a.apellido_materno, nombres,
+                    ORDER BY apellido_paterno, apellido_materno, nombres,
                              i.numero_control"""),
             {"paquete": id_paquete, "periodo": PERIODO_1ISC},
         ).mappings().all()
@@ -1832,8 +1849,8 @@ def listar_grupos_docente(id_usuario: int) -> list[dict]:
         inscripciones = conn.execute(
             text("""SELECT i.id_grupo, i.numero_control,
                            COALESCE(a.nombres, r.nombre) AS nombres,
-                           COALESCE(a.apellido_paterno, r.apellidos) AS apellido_paterno,
-                           a.apellido_materno,
+                           COALESCE(a.apellido_paterno, r.apellido_paterno) AS apellido_paterno,
+                           COALESCE(a.apellido_materno, r.apellido_materno) AS apellido_materno,
                            MAX(CASE WHEN c.periodo_evaluacion = 'Semana 5' THEN c.valor END) AS semana_5,
                            MAX(CASE WHEN c.periodo_evaluacion = 'Semana 9' THEN c.valor END) AS semana_9,
                            MAX(CASE WHEN c.periodo_evaluacion = 'Semana 13' THEN c.valor END) AS semana_13,
@@ -1849,9 +1866,12 @@ def listar_grupos_docente(id_usuario: int) -> list[dict]:
                             AND a.eliminado = FALSE)
                            OR (r.numero_control IS NOT NULL AND r.eliminado = FALSE))
                     GROUP BY i.id_grupo, i.numero_control, a.numero_control, r.nombre,
-                             a.nombres, r.apellidos, a.apellido_paterno, a.apellido_materno
-                    ORDER BY i.id_grupo, COALESCE(a.apellido_paterno, r.apellidos),
-                             a.apellido_materno, COALESCE(a.nombres, r.nombre),
+                             a.nombres, r.nombre, r.apellido_paterno, r.apellido_materno,
+                             a.apellido_paterno, a.apellido_materno
+                    ORDER BY i.id_grupo,
+                             COALESCE(a.apellido_paterno, r.apellido_paterno),
+                             COALESCE(a.apellido_materno, r.apellido_materno),
+                             COALESCE(a.nombres, r.nombre),
                              i.numero_control""").bindparams(
                 bindparam("grupos", expanding=True)
             ),

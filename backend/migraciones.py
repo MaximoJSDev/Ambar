@@ -10,6 +10,7 @@ _MIGRACION_DOMICILIO_ESTRUCTURADO = "2026_11_04_domicilio_estructurado"
 _MIGRACION_REGISTRO_REINSCRIPCIONES = "2026_11_08_registro_reinscripciones"
 _MIGRACION_REINSCRIPCIONES_EN_GRUPOS = "2026_11_08_reinscripciones_en_grupos"
 _MIGRACION_BAJAS_REINSCRIPCIONES = "2026_11_08_bajas_reinscripciones"
+_MIGRACION_APELLIDOS_REINSCRIPCIONES = "2026_11_09_apellidos_reinscripciones"
 
 
 def _migrar_domicilio_estructurado(conn: Connection) -> None:
@@ -72,7 +73,8 @@ def aplicar_migraciones(conn: Connection) -> None:
         conn.execute(text("""CREATE TABLE IF NOT EXISTS reinscripciones (
             numero_control VARCHAR(20) PRIMARY KEY,
             nombre VARCHAR(50) NOT NULL,
-            apellidos VARCHAR(100) NOT NULL,
+            apellido_paterno VARCHAR(100) NOT NULL,
+            apellido_materno VARCHAR(100) NOT NULL,
             semestre TINYINT NOT NULL,
             creado_en TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
             eliminado BOOLEAN NOT NULL DEFAULT FALSE,
@@ -149,3 +151,72 @@ def aplicar_migraciones(conn: Connection) -> None:
             {"version": _MIGRACION_BAJAS_REINSCRIPCIONES},
         )
         log.info("Migración de base de datos aplicada: %s", _MIGRACION_BAJAS_REINSCRIPCIONES)
+
+    aplicada = conn.execute(
+        text("""SELECT version FROM ambar_schema_migrations
+                WHERE version = :version"""),
+        {"version": _MIGRACION_APELLIDOS_REINSCRIPCIONES},
+    ).scalar_one_or_none()
+    if aplicada is None:
+        _migrar_apellidos_reinscripciones(conn)
+        conn.execute(
+            text("INSERT INTO ambar_schema_migrations (version) VALUES (:version)"),
+            {"version": _MIGRACION_APELLIDOS_REINSCRIPCIONES},
+        )
+        log.info(
+            "Migración de base de datos aplicada: %s",
+            _MIGRACION_APELLIDOS_REINSCRIPCIONES,
+        )
+
+
+def _migrar_apellidos_reinscripciones(conn: Connection) -> None:
+    if not inspect(conn).has_table("reinscripciones"):
+        return
+
+    columnas = {
+        columna["name"]
+        for columna in inspect(conn).get_columns("reinscripciones")
+    }
+    if "apellidos" not in columnas:
+        return
+
+    if "apellido_paterno" not in columnas:
+        conn.execute(text(
+            "ALTER TABLE reinscripciones "
+            "ADD COLUMN apellido_paterno VARCHAR(100) NULL"
+        ))
+    if "apellido_materno" not in columnas:
+        conn.execute(text(
+            "ALTER TABLE reinscripciones "
+            "ADD COLUMN apellido_materno VARCHAR(100) NULL"
+        ))
+
+    conn.execute(text("""UPDATE reinscripciones
+        SET apellido_paterno = COALESCE(
+                apellido_paterno,
+                SUBSTRING_INDEX(TRIM(apellidos), ' ', 1)
+            ),
+            apellido_materno = COALESCE(
+                apellido_materno,
+                CASE
+                    WHEN LOCATE(' ', TRIM(apellidos)) > 0
+                    THEN TRIM(SUBSTRING(
+                        TRIM(apellidos),
+                        LOCATE(' ', TRIM(apellidos)) + 1
+                    ))
+                    ELSE ''
+                END
+            )"""))
+    conn.execute(text(
+        "ALTER TABLE reinscripciones "
+        "MODIFY COLUMN apellido_paterno VARCHAR(100) NOT NULL"
+    ))
+    conn.execute(text(
+        "ALTER TABLE reinscripciones "
+        "MODIFY COLUMN apellido_materno VARCHAR(100) NOT NULL"
+    ))
+    conn.execute(text("ALTER TABLE reinscripciones DROP COLUMN apellidos"))
+    log.info(
+        "Se separaron apellidos existentes: primer componente como paterno y "
+        "componentes restantes como materno."
+    )

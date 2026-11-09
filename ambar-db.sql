@@ -76,7 +76,8 @@ CREATE TABLE alumnos (
 CREATE TABLE reinscripciones (
     numero_control VARCHAR(20) PRIMARY KEY,
     nombre VARCHAR(50) NOT NULL,
-    apellidos VARCHAR(100) NOT NULL,
+    apellido_paterno VARCHAR(100) NOT NULL,
+    apellido_materno VARCHAR(100) NOT NULL,
     semestre TINYINT NOT NULL,
     creado_en TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     eliminado BOOLEAN NOT NULL DEFAULT FALSE,

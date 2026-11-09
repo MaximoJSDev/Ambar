@@ -125,8 +125,11 @@ el backend y los comandos de inicialización aplican migraciones pendientes,
 registradas en `ambar_schema_migrations`. Por ejemplo, si una base anterior
 todavía tiene `alumnos.domicilio`, conserva ese texto en `domicilios.calle` (sin
 reemplazar domicilios estructurados existentes) y elimina la columna antigua que
-impedía registrar alumnos. El usuario MySQL configurado debe tener permisos
-para crear tablas y alterar el esquema.
+impedía registrar alumnos. La migración de reinscripciones separa el primer
+componente de `apellidos` como paterno y el resto como materno; este criterio
+conserva los componentes pero puede requerir revisión cuando el apellido paterno
+sea compuesto. El usuario MySQL configurado debe tener permisos para crear
+tablas y alterar el esquema.
 
 Administración también puede crear cuentas de secretarias desde **Alta de
 secretaria** y revisar o dar de baja cuentas desde **Consulta de secretarias**.

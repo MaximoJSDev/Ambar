@@ -371,7 +371,11 @@ class HorariosTests(unittest.TestCase):
         self.assertEqual(conn.execute.call_args_list[1].args[1]["usuario"], 42)
         self.assertIn("g.id_docente = d.id_docente", str(conn.execute.call_args_list[1].args[0]))
         self.assertIn(
-            "ORDER BY i.id_grupo, COALESCE(a.apellido_paterno, r.apellidos)",
+            "COALESCE(a.apellido_paterno, r.apellido_paterno)",
+            str(conn.execute.call_args_list[2].args[0]),
+        )
+        self.assertIn(
+            "COALESCE(a.apellido_materno, r.apellido_materno)",
             str(conn.execute.call_args_list[2].args[0]),
         )
         self.assertIn("LEFT JOIN reinscripciones r", str(conn.execute.call_args_list[2].args[0]))
