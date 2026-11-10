@@ -1,242 +1,261 @@
-# Proyecto Ambar - Sistema Integral de Gestión Escolar
+# Ambar - Sistema integral de gestión escolar
 
-Bienvenido al repositorio del **Proyecto Ambar**, un sistema de software diseñado para la gestión centralizada de los servicios escolares de una institución universitaria. Este sistema facilita la administración de inscripciones, reinscripciones, control académico, actividades docentes y generación de estadísticas institucionales.
+Ambar es una solución desarrollada para gestionar la operación escolar de una institución universitaria. Centraliza procesos clave como inscripciones, reinscripciones, grupos, docentes, calificaciones, administración de usuarios y consultas académicas.
 
-## Arquitectura del Proyecto
+El proyecto está dividido en dos partes principales:
 
-El ecosistema del proyecto está construido 100% en Python, dividido en dos capas principales:
-*   **Frontend (Cliente de Escritorio):** Construido con **Flet**, proporcionando una interfaz gráfica reactiva y moderna.
-*   **Backend (Servidor/API):** Construido con **FastAPI**, encargado de la lógica de negocio, reglas de seguridad y conexión a la base de datos de manera asíncrona.
+- Frontend: aplicación de escritorio construida con Flet
+- Backend: API desarrollada con FastAPI
+
+Ambas partes trabajan con una base de datos MySQL/MariaDB y comparten la lógica del negocio y la seguridad del sistema.
 
 ---
 
-## Requisitos Previos
+## ¿Qué hace Ambar?
 
-Antes de comenzar, asegúrate de tener instalado lo siguiente en tu equipo:
-*   [Python 3.10 o superior](https://www.python.org/downloads/)
-*   [Git](https://git-scm.com/)
+Ambar permite:
+
+- Registrar y consultar alumnos
+- Gestionar reinscripciones y bajas
+- Administrar grupos, materias y horarios
+- Asignar docentes a materias y grupos
+- Capturar y consultar calificaciones por periodos
+- Gestionar usuarios con roles como Secretaría, Administración y Docentes
+- Generar documentos y reportes PDF
+- Mantener bitácoras, historial de cambios y auditoría
+
+---
+
+## Requisitos previos
+
+Antes de comenzar, necesitas tener instalado:
+
+- [Python 3.10 o superior](https://www.python.org/downloads/)
+- [Git](https://git-scm.com/)
+- [MySQL o MariaDB](https://www.mysql.com/) en ejecución
+
+> El usuario de MySQL que configure debe poder crear bases de datos y modificar el esquema.
+
+---
+
+## Inicio rápido en Windows
+
+La forma más sencilla de iniciar el sistema es usando el archivo `run-ambar.bat`.
+
+1. Clona el repositorio
+```bash
+git clone <URL_DEL_REPOSITORIO>
+cd Ambar
+```
+
+2. Ejecuta `run-ambar.bat`
+
+Al abrirlo por primera vez, el lanzador:
+
+- crea el entorno virtual si hace falta
+- instala dependencias
+- solicita la configuración de la base de datos
+- crea la base `ambar_escolar` si no existe
+- importa el esquema y datos iniciales
+- solicita la creación de una cuenta de Secretaría
+- guarda la configuración en `backend/.env`
+
+Si la base de datos ya existe, el lanzador no la modifica de forma automática ni crea usuarios nuevos. En ese caso puedes crear o actualizar la cuenta con:
+
+```bash
+python -m backend.seed --correo TU_CORREO --nombres TU_NOMBRE --apellidos TUS_APELLIDOS
+```
 
 ---
 
 ## Instalación manual del entorno
 
-Estos pasos son opcionales si vas a iniciar Ambar con `run-ambar.bat`: el
-lanzador crea y usa su propio entorno sin que tengas que activarlo.
+Estos pasos son opcionales si usarás `run-ambar.bat`.
 
-**1. Clonar el repositorio**
+### 1. Clonar el repositorio
 ```bash
 git clone <URL_DEL_REPOSITORIO>
-cd proyecto-ambar
+cd Ambar
 ```
 
-**2. Crear un entorno virtual (Virtual Environment)**
+### 2. Crear el entorno virtual
 ```bash
-# En Windows:
+# Windows
 python -m venv venv
 
-# En macOS/Linux:
+# macOS/Linux
 python3 -m venv venv
 ```
 
-**3. Activar el entorno virtual**
+### 3. Activar el entorno virtual
 ```bash
-# En Windows:
+# Windows
 venv\Scripts\activate
 
-# En macOS/Linux:
+# macOS/Linux
 source venv/bin/activate
 ```
 
-**4. Instalar las dependencias**
-Instala las dependencias de cada aplicación desde su carpeta para que también se resuelva el paquete compartido local:
+### 4. Instalar dependencias
 ```bash
 pip install -r requirements.txt
+```
 
-cd ../frontend
+Si el frontend tiene dependencias separadas, instálalas dentro de esa carpeta:
+
+```bash
+cd frontend
 pip install -r requirements.txt
 ```
 
 ---
 
-## Ejecución del Proyecto
+## Ejecutar el backend (FastAPI)
 
-### Inicio sencillo en Windows
-Haz doble clic en `run-ambar.bat`. La primera vez instalará las dependencias y
-pedirá los datos de un servidor MySQL en ejecución. Si la base `ambar_escolar`
-no existe, la creará usando `ambar-db.sql` y pedirá los datos para crear una
-cuenta de Secretaría. La configuración se guarda localmente en `backend/.env`;
-no se vuelve a pedir en los siguientes inicios.
+Desde la raíz del repositorio, con el entorno virtual activado:
 
-Necesitas tener instalado Python 3 y MySQL o MariaDB. El usuario de MySQL
-configurado debe poder conectarse y crear la base de datos. Se abrirán una
-ventana para el backend y la aplicación de escritorio; cierra ambas para salir.
-Si ya tienes una base de datos, el lanzador no la modifica ni crea usuarios:
-puedes crear o actualizar el usuario ejecutando
-`python -m backend.seed --correo TU_CORREO --nombres TU_NOMBRE --apellidos TUS_APELLIDOS`
-desde la carpeta del proyecto.
+```bash
+uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
+```
 
-El primer inicio con `run-ambar.bat` carga automáticamente en MySQL el catálogo
-postal incluido (`SERVICIO_POSTAL_MEXICANO.txt`), solo si la tabla local todavía
-está vacía. Los siguientes inicios no vuelven a importarlo. Para actualizar o
-reponer manualmente el catálogo, descarga el TXT nacional desde el
-[portal de Correos de México](https://www.correosdemexico.gob.mx/SSLServicios/ConsultaCP/CodigoPostal_Exportar.aspx)
-y ejecuta desde la raíz:
+Si te encuentras dentro de la carpeta `backend`, usa:
+
+```bash
+uvicorn backend.main:app --app-dir .. --host 0.0.0.0 --port 8000 --reload
+```
+
+Importante: no uses `uvicorn main:app` desde `backend`, porque el proyecto usa imports relativos y la app debe cargarse como parte del paquete `backend`.
+
+---
+
+## Ejecutar el frontend (Flet)
+
+Abre otra terminal, activa el entorno virtual y ejecuta la interfaz:
+
+```bash
+cd frontend
+flet run -d
+```
+
+Esto abrirá la aplicación de escritorio nativa.
+
+---
+
+## Configuración inicial y primer arranque
+
+Durante la primera ejecución, el sistema:
+
+- crea la base de datos `ambar_escolar` si no existe
+- aplica las migraciones pendientes
+- importa el catálogo postal inicial (si la tabla está vacía)
+- crea las estructuras necesarias para roles y permisos
+- permite registrar una cuenta de Secretaría inicial
+
+La configuración se guarda en `backend/.env` para que no se vuelva a pedir en arranques posteriores.
+
+### Comandos útiles de inicialización
+
+Crear una cuenta de Secretaría:
+```bash
+python -m backend.seed --correo TU_CORREO --nombres TU_NOMBRE --apellidos TUS_APELLIDOS
+```
+
+Crear una cuenta de Administración:
+```bash
+python -m backend.seed --admin-correo CORREO_ADMINISTRADOR
+```
+
+El sistema pedirá la contraseña de forma interactiva.
+
+### Catálogo postal
+
+El primer inicio carga automáticamente el catálogo postal nacional si la tabla local está vacía. Para importarlo manualmente desde la raíz del proyecto:
 
 ```bash
 python -m backend.importar_catalogo_cp SERVICIO_POSTAL_MEXICANO.txt
 ```
 
-La aplicación consulta ese catálogo en la base de datos local y no necesita
-internet para buscar códigos postales. La importación conserva las combinaciones
-ya existentes y agrega las nuevas. El catálogo es gratuito; revisa las
-condiciones de SEPOMEX antes de redistribuirlo o comercializarlo. Importa el
-catálogo antes de generar alumnos demo con `--alumnos-demo`.
-Al modificar un expediente cuyo código postal no esté en el catálogo, Estado,
-Municipio y Colonia se pueden capturar manualmente; las altas siguen requiriendo
-seleccionar esos datos del catálogo local.
+Esto permite buscar códigos postales sin depender de internet. El sistema conserva las combinaciones existentes y agrega nuevas entradas.
 
-Para crear una cuenta independiente de Administración, ejecuta
-`python -m backend.seed --admin-correo CORREO_ADMINISTRADOR`; se solicitará su
-contraseña de forma interactiva. Ese comando también prepara los roles y grupos,
-pero no cambia la cuenta de Secretaría.
+### Datos demo
 
-Para crear además 10 alumnos ficticios, agrega `--alumnos-demo 10` al comando. La
-seed asigna números de control y correos institucionales mediante el flujo normal
-de altas; al no crear PDF, sus documentos aparecerán pendientes. Secretaría les
-puede asignar un paquete desde **Consultas**. Los registros demo usan fichas
-`9999-NNNNN` y se omiten si ya existen al volver a ejecutar la seed.
-Para poblar la base de desarrollo con alumnos ficticios de semestres 2 a 10, ejecuta
-`python -m backend.seed --alumnos-demo-reinscripcion 3`. Crea tres alumnos
-ficticios por semestre (27 en total), usando el flujo normal de alta y una cuenta
-de Secretaría activa ya existente, sin cambiar sus credenciales.
-Los registros usan fichas `8888-NNNNN`; si el comando se repite, conserva esos
-alumnos en su semestre en lugar de duplicarlos. `run-ambar.bat` ejecuta esta
-comprobación en cada inicio, por lo que también crea cualquier demo que aún falte
-sin duplicar los ya registrados.
+Se pueden generar alumnos ficticios para pruebas:
 
-En **Consultas**, Secretaría puede buscar y revisar la información y los
-documentos de los alumnos. La edición de datos y la baja de expedientes activos
-se realizan desde **Modificación**. Las bajas desaparecen de las consultas de
-Secretaría, pero conservan sus datos y documentos. Administración también tiene
-acceso a **Modificación**, además de un inicio de sesión y una vista propios en
-**Historial de alumnos** para consultar las bajas y revisar las versiones
-anteriores de los datos junto con quién y cuándo hizo cada cambio. Al iniciar,
-el backend y los comandos de inicialización aplican migraciones pendientes,
-registradas en `ambar_schema_migrations`. Por ejemplo, si una base anterior
-todavía tiene `alumnos.domicilio`, conserva ese texto en `domicilios.calle` (sin
-reemplazar domicilios estructurados existentes) y elimina la columna antigua que
-impedía registrar alumnos. La migración de reinscripciones separa el primer
-componente de `apellidos` como paterno y el resto como materno; este criterio
-conserva los componentes pero puede requerir revisión cuando el apellido paterno
-sea compuesto. El usuario MySQL configurado debe tener permisos para crear
-tablas y alterar el esquema.
-
-Administración también puede crear cuentas de secretarias desde **Alta de
-secretaria** y revisar o dar de baja cuentas desde **Consulta de secretarias**.
-Las bajas desactivan el acceso sin eliminar los datos de la cuenta.
-La **Bitácora** de accesos queda disponible en el menú de Administración; las
-opciones de Cambio de campus y Bitácora no aparecen en el menú de Secretaría.
-Secretaría puede crear cuentas de maestros desde **Alta de maestros** y
-consultarlas desde **Consulta de maestros**. Desde la consulta también puede
-desactivar el acceso sin borrar los datos; cada cuenta queda asociada a un
-registro docente y el correo debe ser único.
-
-Al iniciar el backend se carga de forma idempotente el horario publicado de
-primero a noveno semestre para **AGO-DIC 2026**, con los paquetes definidos en
-los horarios fuente. Se conservan las materias repetidas y la cantidad de filas
-de cada paquete. En la primera inicialización, también se crea una sola cuenta
-activa por cada docente nombrado en ese horario y se asignan las materias
-programadas; las materias sin docente indicado siguen sin asignar. Las
-asignaciones iniciales se registran como migración y no se sobrescriben en
-inicios posteriores. Las contraseñas aleatorias de las cuentas nuevas se
-guardan una sola vez en un CSV bajo `%USERPROFILE%\\.ambar\\credenciales` en
-Windows o `~/.ambar/credenciales` en otros sistemas; comparte ese archivo solo
-por un canal privado. Al registrar un alumno, el horario queda pendiente; Secretaría
-lo busca en **Consultas** y, si aún no tiene grupo, le asigna un paquete completo
-del mismo semestre. La asignación inscribe al alumno en todas las materias de esa
-sección y respeta los cupos. Desde **Consultas** también se descarga el horario
-individual con membrete. En **Grupos y horarios**, Secretaría puede seleccionar
-el semestre del primero al noveno para consultar sus paquetes, listas y materias,
-descargarlas con membrete y vincular las cuentas de maestros.
-La asignación de docente se realiza por grupo y materia en **Grupos y horarios**.
-En **Mis grupos**, cada maestro consulta solo sus asignaciones y puede descargar
-con membrete su horario consolidado, la lista de alumnos de cada materia y su
-lista de calificaciones.
-Las listas de alumnos en pantalla y en PDF se ordenan alfabéticamente por
-apellido paterno, apellido materno y nombre(s).
-En el panel de Secretaría, la actividad muestra el número de control, se
-recorre en páginas de 10 alumnos y permite abrir directamente cada expediente
-en **Consultas**. El panel ya no muestra la sección de pendientes.
-En **Reinscripción**, Secretaría registra por separado el número de control,
-nombre, apellidos y semestre (segundo o tercero). El número debe tener 8 dígitos,
-ser único entre alumnos y reinscripciones, y comenzar con `26` para segundo
-semestre o `25` para tercero. Secretaría selecciona un paquete del semestre
-con cupo disponible; el servidor comprueba que esté completo antes de inscribir
-al alumno en todos sus grupos. El reinscrito aparece en las listas del grupo y
-de calificaciones. Estos datos se pueden buscar y modificar desde
-**Reinscripción**, pero el número de control no se puede cambiar. Tampoco se
-permite cambiar el semestre o el paquete cuando ya hay calificaciones, para
-conservar sus inscripciones. En **Consultas** se muestra el paquete desglosado
-por materia y horario, indicando el semestre. En **Bajas** se permite dar de
-baja la reinscripción; se conserva el historial académico, pero deja de aparecer
-en las listas activas. Las reinscripciones aparecen al buscar por número de
-control en **Consultas** y **Bajas**. El registro no crea un expediente completo
-de nuevo ingreso.
-
-Administración configura en **Periodos escolares** la fecha de inicio de la
-semana 1 para cada periodo; el sistema habilita la captura al comenzar las
-semanas 5, 9, 13 y 17. Los maestros pueden registrar calificaciones enteras:
-0 o de 70 a 100 en sus grupos asignados, y modificar los tres periodos mientras
-no se haya confirmado la final. En la semana 17, la final se calcula con el
-promedio de los tres periodos, redondeado al entero más cercano; si el promedio
-es menor a 70 se registra 0. La confirmación final requiere aceptación explícita
-y bloquea tanto la final como sus periodos base.
-Administración puede seleccionar un periodo registrado para corregir su nombre
-o fecha de inicio desde el calendario. Al renombrarlo, también se actualiza el
-periodo de sus grupos. Corregir la fecha conserva las calificaciones existentes
-y recalcula automáticamente qué semanas están habilitadas.
-Desde el inicio de la semana 18 del periodo activo, el backend revisa
-automáticamente el avance de semestre cada hora. Una sola vez por periodo,
-aumenta en uno el semestre de todos los alumnos activos no eliminados, sin
-condicionar el avance a sus calificaciones; quienes ya están en décimo
-permanecen en décimo. El registro del avance se conserva para evitar repetirlo
-si el backend se reinicia, y la tabla necesaria se crea al iniciar el servicio
-para bases de datos existentes.
-
-### Ejecutar el Backend (FastAPI)
-Desde la raíz del repositorio y con el entorno virtual del backend activado:
 ```bash
-uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
+python -m backend.seed --alumnos-demo 10
 ```
-Si la terminal ya está dentro de `backend`, indica la raíz del repositorio como directorio de la aplicación:
-```bash
-uvicorn backend.main:app --app-dir .. --host 0.0.0.0 --port 8000 --reload
-```
-No uses `uvicorn main:app` desde `backend`: los imports relativos (`from .config ...`) requieren que Python cargue `main` como parte del paquete `backend`.
 
-### Ejecutar el Frontend (Cliente Flet)
-Abre otra terminal, activa el entorno virtual y ejecuta el archivo principal de la interfaz:
-```bash
-# Ejecuta el archivo principal de la interfaz (por ejemplo, main.py)
-cd frontend
-flet run -d
-```
-*Esto abrirá la ventana de la aplicación de escritorio nativa.*
+También es posible crear alumnos de reinscripción ficticios:
 
-### Logs de diagnóstico
-El cliente y el servidor guardan logs rotativos en `~/.ambar/logs` (`frontend.log`
-y `backend.log`, con hasta tres respaldos de 5 MB cada uno). En Windows, la ruta
-predeterminada es `%USERPROFILE%\.ambar\logs`. Para guardar ambos archivos en otra
-ubicación, configura `SIGE_LOG_DIR` en los dos procesos antes de iniciarlos. Los
-logs registran rutas de API, códigos de respuesta, tiempos y etapas del login;
-no registran contraseñas ni tokens.
+```bash
+python -m backend.seed --alumnos-demo-reinscripcion 3
+```
+
+Estos registros son útiles para desarrollo y pruebas, pero no se crean automáticamente al iniciar `run-ambar.bat`.
 
 ---
 
-## Estructura del Proyecto
+## Roles y permisos
+
+### Secretaría
+
+Puede:
+
+- registrar y consultar alumnos
+- gestionar expedientes y documentos
+- asignar grupos y paquetes
+- revisar información académica
+- manejar reinscripciones
+- gestionar bajas y consultas
+
+### Administración
+
+Tiene acceso extra para:
+
+- crear y dar de baja cuentas de Secretaría
+- revisar historial y auditoría
+- configurar periodos escolares
+- supervisar la operación general
+
+### Docentes
+
+Pueden:
+
+- consultar sus grupos asignados
+- registrar calificaciones
+- revisar listas de alumnos y promedios
+
+---
+
+## Funcionalidades clave
+
+### Grupos y horarios
+
+El sistema carga el horario publicado de primero a noveno semestre para un periodo específico. La asignación de docentes se realiza por grupo y materia, y los docentes pueden consultar únicamente sus grupos asignados.
+
+### Reinscripción
+
+La reinscripción se maneja de forma separada y valida:
+
+- número de control único
+- semestre permitido
+- paquete con cupo disponible
+- bloqueo de cambios si ya existen calificaciones
+
+### Calificaciones y periodos
+
+Administración configura los periodos escolares y las semanas habilitadas para captura. Los docentes pueden registrar calificaciones enteras dentro de los rangos permitidos, y el sistema calcula la final al cierre del periodo.
+
+### Historial y auditoría
+
+El sistema mantiene registros de cambios, bajas, accesos y evolución académica para permitir revisión posterior.
+
+---
+
+## Estructura del proyecto
 
 ```text
-proyecto-ambar/
+Ambar/
 ├── frontend/
 │   └── src/main.py           # Aplicación de escritorio Flet
 ├── backend/
@@ -248,19 +267,53 @@ proyecto-ambar/
 │   ├── deps.py               # Autenticación y permisos de rutas
 │   ├── esquemas.py           # Modelos de entrada y salida
 │   ├── constantes.py         # Reglas y valores compartidos
-│   └── seed.py               # Datos iniciales
-└── README.md
+│   ├── seed.py               # Datos iniciales
+│   └── assets/               # Recursos visuales del sistema
+├── README.md
+├── requirements.txt
+├── run-ambar.bat
+└── ...
 ```
 
-Los números de control se generan con el formato `AA TT CC SS`: año de dos
-dígitos, número de tecnológico (`32`), número de carrera (`07`) y consecutivo
-de dos dígitos. La secuencia comienza en `00`; al llegar a `99`, aumenta el
-código de carrera y reinicia el consecutivo. El tecnológico y la carrera inicial
-se pueden configurar con `NUMERO_TECNOLOGICO` y `NUMERO_CARRERA` en
-`backend/.env`.
+---
 
-En **Consultas**, al buscar un alumno, el botón **Descargar expediente PDF**
-genera un expediente con secciones de información personal, contacto, trayectoria
-académica y documentación. Incluye la imagen original del membrete en
-`backend/assets/membrete_institucional.png` y se guarda desde el diálogo del
-sistema. Es informativo y no tiene validez oficial.
+## Logs de diagnóstico
+
+El sistema guarda logs rotativos en:
+
+- Windows: `%USERPROFILE%\.ambar\logs`
+- macOS/Linux: `~/.ambar/logs`
+
+Se generan archivos como:
+
+- `frontend.log`
+- `backend.log`
+
+Cada archivo conserva varios respaldos de hasta 5 MB. Puedes cambiar la ubicación con la variable de entorno `SIGE_LOG_DIR` antes de iniciar ambos procesos.
+
+Los logs registran rutas, códigos de respuesta, tiempos y etapas del login, pero no guardan contraseñas ni tokens.
+
+---
+
+## Notas importantes
+
+- Los números de control siguen un formato que incluye año, tecnológico, carrera y consecutivo.
+- El sistema aplica migraciones automáticamente al iniciar.
+- Las contraseñas temporales generadas para nuevas cuentas se guardan en un archivo de credenciales privado; compártelo solo por un canal seguro.
+- El catálogo postal, los roles y la configuración académica son parte central del funcionamiento del sistema.
+
+---
+
+## Sugerencia de uso
+
+Para trabajar en el proyecto:
+
+1. Configura MySQL/MariaDB
+2. Clona el repositorio
+3. Ejecuta el arranque inicial con `run-ambar.bat` o realiza la instalación manual
+4. Inicia el backend
+5. Inicia el frontend
+6. Crea la cuenta inicial de Secretaría o Administración
+7. Comienza con la carga y configuración del catálogo y los datos base
+
+Si necesitas una versión más detallada de alguna parte del flujo escolar (inscripciones, grupos, calificaciones o administración), puedes ampliar la documentación por módulo.
