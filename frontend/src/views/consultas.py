@@ -413,7 +413,7 @@ class ConsultaExpediente:
     def _descargar_horario(self):
         if not self.horario or not self.horario.get("asignado"):
             return
-        numero = self.datos["numero_control"]
+        numero = self.horario["numero_control"]
         try:
             contenido = api.descargar_horario_alumno(numero)
             destino = _carpeta_pdf_temporal() / f"horario_{numero}.pdf"
