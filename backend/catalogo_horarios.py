@@ -105,4 +105,13 @@ CATALOGO_1ISC = {
     ],
 }
 
-CATALOGO_HORARIOS = {**CATALOGO_1ISC, **CATALOGO_2_9}
+_PAQUETES_ACTIVOS = {
+    "1ISC1", "1ISC2",
+    "2ISC1", "2ISC2",
+    "3ISC1", "3ISC2",
+}
+CATALOGO_HORARIOS = {
+    nombre: materias
+    for nombre, materias in {**CATALOGO_1ISC, **CATALOGO_2_9}.items()
+    if nombre in _PAQUETES_ACTIVOS
+}

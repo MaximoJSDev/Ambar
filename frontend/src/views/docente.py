@@ -371,10 +371,12 @@ def build_inicio_docente(page: ft.Page, usuario: dict, navegar) -> ft.Control:
 
 def build_grupos_horarios(page: ft.Page, navegar) -> ft.Control:
     paquetes: list[dict] = []
-    docentes: list[dict] = []
     paquete_seleccionado: int | None = None
     semestre_seleccionado = 1
-    panel_grupo = ft.Column(spacing=16)
+    panel_grupo = ft.Column(
+        spacing=16,
+        horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
+    )
     aviso = ft.Text("", size=13, color=WARN_FG, visible=False)
     selector_semestre = ft.Dropdown(
         label="Semestre",
@@ -382,7 +384,7 @@ def build_grupos_horarios(page: ft.Page, navegar) -> ft.Control:
         value=str(semestre_seleccionado),
         options=[
             ft.DropdownOption(key=str(semestre), text=f"{semestre}.º semestre")
-            for semestre in range(1, 10)
+            for semestre in range(1, 4)
         ],
     )
     selector = ft.Dropdown(label="Paquete / grupo", width=300, options=[])
@@ -397,49 +399,11 @@ def build_grupos_horarios(page: ft.Page, navegar) -> ft.Control:
         panel_grupo.controls = []
         page.update()
 
-    def guardar_docente(id_grupo: int, selector_docente: ft.Dropdown):
-        try:
-            id_docente = (
-                int(selector_docente.value)
-                if selector_docente.value not in (None, "none")
-                else None
-            )
-            api.asignar_docente_grupo(id_grupo, id_docente)
-            cargar_paquete()
-            snackbar(page, "Asignación docente actualizada.")
-        except ApiError as ex:
-            if ex.status == 401:
-                navegar("/secretaria")
-                return
-            aviso.value = ex.mensaje
-            aviso.visible = True
-            page.update()
-            if vista is not None:
-                page.run_task(vista.scroll_to, offset=0, duration=300)
-        except ValueError:
-            snackbar(page, "Selecciona una cuenta de maestro válida.")
-
     def _materia_control(materia: dict) -> ft.Control:
         horarios = ", ".join(
             f"{fila['dia'][:3]} {fila['inicio']}-{fila['fin']}"
             for fila in materia["horarios"]
         ) or "Sin horario publicado"
-        valor = str(materia["id_docente"]) if materia["id_docente"] is not None else "none"
-        selector_docente = ft.Dropdown(
-            label="Cuenta vinculada",
-            value=valor,
-            options=[
-                ft.DropdownOption(key="none", text="Sin cuenta vinculada"),
-                *[
-                    ft.DropdownOption(
-                        key=str(docente["id_docente"]),
-                        text=f"{docente['nombres']} {docente['apellidos']}",
-                    )
-                    for docente in docentes
-                ],
-            ],
-            width=260,
-        )
         return crear_tarjeta(ft.Column(spacing=10, controls=[
             ft.Text(materia["nombre_materia"], size=15, weight=ft.FontWeight.BOLD, color=NAVY),
             ft.Text(
@@ -447,18 +411,13 @@ def build_grupos_horarios(page: ft.Page, navegar) -> ft.Control:
                 size=12,
                 color=MUTED,
             ),
-            ft.Text(
-                f"Docente en horario: {materia['docente']}",
-                size=12,
-                color=TEXT,
-            ),
-            ft.Row(spacing=12, controls=[
-                selector_docente,
-                ft.OutlinedButton(
-                    "Guardar docente",
-                    style=estilo_boton_secundario(),
-                    on_click=lambda _, gid=materia["id_grupo"], campo=selector_docente:
-                        guardar_docente(gid, campo),
+            ft.Column(spacing=3, controls=[
+                ft.Text("Maestro asignado", size=11, color=MUTED),
+                ft.Text(
+                    materia["docente"],
+                    size=15,
+                    weight=ft.FontWeight.BOLD,
+                    color=NAVY,
                 ),
             ]),
         ]), padding=16)
@@ -576,11 +535,19 @@ def build_grupos_horarios(page: ft.Page, navegar) -> ft.Control:
         cargar()
 
     def cargar(_=None):
-        nonlocal paquetes, docentes, paquete_seleccionado
+        nonlocal paquetes, paquete_seleccionado
         aviso.visible = False
         try:
-            paquetes = api.paquetes_horario(semestre_seleccionado)
-            docentes = api.docentes_horario()
+            paquetes_por_turno = {}
+            for paquete in api.paquetes_horario(semestre_seleccionado):
+                turno = paquete["turno"]
+                if turno in ("Matutino", "Vespertino"):
+                    paquetes_por_turno.setdefault(turno, paquete)
+            paquetes = [
+                paquetes_por_turno[turno]
+                for turno in ("Matutino", "Vespertino")
+                if turno in paquetes_por_turno
+            ]
         except ApiError as ex:
             mostrar_error(ex)
             return
@@ -615,7 +582,7 @@ def build_grupos_horarios(page: ft.Page, navegar) -> ft.Control:
     vista = ft.Column(expand=True, scroll=ft.ScrollMode.AUTO, spacing=20, controls=[
         titulo_pagina(
             "Grupos y horarios",
-            "Consulta los horarios de cada semestre, las listas por sección y vincula las cuentas de maestros.",
+            "Consulta horarios y listas por sección de los primeros tres semestres.",
         ),
         ft.Row(wrap=True, alignment=ft.MainAxisAlignment.SPACE_BETWEEN, controls=[
             ft.Row(wrap=True, controls=[selector_semestre, selector]),

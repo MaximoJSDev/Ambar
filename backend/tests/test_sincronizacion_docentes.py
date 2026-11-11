@@ -96,6 +96,26 @@ class SincronizacionDocentesTests(unittest.TestCase):
 
         sincronizacion_docentes._validar_traslapes(grupos, {1: 4, 2: 4})
 
+    def test_disponibilidad_docente_respeta_traslapes_y_horarios_adyacentes(self):
+        agenda = {
+            (4, 1): [{"inicio": "10:00", "fin": "11:00"}],
+        }
+        self.assertFalse(sincronizacion_docentes._docente_disponible(
+            4,
+            [{"dia_semana": 1, "hora_inicio": "10:30:00", "hora_fin": "11:30:00"}],
+            agenda,
+        ))
+        self.assertTrue(sincronizacion_docentes._docente_disponible(
+            4,
+            [{"dia_semana": 1, "hora_inicio": "11:00:00", "hora_fin": "12:00:00"}],
+            agenda,
+        ))
+        self.assertTrue(sincronizacion_docentes._docente_disponible(
+            4,
+            [{"dia_semana": 2, "hora_inicio": "10:00:00", "hora_fin": "11:00:00"}],
+            agenda,
+        ))
+
     def test_no_repite_una_sincronizacion_registrada(self):
         conn = MagicMock()
         conn.execute.return_value.scalar_one_or_none.return_value = (

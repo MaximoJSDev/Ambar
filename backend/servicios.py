@@ -2039,7 +2039,7 @@ def confirmar_calificacion_final_docente(
 def actualizar_docente_grupo(id_grupo: int, id_docente: int | None) -> dict:
     with engine.begin() as conn:
         grupo = conn.execute(
-            text("""SELECT g.id_grupo FROM grupos g
+            text("""SELECT g.id_grupo, g.id_docente FROM grupos g
                     JOIN paquetes_horario p ON p.id_paquete = g.id_paquete
                     WHERE g.id_grupo = :grupo AND g.periodo_escolar = :periodo
                       AND p.nombre_paquete IN :nombres_catalogo
@@ -2054,6 +2054,8 @@ def actualizar_docente_grupo(id_grupo: int, id_docente: int | None) -> dict:
         ).mappings().first()
         if grupo is None:
             raise NoEncontrado()
+        if grupo["id_docente"] is not None and grupo["id_docente"] != id_docente:
+            raise Conflicto("El maestro de esta materia ya está asignado y no se puede cambiar.")
         id_paquete = conn.execute(
             text("SELECT id_paquete FROM grupos WHERE id_grupo = :grupo"),
             {"grupo": id_grupo},

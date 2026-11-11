@@ -128,6 +128,91 @@ def _validar_traslapes(grupos: list[dict], asignaciones: dict[int, int | None]) 
         })
 
 
+def _docente_disponible(id_docente: int, horarios: list[dict], agenda: dict) -> bool:
+    for horario in horarios:
+        dia = horario["dia_semana"]
+        if dia is None:
+            continue
+        inicio = str(horario["hora_inicio"])[:5]
+        fin = str(horario["hora_fin"])[:5]
+        if any(
+            inicio < existente["fin"] and existente["inicio"] < fin
+            for existente in agenda.get((id_docente, dia), [])
+        ):
+            return False
+    return True
+
+
+def asignar_docentes_disponibles() -> None:
+    """Asigna una cuenta activa a grupos vacíos solo cuando su horario está libre."""
+    with engine.begin() as conn:
+        docentes = conn.execute(text("""SELECT d.id_docente
+            FROM empleados_docentes d
+            JOIN usuarios u ON u.id_usuario = d.id_usuario
+            JOIN roles r ON r.id_rol = u.id_rol
+            WHERE r.nombre_rol = :rol AND u.estatus = 'Activo'
+            ORDER BY d.id_docente"""), {"rol": ROL_DOCENTE}).scalars().all()
+        if not docentes:
+            return
+
+        filas = conn.execute(text("""SELECT g.id_grupo, g.id_docente,
+                h.dia_semana, CAST(h.hora_inicio AS CHAR) AS hora_inicio,
+                CAST(h.hora_fin AS CHAR) AS hora_fin
+            FROM grupos g
+            JOIN paquetes_horario p ON p.id_paquete = g.id_paquete
+            LEFT JOIN horarios_grupo h ON h.id_grupo = g.id_grupo
+            WHERE g.periodo_escolar = :periodo
+                            AND p.semestre BETWEEN 1 AND 3
+              AND p.nombre_paquete IN :paquetes
+            ORDER BY p.semestre, p.nombre_paquete, g.id_grupo, h.dia_semana
+            FOR UPDATE""").bindparams(bindparam("paquetes", expanding=True)), {
+                "periodo": PERIODO_1ISC,
+                "paquetes": tuple(CATALOGO_HORARIOS),
+            }).mappings().all()
+
+        grupos: dict[int, dict] = {}
+        for fila in filas:
+            grupo = grupos.setdefault(fila["id_grupo"], {
+                "id_docente": fila["id_docente"],
+                "horarios": [],
+            })
+            if fila["dia_semana"] is not None:
+                grupo["horarios"].append({
+                    "dia_semana": fila["dia_semana"],
+                    "hora_inicio": fila["hora_inicio"],
+                    "hora_fin": fila["hora_fin"],
+                })
+
+        agenda: dict[tuple[int, int], list[dict]] = defaultdict(list)
+        for grupo in grupos.values():
+            if grupo["id_docente"] is None:
+                continue
+            for horario in grupo["horarios"]:
+                agenda[(grupo["id_docente"], horario["dia_semana"])].append({
+                    "inicio": str(horario["hora_inicio"])[:5],
+                    "fin": str(horario["hora_fin"])[:5],
+                })
+
+        for id_grupo, grupo in grupos.items():
+            if grupo["id_docente"] is not None:
+                continue
+            id_docente = next((docente for docente in docentes if _docente_disponible(
+                docente, grupo["horarios"], agenda,
+            )), None)
+            if id_docente is None:
+                continue
+            conn.execute(text("""UPDATE grupos SET id_docente = :docente
+                WHERE id_grupo = :grupo AND id_docente IS NULL"""), {
+                    "docente": id_docente,
+                    "grupo": id_grupo,
+                })
+            for horario in grupo["horarios"]:
+                agenda[(id_docente, horario["dia_semana"])].append({
+                    "inicio": str(horario["hora_inicio"])[:5],
+                    "fin": str(horario["hora_fin"])[:5],
+                })
+
+
 def sincronizar_docentes_horario() -> None:
     """Crea las cuentas faltantes y asigna el horario publicado solo una vez."""
     identidades = _identidades_horario()
