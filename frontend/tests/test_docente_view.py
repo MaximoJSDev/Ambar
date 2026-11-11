@@ -79,8 +79,8 @@ def test_vista_docente_muestra_horario_lista_y_calificaciones():
         control for control in _controles(vista)
         if isinstance(control, main.ft.ExpansionTile)
     ]
-    assert len(listas) == 1
-    assert listas[0].expanded is False
+    assert listas == []
+    assert "Prueba Zúñiga Ana" in texto_vista
 
 
 def test_error_de_calificacion_invalida_se_muestra_junto_al_campo():
@@ -125,6 +125,56 @@ def test_error_de_calificacion_invalida_se_muestra_junto_al_campo():
     guardar.assert_not_called()
     assert entrada.error_text == "Ingresa un entero: 0 o de 70 a 100."
     assert entrada.error_text in list(_textos(vista))
+
+
+def test_guardar_calificacion_actualiza_sin_reconstruir_la_lista():
+    datos_grupos = [{
+        "id_grupo": 7,
+        "grupo": "1ISC1",
+        "nombre_materia": "Cálculo Diferencial",
+        "aula": "G301",
+        "creditos": 5,
+        "turno": "Matutino",
+        "periodo": "AGO-DIC 2026",
+        "semana_actual": 9,
+        "evaluaciones_disponibles": ["Semana 5", "Final"],
+        "horarios": [],
+        "alumnos": [{
+            "numero_control": "26320700",
+            "nombre_completo": "Ana Prueba",
+            "semana_5": 80,
+            "semana_9": 90,
+            "semana_13": 80,
+            "final": None,
+        }],
+    }]
+    page = Mock()
+    with (
+        patch.object(main.api, "grupos_docente", return_value=datos_grupos),
+        patch.object(
+            main.api,
+            "guardar_calificacion_docente",
+            return_value={"valor": 85},
+        ) as guardar,
+    ):
+        vista = main.build_inicio_docente(page, {"nombre": "Docente de prueba"}, Mock())
+        controles = list(_controles(vista))
+        entrada = next(
+            control for control in controles
+            if isinstance(control, main.ft.TextField) and control.hint_text == "0 o 70–100"
+        )
+        entrada.value = "85"
+        boton_guardar = next(
+            control for control in controles
+            if isinstance(control, main.ft.IconButton) and control.tooltip == "Guardar Semana 5"
+        )
+        boton_guardar.on_click(None)
+
+    guardar.assert_called_once_with(7, "26320700", "Semana 5", 85)
+    assert entrada in list(_controles(vista))
+    assert datos_grupos[0]["alumnos"][0]["semana_5"] == 85
+    assert "85" in list(_textos(vista))
+    assert "Promedio final: 85" in list(_textos(vista))
 
 
 def _controles(control):
