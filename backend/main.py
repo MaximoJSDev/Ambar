@@ -34,6 +34,7 @@ async def lifespan(_: FastAPI):
         servicios.cargar_catalogo_horarios(conn)
         servicios.preparar_avances_semestre(conn)
     sincronizacion_docentes.sincronizar_docentes_horario()
+    sincronizacion_docentes.asignar_docentes_disponibles()
     monitor = asyncio.create_task(_monitorear_avance_semestre())
     try:
         yield

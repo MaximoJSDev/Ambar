@@ -28,35 +28,18 @@ class HorariosTests(unittest.TestCase):
         self.assertIsNone(CATALOGO_1ISC["1ISC6"][0][4][1])
         self.assertIsNone(CATALOGO_1ISC["1ISC1"][1][3])
 
-    def test_catalogo_incluye_paquetes_de_segundo_a_noveno_con_sus_filas(self):
+    def test_catalogo_activo_contiene_solo_los_dos_paquetes_de_los_tres_semestres(self):
         conteos = {
+            "1ISC1": 6, "1ISC2": 6,
             "2ISC1": 5, "2ISC2": 1,
-            **{f"3ISC{i}": 6 for i in range(1, 7)},
-            "4ISC1": 6, "4ISC2": 5,
-            **{f"5ISC{i}": 6 for i in range(1, 5)},
-            "6ISC1": 6, "6ISC2": 6, "6ISC3": 5,
-            **{f"7ISC{i}": 6 for i in range(1, 5)},
-            "8ISC1": 6, "8ISC2": 6, "8ISC3": 2,
-            "9ISC1": 8, "9ISC2": 6,
+            "3ISC1": 6, "3ISC2": 6,
         }
-        self.assertEqual(set(CATALOGO_HORARIOS), set(CATALOGO_1ISC) | set(conteos))
+        self.assertEqual(set(CATALOGO_HORARIOS), set(conteos))
         self.assertEqual(
-            {paquete: len(materias) for paquete, materias in CATALOGO_HORARIOS.items()
-             if paquete in conteos},
+            {paquete: len(materias) for paquete, materias in CATALOGO_HORARIOS.items()},
             conteos,
         )
-        self.assertEqual(sum(map(len, CATALOGO_HORARIOS.values())), 188)
-        self.assertEqual(
-            [materia[0] for materia in CATALOGO_HORARIOS["9ISC1"]].count(
-                "Taller de Investigación II"
-            ),
-            2,
-        )
-        self.assertEqual(
-            CATALOGO_HORARIOS["4ISC1"][-1][0],
-            "Principios Eléctricos Aplicados Digitales",
-        )
-        self.assertEqual(CATALOGO_HORARIOS["7ISC1"][1][0], "Enrutamiento de Redes")
+        self.assertEqual(sum(map(len, CATALOGO_HORARIOS.values())), 30)
 
     def test_lista_de_paquetes_filtra_todos_los_semestres_del_catalogo(self):
         resultado_consulta = MagicMock()
@@ -71,12 +54,15 @@ class HorariosTests(unittest.TestCase):
         self.assertEqual(paquetes, [])
         consulta, parametros = conn.execute.call_args.args
         self.assertIn("p.nombre_paquete IN (", str(consulta))
-        self.assertIn("9ISC1", parametros["nombres_catalogo"])
+        self.assertEqual(set(parametros["nombres_catalogo"]), set(CATALOGO_HORARIOS))
         self.assertEqual(parametros["semestre"], 9)
 
-    def test_vinculo_docente_admite_grupos_de_todos_los_semestres(self):
+    def test_vinculo_docente_admite_grupos_de_los_semestres_activos(self):
         grupo = MagicMock()
-        grupo.mappings.return_value.first.return_value = {"id_grupo": 91}
+        grupo.mappings.return_value.first.return_value = {
+            "id_grupo": 91,
+            "id_docente": None,
+        }
         paquete = MagicMock()
         paquete.scalar_one.return_value = 91
         transaccion = MagicMock()
@@ -94,12 +80,15 @@ class HorariosTests(unittest.TestCase):
 
         consulta, parametros = transaccion.execute.call_args_list[0].args
         self.assertIn("p.nombre_paquete IN (", str(consulta))
-        self.assertIn("9ISC1", parametros["nombres_catalogo"])
+        self.assertEqual(set(parametros["nombres_catalogo"]), set(CATALOGO_HORARIOS))
         self.assertEqual(resultado, {"id_paquete": 91})
 
     def test_asignar_docente_rechaza_traslape_de_horario_en_mismo_dia(self):
         grupo = MagicMock()
-        grupo.mappings.return_value.first.return_value = {"id_grupo": 7}
+        grupo.mappings.return_value.first.return_value = {
+            "id_grupo": 7,
+            "id_docente": None,
+        }
         paquete = MagicMock()
         paquete.scalar_one.return_value = 3
         docente = MagicMock()
@@ -133,7 +122,10 @@ class HorariosTests(unittest.TestCase):
 
     def test_asignar_docente_acepta_horarios_adyacentes_sin_traslape(self):
         grupo = MagicMock()
-        grupo.mappings.return_value.first.return_value = {"id_grupo": 7}
+        grupo.mappings.return_value.first.return_value = {
+            "id_grupo": 7,
+            "id_docente": None,
+        }
         paquete = MagicMock()
         paquete.scalar_one.return_value = 3
         docente = MagicMock()
@@ -156,6 +148,22 @@ class HorariosTests(unittest.TestCase):
             "UPDATE grupos SET id_docente",
             str(conn.execute.call_args_list[4].args[0]),
         )
+
+    def test_asignar_docente_no_permite_cambiar_un_maestro_existente(self):
+        grupo = MagicMock()
+        grupo.mappings.return_value.first.return_value = {
+            "id_grupo": 7,
+            "id_docente": 12,
+        }
+        conn = MagicMock()
+        conn.execute.return_value = grupo
+
+        with patch("backend.servicios.engine.begin") as begin:
+            begin.return_value.__enter__.return_value = conn
+            with self.assertRaisesRegex(servicios.Conflicto, "ya está asignado"):
+                servicios.actualizar_docente_grupo(8, 13)
+
+        conn.execute.assert_called_once()
 
     def test_endpoints_de_horarios_solo_admiten_secretaria(self):
         self.usuario["rol"] = "Administrador"
@@ -505,25 +513,25 @@ class HorariosTests(unittest.TestCase):
 
         self.assertEqual(transaccion.execute.call_count, 2)
 
-    def test_servicio_asigna_paquete_variable_y_con_materia_repetida(self):
+    def test_servicio_asigna_paquete_activo_con_todas_sus_materias(self):
         alumno = MagicMock()
         alumno.mappings.return_value.first.return_value = {
-            "semestre_actual": 9,
+            "semestre_actual": 1,
             "estatus": "Activo",
             "eliminado": False,
         }
         paquete = MagicMock()
         paquete.mappings.return_value.first.return_value = {
-            "id_paquete": 99,
-            "nombre_paquete": "9ISC1",
-            "semestre": 9,
+            "id_paquete": 1,
+            "nombre_paquete": "1ISC1",
+            "semestre": 1,
         }
         inscripciones_existentes = MagicMock()
         inscripciones_existentes.scalars.return_value.all.return_value = []
         grupos = MagicMock()
         grupos.mappings.return_value.all.return_value = [
             {"id_grupo": grupo, "turno": "Matutino", "cupo_disponible": 25}
-            for grupo in range(1, 9)
+            for grupo in range(1, 7)
         ]
         transaccion = MagicMock()
         transaccion.execute.side_effect = [
@@ -543,12 +551,12 @@ class HorariosTests(unittest.TestCase):
             ) as estado,
         ):
             begin.return_value.__enter__.return_value = transaccion
-            resultado = servicios.asignar_paquete_horario("26320700", 99)
+            resultado = servicios.asignar_paquete_horario("26320700", 1)
 
         self.assertTrue(resultado["asignado"])
         inserciones = transaccion.execute.call_args_list[4].args[1]
-        self.assertEqual(len(inserciones), 8)
-        self.assertEqual(len({fila["grupo"] for fila in inserciones}), 8)
+        self.assertEqual(len(inserciones), len(CATALOGO_HORARIOS["1ISC1"]))
+        self.assertEqual(len({fila["grupo"] for fila in inserciones}), 6)
         estado.assert_called_once_with("26320700")
 
     def test_horario_individual_se_descarga_como_pdf(self):
