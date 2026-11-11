@@ -648,6 +648,51 @@ class HorariosTests(unittest.TestCase):
         self.assertTrue(lista_docente.startswith(b"%PDF-"))
         self.assertTrue(calificaciones_docente.startswith(b"%PDF-"))
 
+    def test_lista_de_calificaciones_muestra_porcentajes_sobre_calificaciones_finales(self):
+        datos = {
+            "docente": "Docente Prueba",
+            "grupo": "1ISC1",
+            "nombre_materia": "Cálculo Diferencial",
+            "periodo": PERIODO_1ISC,
+            "alumnos": [
+                {"numero_control": "1", "nombre_completo": "A", "semana_5": 100,
+                 "semana_9": 100, "semana_13": 100, "final": 100},
+                {"numero_control": "2", "nombre_completo": "B", "semana_5": 0,
+                 "semana_9": 0, "semana_13": 0, "final": 0},
+                {"numero_control": "3", "nombre_completo": "C", "semana_5": None,
+                 "semana_9": None, "semana_13": None, "final": None},
+                {"numero_control": "4", "nombre_completo": "D", "semana_5": 70,
+                 "semana_9": 70, "semana_13": 70, "final": 70},
+            ],
+        }
+        documento = MagicMock()
+        with patch.object(reportes, "_documento_horario", return_value=documento):
+            reportes.generar_lista_docente_pdf(datos, incluir_calificaciones=True)
+
+        elementos = documento.build.call_args.args[0]
+        resumen = next(
+            elemento.getPlainText()
+            for elemento in elementos
+            if isinstance(elemento, reportes.Paragraph)
+            and "Aprobados:" in elemento.getPlainText()
+        )
+        self.assertIn("Aprobados: 66.7%", resumen)
+        self.assertIn("Reprobados: 33.3%", resumen)
+        self.assertIn("3 alumnos con calificación final", resumen)
+
+        for alumno in datos["alumnos"]:
+            alumno["final"] = None
+        with patch.object(reportes, "_documento_horario", return_value=documento):
+            reportes.generar_lista_docente_pdf(datos, incluir_calificaciones=True)
+        resumen_sin_finales = next(
+            elemento.getPlainText()
+            for elemento in documento.build.call_args.args[0]
+            if isinstance(elemento, reportes.Paragraph)
+            and "Aprobados:" in elemento.getPlainText()
+        )
+        self.assertIn("Aprobados: Sin datos", resumen_sin_finales)
+        self.assertIn("0 alumnos con calificación final", resumen_sin_finales)
+
     def test_endpoints_de_horario_se_publican(self):
         paths = app.openapi()["paths"]
         self.assertIn("post", paths["/horarios/alumnos/{numero_control}/paquete"])

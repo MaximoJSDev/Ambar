@@ -65,6 +65,7 @@ def build_inicio_docente(page: ft.Page, usuario: dict, navegar) -> ft.Control:
             ("Semana 13", "semana_13"),
         )
         disponibles = set(grupo.get("evaluaciones_disponibles", []))
+        contenedores_finales: dict[str, ft.Container] = {}
 
         def formato_calificacion(valor):
             return "—" if valor is None else f"{float(valor):.2f}".rstrip("0").rstrip(".")
@@ -99,8 +100,12 @@ def build_inicio_docente(page: ft.Page, usuario: dict, navegar) -> ft.Control:
                 page.update()
                 return
             alumno[campo] = resultado["valor"]
+            entrada.value = formato_calificacion(resultado["valor"])
+            contenedor_final = contenedores_finales.get(alumno["numero_control"])
+            if contenedor_final is not None:
+                contenedor_final.content = crear_celda_final(alumno)
             snackbar(page, f"{periodo} guardada para {alumno['nombre_completo']}.")
-            mostrar_grupo(grupo["id_grupo"])
+            page.update()
 
         def confirmar_final(alumno, promedio, valor_final):
             def guardar(_):
@@ -114,8 +119,11 @@ def build_inicio_docente(page: ft.Page, usuario: dict, navegar) -> ft.Control:
                     return
                 alumno["final"] = resultado["valor"]
                 alumno["final_confirmada"] = True
+                contenedor_final = contenedores_finales.get(alumno["numero_control"])
+                if contenedor_final is not None:
+                    contenedor_final.content = crear_celda_final(alumno)
                 snackbar(page, "Calificación final confirmada; ya no se puede modificar.")
-                mostrar_grupo(grupo["id_grupo"])
+                page.update()
 
             page.show_dialog(ft.AlertDialog(
                 title=ft.Text("Confirmar calificación final"),
@@ -130,6 +138,41 @@ def build_inicio_docente(page: ft.Page, usuario: dict, navegar) -> ft.Control:
                     ft.FilledButton("Confirmar final", on_click=guardar),
                 ],
             ))
+
+        def crear_celda_final(alumno):
+            valor_final = alumno["final"]
+            if alumno.get("final_confirmada"):
+                return ft.Row(spacing=3, controls=[
+                    ft.Text(formato_calificacion(valor_final), size=13, color=TEXT),
+                    ft.Icon(ft.Icons.LOCK_OUTLINE, size=14, color=MUTED),
+                ])
+            if "Final" in disponibles:
+                valores_periodos = [alumno[campo] for _, campo in periodos_calificacion]
+                if all(valor is not None for valor in valores_periodos):
+                    promedio_exacto = sum(
+                        Decimal(str(valor)) for valor in valores_periodos
+                    ) / Decimal(3)
+                    promedio = promedio_exacto.quantize(
+                        Decimal("1"), rounding=ROUND_HALF_UP,
+                    )
+                    final_calculada = (
+                        promedio if promedio_exacto >= 70 else Decimal("0")
+                    )
+                    return ft.Column(spacing=2, controls=[
+                        ft.Text(f"Promedio final: {promedio:.0f}", size=11, color=MUTED),
+                        ft.TextButton(
+                            "Confirmar",
+                            icon=ft.Icons.LOCK_OUTLINE,
+                            on_click=lambda _, a=alumno, p=promedio, f=final_calculada:
+                                confirmar_final(a, p, f),
+                        ),
+                    ])
+                return ft.Text("Faltan periodos", size=11, color=MUTED)
+            return ft.Text(
+                formato_calificacion(valor_final),
+                size=13,
+                color=MUTED if valor_final is None else TEXT,
+            )
 
         encabezado_calificaciones = ft.ResponsiveRow(spacing=8, controls=[
             ft.Container(col={"xs": 12, "md": 4}, content=ft.Text("Alumno", weight=ft.FontWeight.BOLD, color=NAVY)),
@@ -177,38 +220,12 @@ def build_inicio_docente(page: ft.Page, usuario: dict, navegar) -> ft.Control:
                     celda = ft.Text(formato_calificacion(valor), size=13, color=MUTED if valor is None else TEXT)
                 celdas.append(ft.Container(col={"xs": 4, "md": 2}, content=celda))
 
-            valor_final = alumno["final"]
-            if alumno.get("final_confirmada"):
-                celda_final = ft.Row(spacing=3, controls=[
-                    ft.Text(formato_calificacion(valor_final), size=13, color=TEXT),
-                    ft.Icon(ft.Icons.LOCK_OUTLINE, size=14, color=MUTED),
-                ])
-            elif "Final" in disponibles:
-                valores_periodos = [alumno[campo] for _, campo in periodos_calificacion]
-                if all(valor is not None for valor in valores_periodos):
-                    promedio_exacto = sum(
-                        Decimal(str(valor)) for valor in valores_periodos
-                    ) / Decimal(3)
-                    promedio = promedio_exacto.quantize(
-                        Decimal("1"), rounding=ROUND_HALF_UP,
-                    )
-                    final_calculada = (
-                        promedio if promedio_exacto >= 70 else Decimal("0")
-                    )
-                    celda_final = ft.Column(spacing=2, controls=[
-                        ft.Text(f"Promedio final: {promedio:.0f}", size=11, color=MUTED),
-                        ft.TextButton(
-                            "Confirmar",
-                            icon=ft.Icons.LOCK_OUTLINE,
-                            on_click=lambda e, a=alumno, p=promedio, f=final_calculada:
-                                confirmar_final(a, p, f),
-                        ),
-                    ])
-                else:
-                    celda_final = ft.Text("Faltan periodos", size=11, color=MUTED)
-            else:
-                celda_final = ft.Text(formato_calificacion(valor_final), size=13, color=MUTED if valor_final is None else TEXT)
-            celdas.append(ft.Container(col={"xs": 4, "md": 2}, content=celda_final))
+            contenedor_final = ft.Container(
+                col={"xs": 4, "md": 2},
+                content=crear_celda_final(alumno),
+            )
+            contenedores_finales[alumno["numero_control"]] = contenedor_final
+            celdas.append(contenedor_final)
 
             filas_alumnos.append(ft.Container(
                 padding=ft.Padding.symmetric(vertical=9),
@@ -292,18 +309,14 @@ def build_inicio_docente(page: ft.Page, usuario: dict, navegar) -> ft.Control:
                             ),
                     ),
                 ]),
-                ft.ExpansionTile(
-                    title=ft.Text(
-                        "Lista de alumnos y calificaciones",
-                        size=19,
-                        weight=ft.FontWeight.BOLD,
-                        color=NAVY,
-                    ),
-                    controls=[
-                        encabezado_calificaciones,
-                        ft.Column(spacing=0, controls=filas_alumnos),
-                    ],
+                ft.Text(
+                    "Lista de alumnos y calificaciones",
+                    size=19,
+                    weight=ft.FontWeight.BOLD,
+                    color=NAVY,
                 ),
+                encabezado_calificaciones,
+                ft.Column(spacing=0, controls=filas_alumnos),
             ]), padding=18),
         ]
         page.update()

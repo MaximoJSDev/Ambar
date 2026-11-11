@@ -1,5 +1,6 @@
 """Generación de reportes PDF de expedientes escolares."""
 from datetime import date
+from decimal import Decimal
 from io import BytesIO
 from pathlib import Path
 import unicodedata
@@ -598,6 +599,29 @@ def generar_lista_docente_pdf(datos: dict, incluir_calificaciones: bool = False)
         for titulo in encabezados
     ]]
     alumnos = sorted(grupo["alumnos"], key=_clave_orden_alumno)
+    if incluir_calificaciones:
+        calificaciones_finales = [
+            Decimal(str(alumno["final"]))
+            for alumno in alumnos
+            if alumno["final"] is not None
+        ]
+        if calificaciones_finales:
+            aprobados = sum(
+                calificacion >= Decimal("70")
+                for calificacion in calificaciones_finales
+            )
+            total_calificados = len(calificaciones_finales)
+            reprobados = total_calificados - aprobados
+            resumen_aprobacion = (
+                f"Aprobados: {aprobados / total_calificados:.1%} · "
+                f"Reprobados: {reprobados / total_calificados:.1%} "
+                f"({total_calificados} alumnos con calificación final)"
+            )
+        else:
+            resumen_aprobacion = (
+                "Aprobados: Sin datos · Reprobados: Sin datos "
+                "(0 alumnos con calificación final)"
+            )
     for indice, alumno in enumerate(alumnos, 1):
         fila = [
             Paragraph(str(indice), estilo),
@@ -639,6 +663,10 @@ def generar_lista_docente_pdf(datos: dict, incluir_calificaciones: bool = False)
             f"Periodo: <b>{_texto(grupo['periodo'])}</b> · "
             f"Alumnos: <b>{len(alumnos)}</b>",
             estilos["ReportSubtitle"],
+        ),
+        *(
+            [Paragraph(resumen_aprobacion, estilos["ReportSubtitle"])]
+            if incluir_calificaciones else []
         ),
         Spacer(1, 4 * mm),
         tabla,
