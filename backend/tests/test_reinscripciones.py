@@ -396,7 +396,7 @@ class ReinscripcionesServiceTests(unittest.TestCase):
 
         self.assertEqual(conn.execute.call_count, 1)
 
-    def test_baja_logica_registra_actor_y_no_elimina_inscripciones(self):
+    def test_baja_logica_registra_actor_y_libera_cupos_sin_borrar_inscripciones(self):
         fila = MagicMock()
         fila.mappings.return_value.first.return_value = {
             "numero_control": "26320200",
@@ -405,7 +405,10 @@ class ReinscripcionesServiceTests(unittest.TestCase):
         conn = MagicMock()
         conn.execute.side_effect = [fila, MagicMock()]
 
-        with patch("backend.servicios.engine.begin") as begin:
+        with (
+            patch("backend.servicios.engine.begin") as begin,
+            patch("backend.servicios._liberar_cupos_inscripciones") as liberar_cupos,
+        ):
             begin.return_value.__enter__.return_value = conn
             resultado = servicios.eliminar_reinscripcion("26320200", 7)
 
@@ -419,6 +422,33 @@ class ReinscripcionesServiceTests(unittest.TestCase):
             {"usuario": 7, "numero": "26320200"},
         )
         self.assertEqual(conn.execute.call_count, 2)
+        liberar_cupos.assert_called_once_with(conn, "26320200")
+
+    def test_liberar_cupos_actualiza_cada_grupo_y_conserva_inscripciones(self):
+        resultado_grupos = MagicMock()
+        resultado_grupos.mappings.return_value.all.return_value = [
+            {"id_grupo": 10},
+            {"id_grupo": 11},
+        ]
+        conn = MagicMock()
+        conn.execute.side_effect = [
+            resultado_grupos,
+            MagicMock(),
+            MagicMock(),
+        ]
+
+        servicios._liberar_cupos_inscripciones(conn, "26320200")
+
+        consulta_grupos = str(conn.execute.call_args_list[0].args[0])
+        self.assertIn("SELECT id_grupo FROM inscripciones_grupos", consulta_grupos)
+        self.assertIn("ORDER BY id_grupo FOR UPDATE", consulta_grupos)
+        self.assertIn("LEAST(cupo_maximo, cupo_disponible + 1)", str(
+            conn.execute.call_args_list[1].args[0]
+        ))
+        self.assertEqual(
+            [llamada.args[1] for llamada in conn.execute.call_args_list[1:]],
+            [{"grupo": 10}, {"grupo": 11}],
+        )
 
     def test_rechaza_dar_de_baja_una_reinscripcion_ya_inactiva(self):
         fila = MagicMock()

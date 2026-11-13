@@ -125,8 +125,23 @@ def build_inicio_docente(page: ft.Page, usuario: dict, navegar) -> ft.Control:
                 snackbar(page, "Calificación final confirmada; ya no se puede modificar.")
                 page.update()
 
+            def preguntar_confirmacion_final(_):
+                page.pop_dialog()
+                page.show_dialog(ft.AlertDialog(
+                    title=ft.Text("¿Confirmar calificación final?"),
+                    content=ft.Text(
+                        f"Se registrará {valor_final:.0f} para "
+                        f"{alumno['nombre_completo']}. Después no podrás modificarla. "
+                        "¿Confirmas ahora?"
+                    ),
+                    actions=[
+                        ft.TextButton("Cancelar", on_click=lambda _: page.pop_dialog()),
+                        ft.FilledButton("Sí, confirmar", on_click=guardar),
+                    ],
+                ))
+
             page.show_dialog(ft.AlertDialog(
-                title=ft.Text("Confirmar calificación final"),
+                title=ft.Text("Revisar calificación final"),
                 content=ft.Text(
                     f"El promedio redondeado de los tres periodos es {promedio:.0f}. "
                     f"Se registrará {valor_final:.0f}"
@@ -135,7 +150,7 @@ def build_inicio_docente(page: ft.Page, usuario: dict, navegar) -> ft.Control:
                 ),
                 actions=[
                     ft.TextButton("Cancelar", on_click=lambda _: page.pop_dialog()),
-                    ft.FilledButton("Confirmar final", on_click=guardar),
+                    ft.FilledButton("Continuar", on_click=preguntar_confirmacion_final),
                 ],
             ))
 
