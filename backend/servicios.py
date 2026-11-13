@@ -20,7 +20,7 @@ from decimal import Decimal, ROUND_HALF_UP
 from pathlib import Path
 
 from sqlalchemy import bindparam, text
-from sqlalchemy.exc import DBAPIError, IntegrityError
+from sqlalchemy.exc import IntegrityError
 
 from ambar_common import validators as v
 
@@ -39,7 +39,6 @@ from .seguridad import hashear
 
 log = logging.getLogger("sige")
 NOMBRE_CANDADO = "sige_altas"
-ERRNO_CHECK_VIOLADO = (3819, 4025)      # MySQL / MariaDB
 # Constancia fiscal existe en el ENUM de la BD, aunque Altas todavía no la solicita.
 TIPOS_EXPEDIENTE = [
     DOCUMENTOS["doc_acta_nacimiento"],
@@ -692,11 +691,6 @@ def _ultimo_sufijo_control(conn, prefijo: str) -> int | None:
         {"patron": prefijo + "%"},
     ).scalar_one()
     return int(ultimo) if ultimo is not None else None
-
-
-def _check_violado(exc: DBAPIError) -> bool:
-    args = getattr(exc.orig, "args", ())
-    return bool(args) and args[0] in ERRNO_CHECK_VIOLADO
 
 
 def buscar_expediente(q: str, incluir_bajas: bool = False) -> dict:

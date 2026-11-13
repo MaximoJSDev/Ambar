@@ -8,7 +8,6 @@ from starlette.datastructures import UploadFile
 from backend import servicios
 from backend.main import app
 from backend.routers.alumnos import (
-    actualizar_alumno,
     actualizar_documentos,
     eliminar_alumno,
     expediente,

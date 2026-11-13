@@ -233,15 +233,6 @@ CREATE TABLE avances_semestre (
     fecha_avance TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB;
 
-CREATE TABLE registro_asistencia (
-    id_registro INT AUTO_INCREMENT PRIMARY KEY,
-    id_inscripcion INT NOT NULL,
-    fecha DATE NOT NULL,
-    estatus ENUM('Asistencia', 'Falta', 'Retardo') NOT NULL,
-    FOREIGN KEY (id_inscripcion) REFERENCES inscripciones_grupos(id_inscripcion),
-    UNIQUE (id_inscripcion, fecha)
-);
-
 -- ==========================================
 -- 5. Auditoría
 -- ==========================================
