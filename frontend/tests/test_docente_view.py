@@ -177,6 +177,58 @@ def test_guardar_calificacion_actualiza_sin_reconstruir_la_lista():
     assert "Promedio final: 85" in list(_textos(vista))
 
 
+def test_confirmar_calificacion_final_pide_dos_confirmaciones():
+    datos_grupos = [{
+        "id_grupo": 7,
+        "grupo": "1ISC1",
+        "nombre_materia": "Cálculo Diferencial",
+        "aula": "G301",
+        "creditos": 5,
+        "turno": "Matutino",
+        "periodo": "AGO-DIC 2026",
+        "semana_actual": 17,
+        "evaluaciones_disponibles": ["Final"],
+        "horarios": [],
+        "alumnos": [{
+            "numero_control": "26320700",
+            "nombre_completo": "Ana Prueba",
+            "semana_5": 70,
+            "semana_9": 80,
+            "semana_13": 90,
+            "final": None,
+            "final_confirmada": False,
+        }],
+    }]
+    page = Mock()
+    with (
+        patch.object(main.api, "grupos_docente", return_value=datos_grupos),
+        patch.object(
+            main.api,
+            "confirmar_calificacion_final",
+            return_value={"valor": 80, "confirmada": True},
+        ) as confirmar,
+    ):
+        vista = main.build_inicio_docente(page, {"nombre": "Docente de prueba"}, Mock())
+        boton_confirmar = next(
+            control for control in _controles(vista)
+            if isinstance(control, main.ft.TextButton)
+            and "Confirmar" in list(_textos(control))
+        )
+        boton_confirmar.on_click(None)
+
+        primer_dialogo = page.show_dialog.call_args.args[0]
+        assert primer_dialogo.title.value == "Revisar calificación final"
+        primer_dialogo.actions[1].on_click(None)
+        confirmar.assert_not_called()
+
+        segundo_dialogo = page.show_dialog.call_args.args[0]
+        assert segundo_dialogo.title.value == "¿Confirmar calificación final?"
+        segundo_dialogo.actions[1].on_click(None)
+
+    confirmar.assert_called_once_with(7, "26320700")
+    assert datos_grupos[0]["alumnos"][0]["final_confirmada"] is True
+
+
 def _controles(control):
     yield control
     for hijo in getattr(control, "controls", None) or []:

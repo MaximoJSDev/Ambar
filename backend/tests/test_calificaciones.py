@@ -186,6 +186,84 @@ class CalificacionesTests(unittest.TestCase):
 
         self.assertEqual(conn.execute.call_count, 2)
 
+    def test_rechaza_semana_9_o_13_si_falta_la_calificacion_previa(self):
+        for periodo, previo in (("Semana 9", "Semana 5"), ("Semana 13", "Semana 9")):
+            with self.subTest(periodo=periodo):
+                resultado_inscripcion = MagicMock()
+                resultado_inscripcion.mappings.return_value.first.return_value = {
+                    "id_inscripcion": 8,
+                }
+                resultado_inicio = MagicMock()
+                resultado_inicio.scalar_one_or_none.return_value = datetime.date(2026, 8, 24)
+                resultado_final = MagicMock()
+                resultado_final.scalar_one_or_none.return_value = None
+                resultado_previo = MagicMock()
+                resultado_previo.scalar_one_or_none.return_value = None
+                conn = MagicMock()
+                conn.execute.side_effect = [
+                    resultado_inscripcion, resultado_inicio, resultado_final,
+                    resultado_previo,
+                ]
+
+                with (
+                    patch("backend.servicios.engine.begin") as begin,
+                    patch(
+                        "backend.servicios.settings",
+                        SimpleNamespace(periodo="AGO-DIC 2026"),
+                    ),
+                    patch("backend.servicios._semana_del_periodo", return_value=17),
+                ):
+                    begin.return_value.__enter__.return_value = conn
+                    with self.assertRaisesRegex(
+                        servicios.Conflicto,
+                        f"sin registrar primero {previo}",
+                    ):
+                        servicios.guardar_calificacion_docente(
+                            42, 7, "26320700", periodo, 80,
+                        )
+
+                self.assertEqual(conn.execute.call_count, 4)
+                self.assertIn(
+                    "SELECT valor FROM calificaciones",
+                    str(conn.execute.call_args_list[3].args[0]),
+                )
+                self.assertEqual(
+                    conn.execute.call_args_list[3].args[1]["periodo"],
+                    previo,
+                )
+
+    def test_semana_9_se_puede_guardar_si_semana_5_tiene_cero(self):
+        resultado_inscripcion = MagicMock()
+        resultado_inscripcion.mappings.return_value.first.return_value = {"id_inscripcion": 8}
+        resultado_inicio = MagicMock()
+        resultado_inicio.scalar_one_or_none.return_value = datetime.date(2026, 8, 24)
+        resultado_final = MagicMock()
+        resultado_final.scalar_one_or_none.return_value = None
+        resultado_previo = MagicMock()
+        resultado_previo.scalar_one_or_none.return_value = Decimal("0")
+        conn = MagicMock()
+        conn.execute.side_effect = [
+            resultado_inscripcion, resultado_inicio, resultado_final,
+            resultado_previo, MagicMock(),
+        ]
+
+        with (
+            patch("backend.servicios.engine.begin") as begin,
+            patch("backend.servicios.settings", SimpleNamespace(periodo="AGO-DIC 2026")),
+            patch("backend.servicios._semana_del_periodo", return_value=17),
+        ):
+            begin.return_value.__enter__.return_value = conn
+            resultado = servicios.guardar_calificacion_docente(
+                42, 7, "26320700", "Semana 9", 80,
+            )
+
+        self.assertEqual(resultado["valor"], 80)
+        self.assertEqual(conn.execute.call_count, 5)
+        self.assertIn(
+            "INSERT INTO calificaciones",
+            str(conn.execute.call_args_list[-1].args[0]),
+        )
+
     def test_periodos_no_se_pueden_cambiar_despues_de_confirmar_final(self):
         resultado_inscripcion = MagicMock()
         resultado_inscripcion.mappings.return_value.first.return_value = {"id_inscripcion": 8}

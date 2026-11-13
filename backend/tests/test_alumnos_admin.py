@@ -1,10 +1,11 @@
 from io import BytesIO
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from fastapi import HTTPException
 from starlette.datastructures import UploadFile
 
+from backend import servicios
 from backend.main import app
 from backend.routers.alumnos import (
     actualizar_alumno,
@@ -94,6 +95,24 @@ class GestionConsultasTests(unittest.TestCase):
             {"mensaje": "Expediente dado de baja; el historial se conserva"},
         )
         eliminar.assert_called_once_with("26320700", 32)
+
+    def test_baja_de_alumno_libera_cupos_y_conserva_el_historial(self):
+        conn = MagicMock()
+        conn.execute.return_value.mappings.return_value.first.return_value = {
+            "numero_control": "26320700",
+            "eliminado": False,
+        }
+
+        with (
+            patch("backend.servicios.engine.begin") as begin,
+            patch("backend.servicios._liberar_cupos_inscripciones") as liberar_cupos,
+            patch("backend.servicios._guardar_historial") as guardar_historial,
+        ):
+            begin.return_value.__enter__.return_value = conn
+            servicios.eliminar_alumno("26320700", 23)
+
+        liberar_cupos.assert_called_once_with(conn, "26320700")
+        guardar_historial.assert_called_once()
 
     def test_gestion_de_alumnos_admite_secretaria_y_administracion(self):
         for rol in ("Secretaría", "Administrador"):

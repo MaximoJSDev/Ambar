@@ -238,6 +238,22 @@ def obtener_reinscripcion(numero_control: str) -> dict:
     return dict(fila)
 
 
+def _liberar_cupos_inscripciones(conn, numero_control: str) -> None:
+    grupos = conn.execute(
+        text("""SELECT id_grupo FROM inscripciones_grupos
+                WHERE numero_control = :numero
+                ORDER BY id_grupo FOR UPDATE"""),
+        {"numero": numero_control},
+    ).mappings().all()
+    for grupo in grupos:
+        conn.execute(
+            text("""UPDATE grupos
+                    SET cupo_disponible = LEAST(cupo_maximo, cupo_disponible + 1)
+                    WHERE id_grupo = :grupo"""),
+            {"grupo": grupo["id_grupo"]},
+        )
+
+
 def eliminar_reinscripcion(numero_control: str, id_usuario: int) -> dict:
     with engine.begin() as conn:
         fila = conn.execute(
@@ -256,6 +272,7 @@ def eliminar_reinscripcion(numero_control: str, id_usuario: int) -> dict:
                     WHERE numero_control = :numero"""),
             {"usuario": id_usuario, "numero": fila["numero_control"]},
         )
+        _liberar_cupos_inscripciones(conn, fila["numero_control"])
     return {
         "numero_control": fila["numero_control"],
         "eliminado": True,
@@ -1006,6 +1023,7 @@ def eliminar_alumno(numero_control: str, id_usuario: int) -> None:
             text("UPDATE alumnos SET eliminado = TRUE WHERE numero_control = :numero"),
             {"numero": numero_control},
         )
+        _liberar_cupos_inscripciones(conn, numero_control)
         nuevo = dict(anterior) | {"eliminado": True}
         _guardar_historial(
             conn, numero_control, "BAJA", dict(anterior), nuevo, id_usuario,
@@ -1958,6 +1976,24 @@ def guardar_calificacion_docente(
             raise Conflicto(
                 "No se pueden modificar los periodos después de confirmar la calificación final."
             )
+
+        periodo_previo = {
+            "Semana 9": "Semana 5",
+            "Semana 13": "Semana 9",
+        }.get(periodo_evaluacion)
+        if periodo_previo is not None:
+            calificacion_previa = conn.execute(
+                text("""SELECT valor FROM calificaciones
+                        WHERE id_inscripcion = :inscripcion
+                          AND periodo_evaluacion = :periodo
+                        FOR UPDATE"""),
+                {"inscripcion": inscripcion, "periodo": periodo_previo},
+            ).scalar_one_or_none()
+            if calificacion_previa is None:
+                raise Conflicto(
+                    f"No se puede capturar {periodo_evaluacion} sin registrar "
+                    f"primero {periodo_previo}."
+                )
 
         conn.execute(
             text("""INSERT INTO calificaciones (id_inscripcion, periodo_evaluacion, valor)
