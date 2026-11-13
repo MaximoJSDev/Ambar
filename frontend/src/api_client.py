@@ -6,7 +6,6 @@ interfaz. `httpx.Client` es seguro entre hilos.
 """
 import contextlib
 import json
-import logging
 import os
 from pathlib import Path
 import time

@@ -177,22 +177,6 @@ python -m backend.importar_catalogo_cp SERVICIO_POSTAL_MEXICANO.txt
 
 Esto permite buscar códigos postales sin depender de internet. El sistema conserva las combinaciones existentes y agrega nuevas entradas.
 
-### Datos demo
-
-Se pueden generar alumnos ficticios para pruebas:
-
-```bash
-python -m backend.seed --alumnos-demo 10
-```
-
-También es posible crear alumnos de reinscripción ficticios:
-
-```bash
-python -m backend.seed --alumnos-demo-reinscripcion 3
-```
-
-Estos registros son útiles para desarrollo y pruebas, pero no se crean automáticamente al iniciar `run-ambar.bat`.
-
 ---
 
 ## Roles y permisos

@@ -1,7 +1,5 @@
 """Horarios publicados para agosto-diciembre de 2026."""
 
-from .catalogo_horarios_2_9 import CATALOGO_2_9
-
 PERIODO_1ISC = "AGO-DIC 2026"
 
 CATALOGO_1ISC = {
@@ -105,6 +103,67 @@ CATALOGO_1ISC = {
     ],
 }
 
+CATALOGO_2_3 = {
+    "2ISC1": [
+        ("Cálculo Integral", "R702", 5, "Alfredo Barbosa Baza", ("08:00-09:00",) * 5),
+        ("Programación Orientada a Objetos", "LVS3", 5, "Jorge Carranza Gómez", ("14:00-15:00",) * 5),
+        ("Contabilidad Financiera", "R701", 4, "Yared Zarate Liquidano", ("09:00-10:00", "09:00-10:00", "09:00-10:00", "09:00-10:00", None)),
+        ("Química", "R701", 4, "Esteban Inocente Pedrote Pérez", ("11:00-12:00", "11:00-12:00", "11:00-12:00", None, "11:00-12:00")),
+        ("Probabilidad y Estadística", "VLC5", 5, "Marisol Ramírez García", ("10:00-11:00",) * 5),
+    ],
+    "2ISC2": [
+        ("Cálculo Integral", "R703", 5, "Raúl Rumbo Rojas", ("17:00-18:00",) * 5),
+    ],
+    "3ISC1": [
+        ("Física General", "R702", 5, "Miguel Ángel Cabello Quintero", ("07:00-08:00",) * 5),
+        ("Estructura de Datos", "LVS4", 5, "Daniel Solís Chávez", ("08:00-09:00",) * 5),
+        ("Investigación de Operaciones", "R702", 4, "Gilberto Vales Ortiz", ("09:00-10:00", "09:00-10:00", "09:00-10:00", "09:00-10:00", None)),
+        ("Desarrollo Sustentable", "R702", 5, "Lizeth Julieta Mendoza Vázquez", ("10:00-11:00",) * 5),
+        ("Cálculo Vectorial", "R702", 5, "Luis Alberto Bedolla Meléndez", ("11:00-12:00",) * 5),
+        ("Cultura Empresarial", "R702", 4, "Yared Zarate Liquidano", ("12:00-13:00", "12:00-13:00", "12:00-13:00", "12:00-13:00", None)),
+    ],
+    "3ISC2": [
+        ("Física General", "G306", 5, "Esther Gallardo Cabrera", ("16:00-17:00",) * 5),
+        ("Estructura de Datos", "G301", 5, "Juan Miguel Hernández Bravo", ("14:00-15:00",) * 5),
+        ("Investigación de Operaciones", "G306", 4, "Gilberto Vales Ortiz", ("13:00-14:00", "13:00-14:00", "13:00-14:00", "13:00-14:00", None)),
+        ("Desarrollo Sustentable", "R701", 5, "José Luis Quiroz Cisneros", ("15:00-16:00",) * 5),
+        ("Cálculo Vectorial", "R704", 5, "Diana Maritza Navarrete Rodríguez", ("17:00-18:00",) * 5),
+        ("Cultura Empresarial", "R701", 4, "Miriam Janet Gallardo Santos", ("18:00-19:00", "18:00-19:00", "18:00-19:00", "18:00-19:00", None)),
+    ],
+    "3ISC3": [
+        ("Física General", "R703", 5, "Miguel Ángel Cabello Quintero", ("12:00-13:00",) * 5),
+        ("Estructura de Datos", "R703", 5, "Jorge Carranza Gómez", ("11:00-12:00",) * 5),
+        ("Investigación de Operaciones", "R703", 4, "Roberto Carlos Carrasquedo De La Cruz M.", ("10:00-11:00", "10:00-11:00", "10:00-11:00", "10:00-11:00", None)),
+        ("Desarrollo Sustentable", "R703", 5, "Lizeth Julieta Mendoza Vázquez", ("09:00-10:00",) * 5),
+        ("Cálculo Vectorial", "R703", 5, "Saida Soriano Ventura", ("08:00-09:00",) * 5),
+        ("Cultura Empresarial", "R703", 4, "Porfirio Solís Rosales", ("07:00-08:00", "07:00-08:00", "07:00-08:00", "07:00-08:00", None)),
+    ],
+    "3ISC4": [
+        ("Física General", "G306", 5, "Miguel Ángel Cabello Quintero", ("14:00-15:00",) * 5),
+        ("Estructura de Datos", "R705", 5, "Daniel Solís Chávez", ("12:00-13:00",) * 5),
+        ("Investigación de Operaciones", "R702", 4, "Miriam Janet Gallardo Santos", ("15:00-16:00", "15:00-16:00", "15:00-16:00", "15:00-16:00", None)),
+        ("Desarrollo Sustentable", "R701", 5, "Fernando Ortiz Maldonado", ("16:00-17:00",) * 5),
+        ("Cálculo Vectorial", "G305", 5, "Esther Gallardo Cabrera", ("13:00-14:00",) * 5),
+        ("Cultura Empresarial", "R702", 4, "Marcela Martínez García", ("17:00-18:00", None, "17:00-18:00", "17:00-18:00", "17:00-18:00")),
+    ],
+    "3ISC5": [
+        ("Física General", "R704", 5, "Miguel Ángel Cabello Quintero", ("10:00-11:00",) * 5),
+        ("Estructura de Datos", "R704", 5, "Jorge Carranza Gómez", ("09:00-10:00",) * 5),
+        ("Investigación de Operaciones", "R712", 4, "Graciela García Morales", ("11:00-12:00", "11:00-12:00", "11:00-12:00", "11:00-12:00", None)),
+        ("Desarrollo Sustentable", "R704", 5, "Fernando Ortiz Maldonado", ("12:00-13:00",) * 5),
+        ("Cálculo Vectorial", "R704", 5, "Elvia Gómez Barrientos", ("08:00-09:00",) * 5),
+        ("Cultura Empresarial", "LVS4", 4, "Porfirio Solís Rosales", ("14:00-15:00", "14:00-15:00", "14:00-15:00", "14:00-15:00", None)),
+    ],
+    "3ISC6": [
+        ("Física General", "R711", 5, "Esther Gallardo Cabrera", ("14:00-15:00",) * 5),
+        ("Estructura de Datos", "R705", 5, "Jorge Carranza Gómez", ("15:00-16:00",) * 5),
+        ("Investigación de Operaciones", "G306", 4, None, ("17:00-18:00", "17:00-18:00", "17:00-18:00", "17:00-18:00", None)),
+        ("Desarrollo Sustentable", "R709", 5, None, ("18:00-19:00",) * 5),
+        ("Cálculo Vectorial", "R705", 5, "Raúl Rumbo Rojas", ("16:00-17:00",) * 5),
+        ("Cultura Empresarial", "R704", 4, "Porfirio Solís Rosales", ("13:00-14:00", "13:00-14:00", "13:00-14:00", None, "13:00-14:00")),
+    ],
+}
+
 _PAQUETES_ACTIVOS = {
     "1ISC1", "1ISC2",
     "2ISC1", "2ISC2",
@@ -112,6 +171,6 @@ _PAQUETES_ACTIVOS = {
 }
 CATALOGO_HORARIOS = {
     nombre: materias
-    for nombre, materias in {**CATALOGO_1ISC, **CATALOGO_2_9}.items()
+    for nombre, materias in {**CATALOGO_1ISC, **CATALOGO_2_3}.items()
     if nombre in _PAQUETES_ACTIVOS
 }
