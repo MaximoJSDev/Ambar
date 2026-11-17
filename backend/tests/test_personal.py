@@ -38,7 +38,7 @@ class AltaDocentesTests(unittest.TestCase):
             "nombres": "María",
             "apellidos": "López",
         }]
-        with patch("backend.servicios.engine.connect") as conectar:
+        with patch("backend.services.personal.engine.connect") as conectar:
             ejecutar = conectar.return_value.__enter__.return_value.execute
             ejecutar.return_value.mappings.return_value.all.return_value = registros
             resultado = servicios.listar_docentes()

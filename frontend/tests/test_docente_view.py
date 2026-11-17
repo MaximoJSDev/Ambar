@@ -3,6 +3,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 import main
+from views.consultas import ConsultaExpediente
 
 
 def _textos(control):
@@ -355,7 +356,7 @@ def test_actividad_pagina_de_diez_y_abre_consultas_con_numero_de_control():
 
 def test_consulta_de_expediente_acepta_numero_inicial_para_busqueda_automatica():
     page = Mock()
-    consulta = main.ConsultaExpediente(
+    consulta = ConsultaExpediente(
         page,
         Mock(),
         {"rol": "Secretaría"},
@@ -404,7 +405,7 @@ def test_lista_de_grupo_de_secretaria_inicia_plegada_y_deja_descarga_visible():
             if isinstance(control, main.ft.Dropdown) and control.label == "Semestre"
         )
         assert [opcion.text for opcion in selector_semestre.options] == [
-            f"{semestre}.º semestre" for semestre in range(1, 10)
+            f"{semestre}.º semestre" for semestre in range(1, 4)
         ]
         cargar_paquetes.assert_called_once_with(1)
 
@@ -471,7 +472,7 @@ def test_grupos_y_horarios_cambia_el_semestre_y_carga_sus_paquetes():
     assert selector_paquete.options[0].text.startswith("2ISC1")
 
 
-def test_error_al_asignar_maestro_desplaza_la_vista_arriba():
+def test_grupo_muestra_maestro_sin_control_de_edicion():
     paquete = {
         "id_paquete": 5,
         "nombre": "1ISC1",
@@ -500,27 +501,19 @@ def test_error_al_asignar_maestro_desplaza_la_vista_arriba():
             return_value={"paquete": paquete, "materias": [materia]},
         ),
         patch.object(main.api, "lista_alumnos_grupo", return_value={"alumnos": []}),
-        patch.object(
-            main.api,
-            "asignar_docente_grupo",
-            side_effect=main.ApiError(409, "El maestro ya tiene un traslape."),
-        ) as asignar,
     ):
-        page = Mock()
-        vista = main.build_grupos_horarios(page, Mock())
+        vista = main.build_grupos_horarios(Mock(), Mock())
         controles = list(_controles(vista))
-        selector_docente = next(
-            control for control in controles
-            if isinstance(control, main.ft.Dropdown) and control.label == "Cuenta vinculada"
-        )
-        selector_docente.value = "12"
-        boton_guardar = next(
-            control for control in controles
-            if isinstance(control, main.ft.OutlinedButton)
-            and "Guardar docente" in list(_textos(control))
-        )
-        boton_guardar.on_click(None)
 
-    asignar.assert_called_once_with(8, 12)
-    assert page.run_task.call_args.args == (vista.scroll_to,)
-    assert page.run_task.call_args.kwargs == {"offset": 0, "duration": 300}
+    textos = list(_textos(vista))
+    assert "Maestro asignado" in textos
+    assert "Por asignar" in textos
+    assert not any(
+        isinstance(control, main.ft.Dropdown) and control.label == "Cuenta vinculada"
+        for control in controles
+    )
+    assert not any(
+        isinstance(control, main.ft.OutlinedButton)
+        and "Guardar docente" in list(_textos(control))
+        for control in controles
+    )

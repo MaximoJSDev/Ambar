@@ -2,26 +2,17 @@ import flet as ft
 
 from api_client import ApiError
 from app_state import api, log
-from forms.alta import FormAltas, build_formulario_inscripcion
-from forms.domicilio import DomicilioCampos, formatear_ficha
+from forms.alta import build_formulario_inscripcion
 from ui.components import snackbar
 from ui.navigation import IMPLEMENTADAS, RUTAS_ADMIN
 from ui.shell import Shell
 from ui.theme import BG
 from views.bitacora import build_bitacora_admin
-from views.cuentas import (
-    build_alta_maestro,
-    build_alta_secretaria,
-    build_consulta_maestros,
-    build_consulta_secretarias,
-)
+from views.cuentas import alta_cuenta, consulta_cuentas
 from views.consultas import (
-    ConsultaExpediente,
-    _cambios_historial,
     build_bajas,
     build_consultas,
     build_modificacion,
-    ordinal_semestre,
 )
 from views.docente import build_grupos_horarios, build_inicio_docente
 from views.login import build_login
@@ -90,9 +81,9 @@ def main(page: ft.Page):
         if ruta == "/altas":
             return build_formulario_inscripcion(page, selector_archivos, navegar)
         if ruta == "/altas-maestros":
-            return build_alta_maestro(page, navegar)
+            return alta_cuenta(page, navegar, "maestro")
         if ruta == "/consulta-maestros":
-            return build_consulta_maestros(page, navegar)
+            return consulta_cuentas(page, navegar, "maestro")
         if ruta == "/grupos-horarios":
             return build_grupos_horarios(page, navegar)
         if ruta == "/reinscripcion":
@@ -107,11 +98,11 @@ def main(page: ft.Page):
         if ruta == "/bajas":
             return build_bajas(page, selector_archivos, usuario, navegar)
         if ruta == "/administracion/secretarias/alta":
-            return build_alta_secretaria(page, navegar)
+            return alta_cuenta(page, navegar, "secretaria")
         if ruta == "/administracion/periodos":
             return build_periodos_escolares(page)
         if ruta == "/administracion/secretarias":
-            return build_consulta_secretarias(page, navegar)
+            return consulta_cuentas(page, navegar, "secretaria")
         if ruta == "/bitacora":
             return build_bitacora_admin(page, navegar)
         return build_panel(page, navegar, consultar_alumno)

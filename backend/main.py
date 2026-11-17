@@ -3,7 +3,8 @@ import asyncio
 import logging
 from contextlib import asynccontextmanager, suppress
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from sqlalchemy.exc import SQLAlchemyError
 
 from ambar_common.logging_config import configure_file_logging
@@ -52,6 +53,21 @@ app.include_router(admin.router)
 app.include_router(personal.router)
 app.include_router(horarios.router)
 app.include_router(reinscripciones.router)
+
+
+@app.exception_handler(servicios.Ocupado)
+async def manejar_servicio_ocupado(
+    _: Request, __: servicios.Ocupado,
+) -> JSONResponse:
+    """Conserva la respuesta HTTP común para operaciones en curso."""
+    return JSONResponse(
+        status_code=503,
+        content={
+            "detail": {
+                "mensaje": "El servidor está procesando otra alta. Intenta de nuevo.",
+            },
+        },
+    )
 
 
 @app.get("/salud", tags=["Sistema"])

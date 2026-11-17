@@ -1,4 +1,4 @@
-"""Process-wide services shared by views and form components."""
+"""Servicios compartidos por las vistas y los componentes de formularios."""
 
 import logging
 

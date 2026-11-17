@@ -1,4 +1,4 @@
-"""Style-consistent controls shared by independently built views."""
+"""Controles con estilos consistentes compartidos por las vistas independientes."""
 
 import flet as ft
 

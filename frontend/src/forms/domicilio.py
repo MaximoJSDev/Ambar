@@ -1,4 +1,4 @@
-"""Postal-address controls backed by the local postal-code catalog."""
+"""Controles de domicilio postal basados en el catálogo local de códigos postales."""
 
 import re
 

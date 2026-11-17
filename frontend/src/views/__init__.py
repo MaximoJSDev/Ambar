@@ -1,1 +1,1 @@
-"""Screen modules composed by the application router."""
+"""Módulos de pantallas compuestos por el enrutador de la aplicación."""

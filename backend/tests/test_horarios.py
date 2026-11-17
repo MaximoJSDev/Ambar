@@ -47,7 +47,7 @@ class HorariosTests(unittest.TestCase):
         conn = MagicMock()
         conn.execute.return_value = resultado_consulta
 
-        with patch("backend.servicios.engine.connect") as conectar:
+        with patch("backend.services.horarios.engine.connect") as conectar:
             conectar.return_value.__enter__.return_value = conn
             paquetes = servicios.listar_paquetes_horario(9)
 
@@ -69,9 +69,9 @@ class HorariosTests(unittest.TestCase):
         transaccion.execute.side_effect = [grupo, paquete, MagicMock()]
 
         with (
-            patch("backend.servicios.engine.begin") as begin,
+            patch("backend.services.horarios.engine.begin") as begin,
             patch(
-                "backend.servicios.detalle_paquete_horario",
+                "backend.services.horarios.detalle_paquete_horario",
                 return_value={"id_paquete": 91},
             ),
         ):
@@ -103,7 +103,7 @@ class HorariosTests(unittest.TestCase):
         conn = MagicMock()
         conn.execute.side_effect = [grupo, paquete, docente, traslape]
 
-        with patch("backend.servicios.engine.begin") as begin:
+        with patch("backend.services.horarios.engine.begin") as begin:
             begin.return_value.__enter__.return_value = conn
             with self.assertRaisesRegex(
                 servicios.Conflicto,
@@ -137,8 +137,8 @@ class HorariosTests(unittest.TestCase):
         detalle = {"paquete": {"id_paquete": 3}, "materias": []}
 
         with (
-            patch("backend.servicios.engine.begin") as begin,
-            patch("backend.servicios.detalle_paquete_horario", return_value=detalle),
+            patch("backend.services.horarios.engine.begin") as begin,
+            patch("backend.services.horarios.detalle_paquete_horario", return_value=detalle),
         ):
             begin.return_value.__enter__.return_value = conn
             resultado = servicios.actualizar_docente_grupo(8, 12)
@@ -158,7 +158,7 @@ class HorariosTests(unittest.TestCase):
         conn = MagicMock()
         conn.execute.return_value = grupo
 
-        with patch("backend.servicios.engine.begin") as begin:
+        with patch("backend.services.horarios.engine.begin") as begin:
             begin.return_value.__enter__.return_value = conn
             with self.assertRaisesRegex(servicios.Conflicto, "ya está asignado"):
                 servicios.actualizar_docente_grupo(8, 13)
@@ -350,11 +350,13 @@ class HorariosTests(unittest.TestCase):
             "final_confirmada": 0,
         }]
         resultado_inicio = MagicMock()
-        resultado_inicio.scalar_one_or_none.return_value = datetime.date(2026, 8, 24)
+        resultado_inicio.mappings.return_value.first.return_value = {
+            "fecha_inicio": datetime.date(2026, 8, 24),
+        }
         conn = MagicMock()
         conn.execute.side_effect = [resultado_inicio, resultado_grupos, resultado_alumnos]
 
-        with patch("backend.servicios.engine.connect") as conectar:
+        with patch("backend.services.docentes.engine.connect") as conectar:
             conectar.return_value.__enter__.return_value = conn
             grupos = servicios.listar_grupos_docente(42)
 
@@ -506,7 +508,7 @@ class HorariosTests(unittest.TestCase):
         transaccion = MagicMock()
         transaccion.execute.side_effect = [alumno, paquete_no_oficial]
 
-        with patch("backend.servicios.engine.begin") as begin:
+        with patch("backend.services.horarios.engine.begin") as begin:
             begin.return_value.__enter__.return_value = transaccion
             with self.assertRaises(servicios.Conflicto):
                 servicios.asignar_paquete_horario("26320700", 99)
@@ -544,9 +546,9 @@ class HorariosTests(unittest.TestCase):
         ]
 
         with (
-            patch("backend.servicios.engine.begin") as begin,
+            patch("backend.services.horarios.engine.begin") as begin,
             patch(
-                "backend.servicios.estado_horario_alumno",
+                "backend.services.horarios.estado_horario_alumno",
                 return_value={"asignado": True},
             ) as estado,
         ):
@@ -666,7 +668,7 @@ class HorariosTests(unittest.TestCase):
             ],
         }
         documento = MagicMock()
-        with patch.object(reportes, "_documento_horario", return_value=documento):
+        with patch.object(reportes, "_documento_pdf", return_value=documento):
             reportes.generar_lista_docente_pdf(datos, incluir_calificaciones=True)
 
         elementos = documento.build.call_args.args[0]
@@ -682,7 +684,7 @@ class HorariosTests(unittest.TestCase):
 
         for alumno in datos["alumnos"]:
             alumno["final"] = None
-        with patch.object(reportes, "_documento_horario", return_value=documento):
+        with patch.object(reportes, "_documento_pdf", return_value=documento):
             reportes.generar_lista_docente_pdf(datos, incluir_calificaciones=True)
         resumen_sin_finales = next(
             elemento.getPlainText()

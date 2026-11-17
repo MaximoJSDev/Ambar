@@ -33,8 +33,8 @@ class CalificacionesTests(unittest.TestCase):
         configuracion = SimpleNamespace(periodo="ENE-JUN 2026", periodo_escolar="ENE-JUN 2026")
 
         with (
-            patch("backend.servicios.engine.begin") as begin,
-            patch("backend.servicios.settings", configuracion),
+            patch("backend.services.periodos.engine.begin") as begin,
+            patch("backend.services.periodos.settings", configuracion),
         ):
             begin.return_value.__enter__.return_value = conn
             resultado = servicios.guardar_periodo_escolar(
@@ -73,8 +73,8 @@ class CalificacionesTests(unittest.TestCase):
         conn.execute.side_effect = [existente, MagicMock(), guardado]
 
         with (
-            patch("backend.servicios.engine.begin") as begin,
-            patch("backend.servicios.settings", SimpleNamespace(periodo="OTRO 2026")),
+            patch("backend.services.periodos.engine.begin") as begin,
+            patch("backend.services.periodos.settings", SimpleNamespace(periodo="OTRO 2026")),
         ):
             begin.return_value.__enter__.return_value = conn
             resultado = servicios.guardar_periodo_escolar(
@@ -101,8 +101,8 @@ class CalificacionesTests(unittest.TestCase):
         conn.execute.side_effect = [existente, duplicado]
 
         with (
-            patch("backend.servicios.engine.begin") as begin,
-            patch("backend.servicios.settings", SimpleNamespace(periodo="ENE-JUN 2026")),
+            patch("backend.services.periodos.engine.begin") as begin,
+            patch("backend.services.periodos.settings", SimpleNamespace(periodo="ENE-JUN 2026")),
         ):
             begin.return_value.__enter__.return_value = conn
             with self.assertRaisesRegex(servicios.Conflicto, "Ya existe un periodo"):
@@ -128,8 +128,8 @@ class CalificacionesTests(unittest.TestCase):
         conn.execute.side_effect = [existente, duplicado_periodo, grupos_destino]
 
         with (
-            patch("backend.servicios.engine.begin") as begin,
-            patch("backend.servicios.settings", SimpleNamespace(periodo="ENE-JUN 2026")),
+            patch("backend.services.periodos.engine.begin") as begin,
+            patch("backend.services.periodos.settings", SimpleNamespace(periodo="ENE-JUN 2026")),
         ):
             begin.return_value.__enter__.return_value = conn
             with self.assertRaisesRegex(servicios.Conflicto, "no se pueden combinar"):
@@ -174,9 +174,9 @@ class CalificacionesTests(unittest.TestCase):
         conn = MagicMock()
         conn.execute.side_effect = [resultado_inscripcion, resultado_inicio]
         with (
-            patch("backend.servicios.engine.begin") as begin,
-            patch("backend.servicios.settings", SimpleNamespace(periodo="AGO-DIC 2026")),
-            patch("backend.servicios._semana_del_periodo", return_value=4),
+            patch("backend.services.docentes.engine.begin") as begin,
+            patch("backend.services.docentes.settings", SimpleNamespace(periodo="AGO-DIC 2026")),
+            patch("backend.services.docentes._semana_del_periodo", return_value=4),
         ):
             begin.return_value.__enter__.return_value = conn
             with self.assertRaises(servicios.Conflicto):
@@ -206,12 +206,12 @@ class CalificacionesTests(unittest.TestCase):
                 ]
 
                 with (
-                    patch("backend.servicios.engine.begin") as begin,
+                    patch("backend.services.docentes.engine.begin") as begin,
                     patch(
-                        "backend.servicios.settings",
+                        "backend.services.docentes.settings",
                         SimpleNamespace(periodo="AGO-DIC 2026"),
                     ),
-                    patch("backend.servicios._semana_del_periodo", return_value=17),
+                    patch("backend.services.docentes._semana_del_periodo", return_value=17),
                 ):
                     begin.return_value.__enter__.return_value = conn
                     with self.assertRaisesRegex(
@@ -248,9 +248,9 @@ class CalificacionesTests(unittest.TestCase):
         ]
 
         with (
-            patch("backend.servicios.engine.begin") as begin,
-            patch("backend.servicios.settings", SimpleNamespace(periodo="AGO-DIC 2026")),
-            patch("backend.servicios._semana_del_periodo", return_value=17),
+            patch("backend.services.docentes.engine.begin") as begin,
+            patch("backend.services.docentes.settings", SimpleNamespace(periodo="AGO-DIC 2026")),
+            patch("backend.services.docentes._semana_del_periodo", return_value=17),
         ):
             begin.return_value.__enter__.return_value = conn
             resultado = servicios.guardar_calificacion_docente(
@@ -274,9 +274,9 @@ class CalificacionesTests(unittest.TestCase):
         conn = MagicMock()
         conn.execute.side_effect = [resultado_inscripcion, resultado_inicio, resultado_final]
         with (
-            patch("backend.servicios.engine.begin") as begin,
-            patch("backend.servicios.settings", SimpleNamespace(periodo="AGO-DIC 2026")),
-            patch("backend.servicios._semana_del_periodo", return_value=17),
+            patch("backend.services.docentes.engine.begin") as begin,
+            patch("backend.services.docentes.settings", SimpleNamespace(periodo="AGO-DIC 2026")),
+            patch("backend.services.docentes._semana_del_periodo", return_value=17),
         ):
             begin.return_value.__enter__.return_value = conn
             with self.assertRaisesRegex(servicios.Conflicto, "después de confirmar"):
@@ -305,9 +305,9 @@ class CalificacionesTests(unittest.TestCase):
             MagicMock(),
         ]
         with (
-            patch("backend.servicios.engine.begin") as begin,
-            patch("backend.servicios.settings", SimpleNamespace(periodo="AGO-DIC 2026")),
-            patch("backend.servicios._semana_del_periodo", return_value=17),
+            patch("backend.services.docentes.engine.begin") as begin,
+            patch("backend.services.docentes.settings", SimpleNamespace(periodo="AGO-DIC 2026")),
+            patch("backend.services.docentes._semana_del_periodo", return_value=17),
         ):
             begin.return_value.__enter__.return_value = conn
             resultado = servicios.confirmar_calificacion_final_docente(42, 7, "26320700")
@@ -335,9 +335,9 @@ class CalificacionesTests(unittest.TestCase):
             MagicMock(),
         ]
         with (
-            patch("backend.servicios.engine.begin") as begin,
-            patch("backend.servicios.settings", SimpleNamespace(periodo="AGO-DIC 2026")),
-            patch("backend.servicios._semana_del_periodo", return_value=17),
+            patch("backend.services.docentes.engine.begin") as begin,
+            patch("backend.services.docentes.settings", SimpleNamespace(periodo="AGO-DIC 2026")),
+            patch("backend.services.docentes._semana_del_periodo", return_value=17),
         ):
             begin.return_value.__enter__.return_value = conn
             resultado = servicios.confirmar_calificacion_final_docente(42, 7, "26320700")
@@ -363,9 +363,9 @@ class CalificacionesTests(unittest.TestCase):
             MagicMock(),
         ]
         with (
-            patch("backend.servicios.engine.begin") as begin,
-            patch("backend.servicios.settings", SimpleNamespace(periodo="AGO-DIC 2026")),
-            patch("backend.servicios._semana_del_periodo", return_value=17),
+            patch("backend.services.docentes.engine.begin") as begin,
+            patch("backend.services.docentes.settings", SimpleNamespace(periodo="AGO-DIC 2026")),
+            patch("backend.services.docentes._semana_del_periodo", return_value=17),
         ):
             begin.return_value.__enter__.return_value = conn
             resultado = servicios.confirmar_calificacion_final_docente(42, 7, "26320700")

@@ -1,1 +1,1 @@
-"""Reusable interface primitives shared by the frontend views."""
+"""Componentes de interfaz reutilizables compartidos por las vistas."""

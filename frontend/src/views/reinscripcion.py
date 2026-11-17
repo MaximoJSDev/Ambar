@@ -1,4 +1,4 @@
-"""Registration and maintenance flow for reinscribed students."""
+"""Flujo de registro y mantenimiento de alumnos reinscritos."""
 
 import re
 
@@ -14,7 +14,118 @@ from ui.components import (
     snackbar,
     titulo_pagina,
 )
+from ui.errors import manejar_error_api
 from ui.theme import WARN_FG
+
+
+def _validar_datos_reinscripcion(datos: dict) -> dict[str, str]:
+    errores = {}
+    if not re.fullmatch(r"\d{8}", datos["numero_control"]):
+        errores["numero_control"] = "Debe contener exactamente 8 dígitos"
+    if error := v.validar_nombre_personal(datos["nombre"], "Nombre", maximo=50):
+        errores["nombre"] = error
+    if error := v.validar_nombre_personal(
+        datos["apellido_paterno"], "Apellido paterno", maximo=50,
+    ):
+        errores["apellido_paterno"] = error
+    if error := v.validar_nombre_personal(
+        datos["apellido_materno"], "Apellido materno", maximo=50,
+    ):
+        errores["apellido_materno"] = error
+    if datos["semestre"] not in (2, 3):
+        errores["semestre"] = "Selecciona segundo o tercer semestre"
+    elif (
+        "numero_control" not in errores
+        and re.fullmatch(r"\d{8}", datos["numero_control"])
+    ):
+        prefijo = "26" if datos["semestre"] == 2 else "25"
+        if not datos["numero_control"].startswith(prefijo):
+            anio = "2026" if datos["semestre"] == 2 else "2025"
+            errores["numero_control"] = (
+                f"Para {datos['semestre']}° semestre, el número de control debe corresponder al año {anio}"
+            )
+        elif error := v.validar_periodo_numero_control(
+            datos["numero_control"], datos["semestre"],
+        ):
+            errores["numero_control"] = error
+    if datos["id_paquete"] is None:
+        errores["id_paquete"] = "Selecciona un paquete con lugares disponibles"
+    return errores
+
+
+def _actualizar_paquetes(
+    api_client: ApiClient, navegar, page: ft.Page, paquete: ft.Dropdown,
+    aviso_paquete: ft.Text, valor_semestre, id_actual=None,
+) -> bool:
+    if not valor_semestre:
+        paquete.options = []
+        paquete.value = None
+        paquete.visible = False
+        aviso_paquete.visible = False
+        return True
+    try:
+        paquetes = api_client.paquetes_horario(int(valor_semestre))
+    except ApiError as ex:
+        if manejar_error_api(ex, navegar, "/secretaria", page, aviso_paquete):
+            return False
+        paquete.options = []
+        paquete.value = None
+        paquete.visible = True
+        return False
+
+    disponibles = [
+        item for item in paquetes
+        if item["lugares"] > 0 or item["id_paquete"] == id_actual
+    ]
+    if id_actual is not None and not any(
+        item["id_paquete"] == id_actual for item in disponibles
+    ):
+        disponibles.append({
+            "id_paquete": id_actual,
+            "nombre": "Paquete actual",
+            "turno": "",
+            "lugares": 0,
+        })
+    paquete.options = [
+        ft.DropdownOption(
+            key=str(item["id_paquete"]),
+            text=(
+                f"{item['nombre']} · {item['turno']} · {item['lugares']} lugares"
+                if item["id_paquete"] != id_actual
+                else f"{item['nombre']} · paquete actual"
+            ),
+        )
+        for item in disponibles
+    ]
+    paquete.value = str(id_actual) if id_actual is not None else None
+    paquete.visible = True
+    aviso_paquete.visible = not disponibles
+    return True
+
+
+def _construir_vista_reinscripcion(
+    numero, nombre, apellido_paterno, apellido_materno, semestre, paquete,
+    aviso_paquete, aviso, boton_buscar, boton_cancelar, boton_registrar,
+) -> ft.Control:
+    return ft.Column(expand=True, scroll=ft.ScrollMode.AUTO, spacing=20, controls=[
+        titulo_pagina(
+            "Reinscripción",
+            "Registra reinscritos con el paquete de horario elegido o busca su número de control para modificar sus datos.",
+        ),
+        crear_tarjeta(ft.Column(spacing=16, controls=[
+            ft.ResponsiveRow(spacing=12, run_spacing=12, controls=[
+                ft.Container(col={"xs": 12, "md": 6}, content=crear_campo_etiquetado("Número de control", numero)),
+                ft.Container(col={"xs": 12, "md": 6}, content=crear_campo_etiquetado("Semestre", semestre)),
+                ft.Container(col={"xs": 12, "md": 6}, content=crear_campo_etiquetado("Nombre", nombre)),
+                ft.Container(col={"xs": 12, "md": 6}, content=crear_campo_etiquetado("Apellido paterno", apellido_paterno)),
+                ft.Container(col={"xs": 12, "md": 6}, content=crear_campo_etiquetado("Apellido materno", apellido_materno)),
+            ]),
+            ft.Column(spacing=4, controls=[paquete, aviso_paquete]),
+            aviso,
+            ft.Row(controls=[boton_buscar, boton_cancelar, boton_registrar]),
+        ]), padding=ft.Padding.symmetric(horizontal=20, vertical=16)),
+    ])
+
 
 def build_reinscripcion(page: ft.Page, navegar, api_client: ApiClient) -> ft.Control:
     numero = crear_campo_texto(
@@ -67,53 +178,9 @@ def build_reinscripcion(page: ft.Page, navegar, api_client: ApiClient) -> ft.Con
         aviso.visible = False
 
     def actualizar_paquetes(valor_semestre, id_actual=None):
-        if not valor_semestre:
-            paquete.options = []
-            paquete.value = None
-            paquete.visible = False
-            aviso_paquete.visible = False
-            return True
-        try:
-            paquetes = api_client.paquetes_horario(int(valor_semestre))
-        except ApiError as ex:
-            if ex.status == 401:
-                navegar("/secretaria")
-                return False
-            paquete.options = []
-            paquete.value = None
-            paquete.visible = True
-            aviso_paquete.value = ex.mensaje
-            aviso_paquete.visible = True
-            return False
-
-        disponibles = [
-            item for item in paquetes
-            if item["lugares"] > 0 or item["id_paquete"] == id_actual
-        ]
-        if id_actual is not None and not any(
-            item["id_paquete"] == id_actual for item in disponibles
-        ):
-            disponibles.append({
-                "id_paquete": id_actual,
-                "nombre": "Paquete actual",
-                "turno": "",
-                "lugares": 0,
-            })
-        paquete.options = [
-            ft.DropdownOption(
-                key=str(item["id_paquete"]),
-                text=(
-                    f"{item['nombre']} · {item['turno']} · {item['lugares']} lugares"
-                    if item["id_paquete"] != id_actual
-                    else f"{item['nombre']} · paquete actual"
-                ),
-            )
-            for item in disponibles
-        ]
-        paquete.value = str(id_actual) if id_actual is not None else None
-        paquete.visible = True
-        aviso_paquete.visible = not disponibles
-        return True
+        return _actualizar_paquetes(
+            api_client, navegar, page, paquete, aviso_paquete, valor_semestre, id_actual,
+        )
 
     def semestre_seleccionado(_):
         semestre.error_text = None
@@ -152,11 +219,8 @@ def build_reinscripcion(page: ft.Page, navegar, api_client: ApiClient) -> ft.Con
         try:
             registro = api_client.reinscripcion(consulta)
         except ApiError as ex:
-            if ex.status == 401:
-                navegar("/secretaria")
+            if manejar_error_api(ex, navegar, "/secretaria", page, aviso):
                 return
-            aviso.value = ex.mensaje
-            aviso.visible = True
         else:
             numero_original = registro["numero_control"]
             numero.value = registro["numero_control"]
@@ -182,38 +246,7 @@ def build_reinscripcion(page: ft.Page, navegar, api_client: ApiClient) -> ft.Con
             "semestre": int(semestre.value) if semestre.value else None,
             "id_paquete": int(paquete.value) if paquete.value else None,
         }
-        errores = {}
-        if not re.fullmatch(r"\d{8}", datos["numero_control"]):
-            errores["numero_control"] = "Debe contener exactamente 8 dígitos"
-        if error := v.validar_nombre_personal(datos["nombre"], "Nombre", maximo=50):
-            errores["nombre"] = error
-        if error := v.validar_nombre_personal(
-            datos["apellido_paterno"], "Apellido paterno", maximo=50,
-        ):
-            errores["apellido_paterno"] = error
-        if error := v.validar_nombre_personal(
-            datos["apellido_materno"], "Apellido materno", maximo=50,
-        ):
-            errores["apellido_materno"] = error
-        if datos["semestre"] not in (2, 3):
-            errores["semestre"] = "Selecciona segundo o tercer semestre"
-        elif (
-            "numero_control" not in errores
-            and re.fullmatch(r"\d{8}", datos["numero_control"])
-        ):
-            prefijo = "26" if datos["semestre"] == 2 else "25"
-            if not datos["numero_control"].startswith(prefijo):
-                anio = "2026" if datos["semestre"] == 2 else "2025"
-                errores["numero_control"] = (
-                    f"Para {datos['semestre']}° semestre, el número de control debe corresponder al año {anio}"
-                )
-            elif error := v.validar_periodo_numero_control(
-                datos["numero_control"], datos["semestre"],
-            ):
-                errores["numero_control"] = error
-        if datos["id_paquete"] is None:
-            errores["id_paquete"] = "Selecciona un paquete con lugares disponibles"
-        return datos, errores
+        return datos, _validar_datos_reinscripcion(datos)
 
     def registrar(_=None):
         limpiar_errores()
@@ -237,8 +270,7 @@ def build_reinscripcion(page: ft.Page, navegar, api_client: ApiClient) -> ft.Con
             else:
                 resultado = api_client.registrar_reinscripcion(datos)
         except ApiError as ex:
-            if ex.status == 401:
-                navegar("/secretaria")
+            if manejar_error_api(ex, navegar, "/secretaria", page, aviso):
                 return
             for campo, mensaje in ex.errores.items():
                 control = {
@@ -253,8 +285,6 @@ def build_reinscripcion(page: ft.Page, navegar, api_client: ApiClient) -> ft.Con
                     control.error_text = mensaje
                 elif control is not None:
                     control.error = mensaje
-            aviso.value = ex.mensaje
-            aviso.visible = True
         else:
             actualizando = numero_original is not None
             reiniciar_formulario()
@@ -271,22 +301,7 @@ def build_reinscripcion(page: ft.Page, navegar, api_client: ApiClient) -> ft.Con
     boton_buscar.on_click = buscar_reinscripcion
     boton_cancelar.on_click = lambda _: reiniciar_formulario()
     semestre.on_select = semestre_seleccionado
-    vista = ft.Column(expand=True, scroll=ft.ScrollMode.AUTO, spacing=20, controls=[
-        titulo_pagina(
-            "Reinscripción",
-            "Registra reinscritos con el paquete de horario elegido o busca su número de control para modificar sus datos.",
-        ),
-        crear_tarjeta(ft.Column(spacing=16, controls=[
-            ft.ResponsiveRow(spacing=12, run_spacing=12, controls=[
-                ft.Container(col={"xs": 12, "md": 6}, content=crear_campo_etiquetado("Número de control", numero)),
-                ft.Container(col={"xs": 12, "md": 6}, content=crear_campo_etiquetado("Semestre", semestre)),
-                ft.Container(col={"xs": 12, "md": 6}, content=crear_campo_etiquetado("Nombre", nombre)),
-                ft.Container(col={"xs": 12, "md": 6}, content=crear_campo_etiquetado("Apellido paterno", apellido_paterno)),
-                ft.Container(col={"xs": 12, "md": 6}, content=crear_campo_etiquetado("Apellido materno", apellido_materno)),
-            ]),
-            ft.Column(spacing=4, controls=[paquete, aviso_paquete]),
-            aviso,
-            ft.Row(controls=[boton_buscar, boton_cancelar, boton_registrar]),
-        ]), padding=ft.Padding.symmetric(horizontal=20, vertical=16)),
-    ])
-    return vista
+    return _construir_vista_reinscripcion(
+        numero, nombre, apellido_paterno, apellido_materno, semestre, paquete,
+        aviso_paquete, aviso, boton_buscar, boton_cancelar, boton_registrar,
+    )

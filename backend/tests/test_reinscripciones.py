@@ -278,8 +278,8 @@ class ReinscripcionesServiceTests(unittest.TestCase):
         bloqueo = MagicMock()
         bloqueo.execute.return_value.scalar.return_value = 1
         with (
-            patch("backend.servicios.engine.connect") as connect,
-            patch("backend.servicios.engine.begin") as begin,
+            patch("backend.services.reinscripciones.engine.connect") as connect,
+            patch("backend.services.reinscripciones.engine.begin") as begin,
         ):
             connect.return_value.__enter__.return_value = bloqueo
             begin.return_value.__enter__.return_value = conn
@@ -315,8 +315,8 @@ class ReinscripcionesServiceTests(unittest.TestCase):
         bloqueo.execute.return_value.scalar.return_value = 1
 
         with (
-            patch("backend.servicios.engine.connect") as connect,
-            patch("backend.servicios.engine.begin") as begin,
+            patch("backend.services.reinscripciones.engine.connect") as connect,
+            patch("backend.services.reinscripciones.engine.begin") as begin,
             self.assertRaisesRegex(servicios.Conflicto, "El número de control ya existe"),
         ):
             connect.return_value.__enter__.return_value = bloqueo
@@ -383,8 +383,8 @@ class ReinscripcionesServiceTests(unittest.TestCase):
         bloqueo.execute.return_value.scalar.return_value = 1
 
         with (
-            patch("backend.servicios.engine.connect") as connect,
-            patch("backend.servicios.engine.begin") as begin,
+            patch("backend.services.reinscripciones.engine.connect") as connect,
+            patch("backend.services.reinscripciones.engine.begin") as begin,
             self.assertRaisesRegex(servicios.Conflicto, "No se puede modificar el número"),
         ):
             connect.return_value.__enter__.return_value = bloqueo
@@ -406,8 +406,8 @@ class ReinscripcionesServiceTests(unittest.TestCase):
         conn.execute.side_effect = [fila, MagicMock()]
 
         with (
-            patch("backend.servicios.engine.begin") as begin,
-            patch("backend.servicios._liberar_cupos_inscripciones") as liberar_cupos,
+            patch("backend.services.reinscripciones.engine.begin") as begin,
+            patch("backend.services.reinscripciones._liberar_cupos_inscripciones") as liberar_cupos,
         ):
             begin.return_value.__enter__.return_value = conn
             resultado = servicios.eliminar_reinscripcion("26320200", 7)
@@ -460,7 +460,7 @@ class ReinscripcionesServiceTests(unittest.TestCase):
         conn.execute.return_value = fila
 
         with (
-            patch("backend.servicios.engine.begin") as begin,
+            patch("backend.services.reinscripciones.engine.begin") as begin,
             self.assertRaisesRegex(servicios.Conflicto, "ya se encuentra dada de baja"),
         ):
             begin.return_value.__enter__.return_value = conn
@@ -488,8 +488,8 @@ class ReinscripcionesServiceTests(unittest.TestCase):
         bloqueo.execute.return_value.scalar.return_value = 1
 
         with (
-            patch("backend.servicios.engine.connect") as connect,
-            patch("backend.servicios.engine.begin") as begin,
+            patch("backend.services.reinscripciones.engine.connect") as connect,
+            patch("backend.services.reinscripciones.engine.begin") as begin,
         ):
             connect.return_value.__enter__.return_value = bloqueo
             begin.return_value.__enter__.return_value = conn
@@ -525,7 +525,7 @@ class ReinscripcionesServiceTests(unittest.TestCase):
         conn = MagicMock()
         conn.execute.side_effect = [resumen, reinscritos]
 
-        with patch("backend.servicios.engine.connect") as connect:
+        with patch("backend.services.horarios.engine.connect") as connect:
             connect.return_value.__enter__.return_value = conn
             resultado = servicios.lista_alumnos_paquete(20)
 
@@ -551,7 +551,7 @@ class ReinscripcionesServiceTests(unittest.TestCase):
         conn = MagicMock()
         conn.execute.side_effect = [registro, grupos]
 
-        with patch("backend.servicios.engine.connect") as connect:
+        with patch("backend.services.horarios.engine.connect") as connect:
             connect.return_value.__enter__.return_value = conn
             estado = servicios.estado_horario_alumno("26320200")
 
@@ -561,3 +561,44 @@ class ReinscripcionesServiceTests(unittest.TestCase):
             "FROM reinscripciones\n                    WHERE numero_control = :numero AND eliminado = FALSE",
             str(conn.execute.call_args_list[0].args[0]),
         )
+
+    def test_asigna_paquete_de_reinscripcion_en_el_periodo_activo(self):
+        alumno = MagicMock()
+        alumno.mappings.return_value.first.return_value = {
+            "semestre_actual": 2,
+            "estatus": "Activo",
+            "eliminado": False,
+        }
+        paquete = MagicMock()
+        paquete.mappings.return_value.first.return_value = {"id_paquete": 10}
+        existentes = MagicMock()
+        existentes.scalars.return_value.all.return_value = []
+        grupos = MagicMock()
+        grupos.mappings.return_value.all.return_value = [
+            {"id_grupo": 10, "turno": "Matutino", "cupo_disponible": 5},
+        ]
+        conn = MagicMock()
+        conn.execute.side_effect = [
+            alumno, paquete, existentes, grupos, MagicMock(), MagicMock(),
+        ]
+
+        with (
+            patch("backend.services.reinscripciones.engine.begin") as begin,
+            patch(
+                "backend.services.reinscripciones.estado_reinscripcion_alumno",
+                return_value={"asignado": True},
+            ) as estado,
+        ):
+            begin.return_value.__enter__.return_value = conn
+            resultado = servicios.asignar_paquete_reinscripcion("26320200", 10)
+
+        self.assertEqual(resultado, {"asignado": True})
+        self.assertEqual(
+            conn.execute.call_args_list[2].args[1],
+            {"numero": "26320200", "periodo": servicios.settings.periodo},
+        )
+        self.assertEqual(
+            conn.execute.call_args_list[3].args[1],
+            {"paquete": 10, "periodo": servicios.settings.periodo},
+        )
+        estado.assert_called_once_with("26320200")

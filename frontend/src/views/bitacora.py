@@ -1,10 +1,11 @@
-"""Administrative login and activity audit screen."""
+"""Pantalla administrativa de acceso y auditoría de actividad."""
 
 import flet as ft
 from api_client import ApiError
 
 from app_state import api
 from ui.components import crear_tarjeta, titulo_pagina
+from ui.errors import manejar_error_api
 from ui.theme import MUTED, NAVY, TEXT, WARN_FG
 
 
@@ -18,11 +19,8 @@ def build_bitacora_admin(page: ft.Page, navegar) -> ft.Control:
         try:
             registros = api.bitacora()
         except ApiError as ex:
-            if ex.status == 401:
-                navegar("/consultas")
+            if manejar_error_api(ex, navegar, "/consultas", page, aviso):
                 return
-            aviso.value = ex.mensaje
-            aviso.visible = True
             filas.controls = []
         else:
             if not registros:

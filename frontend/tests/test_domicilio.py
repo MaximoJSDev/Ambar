@@ -2,12 +2,14 @@ import unittest
 from unittest.mock import Mock, patch
 
 import main
+from forms.domicilio import DomicilioCampos, formatear_ficha
+from views.consultas import ConsultaExpediente
 
 
 class DomicilioCamposTests(unittest.TestCase):
     def test_error_de_domicilio_se_muestra_en_el_modal_de_edicion(self):
         page = Mock()
-        expediente = main.ConsultaExpediente.__new__(main.ConsultaExpediente)
+        expediente = ConsultaExpediente.__new__(ConsultaExpediente)
         expediente.page = page
         expediente.datos = {
             "numero_control": "26320700",
@@ -62,7 +64,7 @@ class DomicilioCamposTests(unittest.TestCase):
             ("1234-56789", "1234-56789"),
         ):
             with self.subTest(entrada=entrada):
-                self.assertEqual(main.formatear_ficha(entrada), esperado)
+                self.assertEqual(formatear_ficha(entrada), esperado)
 
     def test_filtra_municipio_y_colonia_segun_codigo_postal(self):
         catalogo = {
@@ -76,7 +78,7 @@ class DomicilioCamposTests(unittest.TestCase):
             }],
         }
         with patch.object(main.api, "opciones_domicilio", return_value=catalogo) as consultar:
-            domicilio = main.DomicilioCampos(Mock())
+            domicilio = DomicilioCampos(Mock())
             domicilio.codigo_postal.value = "39000"
             domicilio._codigo_postal_cambiado(None)
 
@@ -119,7 +121,7 @@ class DomicilioCamposTests(unittest.TestCase):
             }],
         }
         with patch.object(main.api, "opciones_domicilio", return_value=catalogo):
-            domicilio = main.DomicilioCampos(Mock())
+            domicilio = DomicilioCampos(Mock())
             domicilio.codigo_postal.value = "39000"
             domicilio._codigo_postal_cambiado(None)
             domicilio.colonia.value = "Centro"
@@ -142,7 +144,7 @@ class DomicilioCamposTests(unittest.TestCase):
             "opciones_domicilio",
             return_value={"codigo_postal": "39814", "estados": []},
         ):
-            domicilio = main.DomicilioCampos(
+            domicilio = DomicilioCampos(
                 Mock(),
                 valores,
                 permitir_cp_sin_catalogo=True,
@@ -166,7 +168,7 @@ class DomicilioCamposTests(unittest.TestCase):
             "opciones_domicilio",
             return_value={"codigo_postal": "39814", "estados": []},
         ):
-            domicilio = main.DomicilioCampos(Mock(), {"codigo_postal": "39814"})
+            domicilio = DomicilioCampos(Mock(), {"codigo_postal": "39814"})
 
         self.assertIsInstance(domicilio.estado, main.ft.Dropdown)
         self.assertTrue(domicilio.estado.disabled)
@@ -191,7 +193,7 @@ class DomicilioCamposTests(unittest.TestCase):
                 catalogo,
             ],
         ):
-            domicilio = main.DomicilioCampos(
+            domicilio = DomicilioCampos(
                 Mock(),
                 {"codigo_postal": "39814"},
                 permitir_cp_sin_catalogo=True,
@@ -205,7 +207,7 @@ class DomicilioCamposTests(unittest.TestCase):
         self.assertEqual(domicilio.colonia.value, "Centro")
 
     def test_valida_calle_y_numero_exterior(self):
-        domicilio = main.DomicilioCampos(Mock())
+        domicilio = DomicilioCampos(Mock())
         domicilio.codigo_postal.value = "39000"
         domicilio.estado.value = "Guerrero"
         domicilio.municipio.value = "Acapulco"

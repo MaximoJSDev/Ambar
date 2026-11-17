@@ -12,21 +12,14 @@ import time
 
 import httpx
 
+from ambar_common.documents import DOCUMENTOS_MODIFICABLES
 from ambar_common.logging_config import configure_file_logging
 
 URL_API = os.getenv("SIGE_API_URL", "http://127.0.0.1:8000")
 log = configure_file_logging("sige.frontend", "frontend.log")
 
 # nombre visible del documento -> campo multipart del backend
-CAMPO_DOCUMENTO = {
-    "Acta de nacimiento": "doc_acta_nacimiento",
-    "CURP": "doc_curp",
-    "Comprobante de domicilio": "doc_comprobante_domicilio",
-    "INE": "doc_ine",
-    "Certificado de preparatoria": "doc_certificado_preparatoria",
-    "Certificado médico": "doc_certificado_medico",
-    "Constancia de situación fiscal": "doc_constancia_situacion_fiscal",
-}
+CAMPO_DOCUMENTO = {nombre: campo for campo, (nombre, _) in DOCUMENTOS_MODIFICABLES.items()}
 
 
 class ApiError(Exception):
@@ -52,6 +45,13 @@ class ApiClient:
         self.sesion_vencida = False     # lo marca un 401; la app lo revisa y regresa al login
 
     # ------------------------------------------------------------------
+    def _error_de_red(self, error: httpx.HTTPError) -> ApiError:
+        if isinstance(error, httpx.ConnectError):
+            return ApiError(0, f"No se pudo conectar con el servidor ({self.base_url}).")
+        if isinstance(error, httpx.TimeoutException):
+            return ApiError(0, "El servidor tardó demasiado en responder.")
+        return ApiError(0, f"Error de red: {error}")
+
     def _request(self, metodo: str, ruta: str, **kw):
         headers = {"Authorization": f"Bearer {self.token}"} if self.token else {}
         started = time.perf_counter()
@@ -62,19 +62,19 @@ class ApiClient:
                 "API connection error method=%s path=%s error_type=%s elapsed_ms=%.1f",
                 metodo, ruta, type(ex).__name__, (time.perf_counter() - started) * 1000,
             )
-            raise ApiError(0, f"No se pudo conectar con el servidor ({self.base_url}).")
+            raise self._error_de_red(ex)
         except httpx.TimeoutException as ex:
             log.warning(
                 "API timeout method=%s path=%s timeout_type=%s elapsed_ms=%.1f",
                 metodo, ruta, type(ex).__name__, (time.perf_counter() - started) * 1000,
             )
-            raise ApiError(0, "El servidor tardó demasiado en responder.")
+            raise self._error_de_red(ex)
         except httpx.HTTPError as ex:
             log.warning(
                 "API HTTP error method=%s path=%s error_type=%s elapsed_ms=%.1f",
                 metodo, ruta, type(ex).__name__, (time.perf_counter() - started) * 1000,
             )
-            raise ApiError(0, f"Error de red: {ex}")
+            raise self._error_de_red(ex)
         elapsed_ms = (time.perf_counter() - started) * 1000
         log_method = log.warning if r.status_code >= 500 else log.info
         log_method(
@@ -168,19 +168,19 @@ class ApiClient:
                 "API connection error method=GET path=%s error_type=%s elapsed_ms=%.1f",
                 ruta, type(ex).__name__, (time.perf_counter() - started) * 1000,
             )
-            raise ApiError(0, f"No se pudo conectar con el servidor ({self.base_url}).")
+            raise self._error_de_red(ex)
         except httpx.TimeoutException as ex:
             log.warning(
                 "API timeout method=GET path=%s timeout_type=%s elapsed_ms=%.1f",
                 ruta, type(ex).__name__, (time.perf_counter() - started) * 1000,
             )
-            raise ApiError(0, "El servidor tardó demasiado en responder.")
+            raise self._error_de_red(ex)
         except httpx.HTTPError as ex:
             log.warning(
                 "API HTTP error method=GET path=%s error_type=%s elapsed_ms=%.1f",
                 ruta, type(ex).__name__, (time.perf_counter() - started) * 1000,
             )
-            raise ApiError(0, f"Error de red: {ex}")
+            raise self._error_de_red(ex)
 
         elapsed_ms = (time.perf_counter() - started) * 1000
         log_method = log.warning if response.status_code >= 500 else log.info
@@ -213,12 +213,8 @@ class ApiClient:
                 with destino.open("wb") as f:
                     for bloque in r.iter_bytes(1024 * 1024):
                         f.write(bloque)
-        except httpx.ConnectError:
-            raise ApiError(0, f"No se pudo conectar con el servidor ({self.base_url}).")
-        except httpx.TimeoutException:
-            raise ApiError(0, "El servidor tardó demasiado en responder.")
         except httpx.HTTPError as ex:
-            raise ApiError(0, f"Error de red: {ex}")
+            raise self._error_de_red(ex)
         return destino
 
     def actualizar_alumno(self, numero_control: str, datos: dict) -> None:

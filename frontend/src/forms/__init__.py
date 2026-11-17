@@ -1,1 +1,1 @@
-"""Reusable data-entry flows and their specialized field groups."""
+"""Flujos reutilizables de captura de datos y grupos de campos especializados."""

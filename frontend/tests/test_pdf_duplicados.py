@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import main
+from forms.alta import FormAltas
 
 
 class PdfDuplicadosTests(unittest.IsolatedAsyncioTestCase):
@@ -12,7 +13,7 @@ class PdfDuplicadosTests(unittest.IsolatedAsyncioTestCase):
         self.directorio = tempfile.TemporaryDirectory()
         self.addCleanup(self.directorio.cleanup)
         self.ruta = Path(self.directorio.name)
-        self.formulario = object.__new__(main.FormAltas)
+        self.formulario = object.__new__(FormAltas)
         self.formulario.selector_archivos = Mock()
         self.formulario.selector_archivos._i = 9
         self.formulario.page = Mock(route="/altas")
@@ -43,7 +44,7 @@ class PdfDuplicadosTests(unittest.IsolatedAsyncioTestCase):
             "nombre": original.name,
             "path": str(original),
             "size": original.stat().st_size,
-            "huella": main.FormAltas._calcular_hash_sha256_del_pdf(str(original)),
+            "huella": FormAltas._calcular_hash_sha256_del_pdf(str(original)),
         }
 
         await self._seleccionar_documento("CURP", copia)
@@ -61,7 +62,7 @@ class PdfDuplicadosTests(unittest.IsolatedAsyncioTestCase):
             "nombre": existente.name,
             "path": str(existente),
             "size": existente.stat().st_size,
-            "huella": main.FormAltas._calcular_hash_sha256_del_pdf(str(existente)),
+            "huella": FormAltas._calcular_hash_sha256_del_pdf(str(existente)),
         }
 
         await self._seleccionar_documento("CURP", seleccionado)

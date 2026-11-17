@@ -19,6 +19,7 @@ def datos_alumno(**cambios) -> dict:
         "fecha_nacimiento": "2005-03-02",
         "curp": "CAJG050302HGRSSLA4",
         "ine": "1234567890123",
+        "rfc": "CAJG050302KU3",
         "nss": "12345678901",
         "genero": "hombre",
         "celular": "7441234567",
@@ -55,10 +56,10 @@ class ModificarAlumnoTests(unittest.TestCase):
         datos = AltaIn.model_validate(datos_alumno(codigo_postal="39814"))
         with (
             patch(
-                "backend.servicios.opciones_domicilio",
+                "backend.services.alumnos.opciones_domicilio",
                 return_value={"codigo_postal": "39814", "estados": []},
             ),
-            patch("backend.servicios.engine.connect") as conectar,
+            patch("backend.services.alumnos.engine.connect") as conectar,
         ):
             errores = servicios.validar_domicilio_catalogo(
                 datos,
@@ -136,6 +137,23 @@ class ModificarAlumnoTests(unittest.TestCase):
                 self.assertEqual(respuesta.status_code, 422)
                 self.assertIn(campo, respuesta.json()["detail"]["errores"])
         actualizar.assert_not_called()
+
+    def test_mayores_de_edad_requieren_rfc_e_ine_al_modificar(self):
+        casos = (({"rfc": None}, "rfc"), ({"ine": None}, "ine"))
+        with patch("backend.routers.alumnos.servicios.actualizar_alumno") as actualizar:
+            for cambios, campo in casos:
+                with self.subTest(campo=campo):
+                    respuesta = self.client.put(
+                        "/alumnos/26320700",
+                        json=datos_alumno(**cambios),
+                    )
+
+                    self.assertEqual(respuesta.status_code, 422)
+                    self.assertEqual(
+                        respuesta.json()["detail"]["errores"][campo],
+                        "Campo obligatorio para mayores de edad",
+                    )
+            actualizar.assert_not_called()
 
     def test_rechaza_datos_invalidos_sin_modificar_el_registro(self):
         casos_invalidos = (

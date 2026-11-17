@@ -23,6 +23,16 @@ secretaria_o_administrador = requiere_roles(ROL_SECRETARIA, ROL_ADMINISTRADOR)
 log = logging.getLogger("sige")
 
 
+def permitir_incluir_bajas(
+    incluir_bajas: bool = Query(False),
+    usuario: dict = Depends(usuario_actual),
+) -> bool:
+    """Permite consultar bajas solo a Administración."""
+    if incluir_bajas and usuario["rol"] != ROL_ADMINISTRADOR:
+        raise HTTPException(403, {"mensaje": "Solo Administración puede consultar expedientes dados de baja"})
+    return incluir_bajas
+
+
 @router.get("/cupo-ingreso")
 def cupo_ingreso(_: dict = Depends(solo_secretaria)):
     """Lugares disponibles por turno en primer semestre del periodo actual."""
@@ -57,12 +67,9 @@ def consultar_domicilio(codigo_postal: str, _: dict = Depends(usuario_actual)):
 @router.get("/expediente")
 def expediente(
     q: str = Query(..., min_length=1, max_length=40),
-    usuario: dict = Depends(usuario_actual),
-    incluir_bajas: bool = Query(False),
+    incluir_bajas: bool = Depends(permitir_incluir_bajas),
 ):
     """Expediente completo por número de control o CURP."""
-    if incluir_bajas and usuario["rol"] != ROL_ADMINISTRADOR:
-        raise HTTPException(403, {"mensaje": "Solo Administración puede consultar expedientes dados de baja"})
     try:
         return servicios.buscar_expediente(q, incluir_bajas)
     except servicios.NoEncontrado:
@@ -72,12 +79,9 @@ def expediente(
 @router.get("/expediente/pdf")
 def descargar_expediente_pdf(
     q: str = Query(..., min_length=1, max_length=40),
-    usuario: dict = Depends(usuario_actual),
-    incluir_bajas: bool = Query(False),
+    incluir_bajas: bool = Depends(permitir_incluir_bajas),
 ):
     """Descarga una ficha PDF con membrete institucional y el estado del expediente."""
-    if incluir_bajas and usuario["rol"] != ROL_ADMINISTRADOR:
-        raise HTTPException(403, {"mensaje": "Solo Administración puede consultar expedientes dados de baja"})
     try:
         datos = servicios.buscar_expediente(q, incluir_bajas)
     except servicios.NoEncontrado:
@@ -96,12 +100,9 @@ def descargar_expediente_pdf(
 @router.get("/documentos/{id_documento}")
 def descargar_documento(
     id_documento: int,
-    usuario: dict = Depends(usuario_actual),
-    incluir_bajas: bool = Query(False),
+    incluir_bajas: bool = Depends(permitir_incluir_bajas),
 ):
     """Sirve el PDF guardado en el servidor."""
-    if incluir_bajas and usuario["rol"] != ROL_ADMINISTRADOR:
-        raise HTTPException(403, {"mensaje": "Solo Administración puede consultar expedientes dados de baja"})
     try:
         ruta, nombre = servicios.ruta_documento(id_documento, incluir_bajas)
     except servicios.NoEncontrado:
@@ -117,7 +118,7 @@ def actualizar_alumno(
     usuario: dict = Depends(secretaria_o_administrador),
 ):
     """Modifica datos personales y de contacto sin cambiar el historial académico."""
-    errores = servicios.validar_alta(datos, exigir_identificacion_adulto=False)
+    errores = servicios.validar_alta(datos)
     if not errores:
         errores.update(
             servicios.validar_domicilio_catalogo(datos, permitir_cp_sin_catalogo=True)
@@ -281,8 +282,6 @@ def registrar_alta(
                 503,
                 {"mensaje": f"{ex} Ejecuta python -m backend.seed o configura los grupos."},
             )
-        except servicios.Ocupado:
-            raise HTTPException(503, {"mensaje": "El servidor está procesando otra alta. Intenta de nuevo."})
         except OSError:
             log.exception("Error al guardar los PDF del expediente")
             raise HTTPException(500, {"mensaje": "No se pudieron guardar los archivos PDF en el servidor"})

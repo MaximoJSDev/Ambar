@@ -16,9 +16,9 @@ class AvanceSemestreTests(unittest.TestCase):
         conn.execute.return_value = periodo
 
         with (
-            patch("backend.servicios.engine.begin") as begin,
-            patch("backend.servicios.settings", SimpleNamespace(periodo="AGO-DIC 2026")),
-            patch("backend.servicios._semana_del_periodo", return_value=17),
+            patch("backend.services.periodos.engine.begin") as begin,
+            patch("backend.services.periodos.settings", SimpleNamespace(periodo="AGO-DIC 2026")),
+            patch("backend.services.periodos._semana_del_periodo", return_value=17),
         ):
             begin.return_value.__enter__.return_value = conn
             self.assertIsNone(servicios.avanzar_semestre_si_corresponde())
@@ -38,9 +38,9 @@ class AvanceSemestreTests(unittest.TestCase):
         conn.execute.side_effect = [periodo, avance, MagicMock(), actualizacion, MagicMock()]
 
         with (
-            patch("backend.servicios.engine.begin") as begin,
-            patch("backend.servicios.settings", SimpleNamespace(periodo="AGO-DIC 2026")),
-            patch("backend.servicios._semana_del_periodo", return_value=18),
+            patch("backend.services.periodos.engine.begin") as begin,
+            patch("backend.services.periodos.settings", SimpleNamespace(periodo="AGO-DIC 2026")),
+            patch("backend.services.periodos._semana_del_periodo", return_value=18),
         ):
             begin.return_value.__enter__.return_value = conn
             resultado = servicios.avanzar_semestre_si_corresponde()
@@ -66,9 +66,9 @@ class AvanceSemestreTests(unittest.TestCase):
         conn.execute.side_effect = [periodo, avance]
 
         with (
-            patch("backend.servicios.engine.begin") as begin,
-            patch("backend.servicios.settings", SimpleNamespace(periodo="AGO-DIC 2026")),
-            patch("backend.servicios._semana_del_periodo", return_value=18),
+            patch("backend.services.periodos.engine.begin") as begin,
+            patch("backend.services.periodos.settings", SimpleNamespace(periodo="AGO-DIC 2026")),
+            patch("backend.services.periodos._semana_del_periodo", return_value=18),
         ):
             begin.return_value.__enter__.return_value = conn
             self.assertIsNone(servicios.avanzar_semestre_si_corresponde())
@@ -82,8 +82,8 @@ class AvanceSemestreTests(unittest.TestCase):
         conn.execute.return_value = periodo
 
         with (
-            patch("backend.servicios.engine.begin") as begin,
-            patch("backend.servicios.settings", SimpleNamespace(periodo="AGO-DIC 2026")),
+            patch("backend.services.periodos.engine.begin") as begin,
+            patch("backend.services.periodos.settings", SimpleNamespace(periodo="AGO-DIC 2026")),
         ):
             begin.return_value.__enter__.return_value = conn
             self.assertIsNone(servicios.avanzar_semestre_si_corresponde())

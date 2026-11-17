@@ -1,4 +1,4 @@
-"""Student admission form and its validation workflow."""
+"""Formulario de alta de alumnos y flujo de validación."""
 
 import asyncio
 import datetime
@@ -52,6 +52,12 @@ class FormAltas:
         self.documentos_seleccionados: dict[str, dict] = {}
         self.errores_por_documento: dict[str, str] = {}
 
+        self._crear_campos_personales()
+        self._crear_campos_academicos()
+        self._construir_estructura_formulario()
+        self._actualizar_vista_del_formulario()
+
+    def _crear_campos_personales(self):
         filtro_letras = ft.InputFilter(regex_string=r"^[A-Za-zÁÉÍÓÚÜÑáéíóúüñ '\-]*$", allow=True,
                                        replacement_string="", unicode=True)
         filtro_alfanumerico = ft.InputFilter(regex_string=r"^[A-Za-z0-9&Ññ]*$", allow=True,
@@ -149,8 +155,9 @@ class FormAltas:
             "Correo electrónico del alumno",
             keyboard_type=ft.KeyboardType.EMAIL,
         )
-        self.domicilio = DomicilioCampos(page)
+        self.domicilio = DomicilioCampos(self.page)
 
+    def _crear_campos_academicos(self):
         self.nombre_preparatoria = crear_campo_texto("Nombre de la preparatoria")
         self.promedio_general = crear_campo_texto("Ej. 9.5", keyboard_type=ft.KeyboardType.NUMBER,
                            input_filter=ft.InputFilter(regex_string=r"^[0-9.,]*$", allow=True, replacement_string=""))
@@ -183,11 +190,13 @@ class FormAltas:
             1: self.nombre_preparatoria,
         }
 
+    def _construir_estructura_formulario(self):
         self.indicador_pasos = ft.Row(spacing=0)
         self.titulo_paso = ft.Text("", size=21, weight=ft.FontWeight.BOLD, color=NAVY)
         # Separar el desplazamiento del área de contenido mantiene accesibles los controles al recorrer formularios largos.
         self.contenido_paso = ft.Column(expand=True, scroll=ft.ScrollMode.AUTO, spacing=0,
                                 horizontal_alignment=ft.CrossAxisAlignment.STRETCH)
+
         self.botones_navegacion = ft.Row(alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
         self.indicador_estado = ft.Container()
         self.turno_sugerido = ft.Text("Se sugiere según el promedio", size=14, color=TEXT)
@@ -217,7 +226,6 @@ class FormAltas:
             ft.Row(expand=True, spacing=24, vertical_alignment=ft.CrossAxisAlignment.STRETCH,
                    controls=[tarjeta_form, lateral]),
         ])
-        self._actualizar_vista_del_formulario()
 
     def _construir_resumen_lateral(self) -> ft.Control:
         def construir_dato_resumen(etiqueta, valor_resumen):

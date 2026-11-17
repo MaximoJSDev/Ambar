@@ -1,4 +1,4 @@
-"""Teacher grading and schedule-management screens."""
+"""Pantallas de calificaciones y gestión de horarios del docente."""
 
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
@@ -7,286 +7,222 @@ from api_client import ApiError
 
 from app_state import api
 from ui.components import crear_tarjeta, estilo_boton_secundario, snackbar, titulo_pagina
-from ui.files import abrir_archivo, carpeta_pdf_temporal as _carpeta_pdf_temporal
+from ui.errors import manejar_error_api
+from ui.files import descargar_pdf_y_abrir
 from ui.theme import BORDER, MUTED, NAVY, TEXT, WARN_FG
 
 
 
-def build_inicio_docente(page: ft.Page, usuario: dict, navegar) -> ft.Control:
-    grupos: list[dict] = []
-    selector = ft.Dropdown(label="Grupo y materia", expand=True, options=[])
-    aviso = ft.Text("", size=13, color=WARN_FG, visible=False)
-    contenido = ft.Column(spacing=16)
+def _descargar_pdf_docente(page: ft.Page, navegar, descargar, nombre: str):
+    try:
+        descargar_pdf_y_abrir(nombre, lambda _: descargar())
+    except ApiError as ex:
+        manejar_error_api(ex, navegar, "/", page)
+    except OSError as ex:
+        snackbar(page, f"No se pudo guardar el PDF: {ex}")
 
-    def descargar_pdf_docente(descargar, nombre: str):
+
+def _crear_panel_calificaciones(page: ft.Page, navegar, grupo: dict) -> ft.Control:
+    periodos_calificacion = (
+        ("Semana 5", "semana_5"),
+        ("Semana 9", "semana_9"),
+        ("Semana 13", "semana_13"),
+    )
+    disponibles = set(grupo.get("evaluaciones_disponibles", []))
+    contenedores_finales: dict[str, ft.Container] = {}
+
+    def formato_calificacion(valor):
+        return "—" if valor is None else f"{float(valor):.2f}".rstrip("0").rstrip(".")
+
+    def guardar_calificacion(alumno, periodo, campo, entrada, aviso_error):
+        entrada.error_text = None
+        aviso_error.value = ""
         try:
-            contenido_pdf = descargar()
-            destino = _carpeta_pdf_temporal() / nombre
-            destino.write_bytes(contenido_pdf)
-            abrir_archivo(destino)
-        except ApiError as ex:
-            if ex.status == 401:
-                navegar("/")
-            else:
-                snackbar(page, ex.mensaje)
-        except OSError as ex:
-            snackbar(page, f"No se pudo guardar el PDF: {ex}")
-
-    def mostrar_grupo(id_grupo: int | None):
-        grupo = next((item for item in grupos if item["id_grupo"] == id_grupo), None)
-        if grupo is None:
-            contenido.controls = [
-                crear_tarjeta(ft.Text(
-                    "No tienes grupos asignados en el periodo actual.",
-                    size=14,
-                    color=MUTED,
-                ))
-            ]
+            texto = (entrada.value or "").strip().replace(",", ".")
+            valor = Decimal(texto)
+            if (
+                not valor.is_finite()
+                or valor != valor.to_integral_value()
+                or (valor != 0 and not Decimal(70) <= valor <= Decimal(100))
+            ):
+                raise ValueError
+        except (InvalidOperation, ValueError):
+            entrada.error_text = "Ingresa un entero: 0 o de 70 a 100."
+            aviso_error.value = entrada.error_text
             page.update()
             return
-
-        horarios = grupo["horarios"]
-        resumen_horario = [
-            ft.Container(
-                col={"xs": 6, "md": 4, "lg": 2},
-                content=crear_tarjeta(ft.Column(spacing=4, controls=[
-                    ft.Text(horario["dia"], size=12, weight=ft.FontWeight.BOLD, color=NAVY),
-                    ft.Text(f"{horario['inicio']} – {horario['fin']}", size=13, color=TEXT),
-                ]), padding=12),
+        try:
+            resultado = api.guardar_calificacion_docente(
+                grupo["id_grupo"], alumno["numero_control"], periodo, int(valor),
             )
-            for horario in horarios
-        ]
-        if not resumen_horario:
-            resumen_horario = [ft.Text("Este grupo no tiene horario publicado.", color=MUTED)]
-
-        periodos_calificacion = (
-            ("Semana 5", "semana_5"),
-            ("Semana 9", "semana_9"),
-            ("Semana 13", "semana_13"),
-        )
-        disponibles = set(grupo.get("evaluaciones_disponibles", []))
-        contenedores_finales: dict[str, ft.Container] = {}
-
-        def formato_calificacion(valor):
-            return "—" if valor is None else f"{float(valor):.2f}".rstrip("0").rstrip(".")
-
-        def guardar_calificacion(alumno, periodo, campo, entrada, aviso_error):
-            entrada.error_text = None
-            aviso_error.value = ""
-            try:
-                texto = (entrada.value or "").strip().replace(",", ".")
-                valor = Decimal(texto)
-                if (
-                    not valor.is_finite()
-                    or valor != valor.to_integral_value()
-                    or (valor != 0 and not Decimal(70) <= valor <= Decimal(100))
-                ):
-                    raise ValueError
-            except (InvalidOperation, ValueError):
-                entrada.error_text = "Ingresa un entero: 0 o de 70 a 100."
-                aviso_error.value = entrada.error_text
-                page.update()
+        except ApiError as ex:
+            if manejar_error_api(ex, navegar, "/", page, mostrar=lambda _: None):
                 return
+            entrada.error_text = ex.mensaje
+            aviso_error.value = ex.mensaje
+            page.update()
+            return
+        alumno[campo] = resultado["valor"]
+        entrada.value = formato_calificacion(resultado["valor"])
+        contenedor_final = contenedores_finales.get(alumno["numero_control"])
+        if contenedor_final is not None:
+            contenedor_final.content = crear_celda_final(alumno)
+        snackbar(page, f"{periodo} guardada para {alumno['nombre_completo']}.")
+        page.update()
+
+    def confirmar_final(alumno, promedio, valor_final):
+        def guardar(_):
+            page.pop_dialog()
             try:
-                resultado = api.guardar_calificacion_docente(
-                    grupo["id_grupo"], alumno["numero_control"], periodo, int(valor),
+                resultado = api.confirmar_calificacion_final(
+                    grupo["id_grupo"], alumno["numero_control"],
                 )
             except ApiError as ex:
-                if ex.status == 401:
-                    navegar("/")
-                    return
-                entrada.error_text = ex.mensaje
-                aviso_error.value = ex.mensaje
-                page.update()
+                manejar_error_api(ex, navegar, "/", page)
                 return
-            alumno[campo] = resultado["valor"]
-            entrada.value = formato_calificacion(resultado["valor"])
+            alumno["final"] = resultado["valor"]
+            alumno["final_confirmada"] = True
             contenedor_final = contenedores_finales.get(alumno["numero_control"])
             if contenedor_final is not None:
                 contenedor_final.content = crear_celda_final(alumno)
-            snackbar(page, f"{periodo} guardada para {alumno['nombre_completo']}.")
+            snackbar(page, "Calificación final confirmada; ya no se puede modificar.")
             page.update()
 
-        def confirmar_final(alumno, promedio, valor_final):
-            def guardar(_):
-                page.pop_dialog()
-                try:
-                    resultado = api.confirmar_calificacion_final(
-                        grupo["id_grupo"], alumno["numero_control"],
-                    )
-                except ApiError as ex:
-                    snackbar(page, ex.mensaje)
-                    return
-                alumno["final"] = resultado["valor"]
-                alumno["final_confirmada"] = True
-                contenedor_final = contenedores_finales.get(alumno["numero_control"])
-                if contenedor_final is not None:
-                    contenedor_final.content = crear_celda_final(alumno)
-                snackbar(page, "Calificación final confirmada; ya no se puede modificar.")
-                page.update()
-
-            def preguntar_confirmacion_final(_):
-                page.pop_dialog()
-                page.show_dialog(ft.AlertDialog(
-                    title=ft.Text("¿Confirmar calificación final?"),
-                    content=ft.Text(
-                        f"Se registrará {valor_final:.0f} para "
-                        f"{alumno['nombre_completo']}. Después no podrás modificarla. "
-                        "¿Confirmas ahora?"
-                    ),
-                    actions=[
-                        ft.TextButton("Cancelar", on_click=lambda _: page.pop_dialog()),
-                        ft.FilledButton("Sí, confirmar", on_click=guardar),
-                    ],
-                ))
-
+        def preguntar_confirmacion_final(_):
+            page.pop_dialog()
             page.show_dialog(ft.AlertDialog(
-                title=ft.Text("Revisar calificación final"),
+                title=ft.Text("¿Confirmar calificación final?"),
                 content=ft.Text(
-                    f"El promedio redondeado de los tres periodos es {promedio:.0f}. "
-                    f"Se registrará {valor_final:.0f}"
-                    f"{' porque el promedio exacto es menor a 70' if valor_final == 0 else ''}. "
-                    "Después de confirmar, la calificación final no se podrá modificar. ¿Continuar?"
+                    f"Se registrará {valor_final:.0f} para "
+                    f"{alumno['nombre_completo']}. Después no podrás modificarla. "
+                    "¿Confirmas ahora?"
                 ),
                 actions=[
                     ft.TextButton("Cancelar", on_click=lambda _: page.pop_dialog()),
-                    ft.FilledButton("Continuar", on_click=preguntar_confirmacion_final),
+                    ft.FilledButton("Sí, confirmar", on_click=guardar),
                 ],
             ))
 
-        def crear_celda_final(alumno):
-            valor_final = alumno["final"]
-            if alumno.get("final_confirmada"):
-                return ft.Row(spacing=3, controls=[
-                    ft.Text(formato_calificacion(valor_final), size=13, color=TEXT),
-                    ft.Icon(ft.Icons.LOCK_OUTLINE, size=14, color=MUTED),
-                ])
-            if "Final" in disponibles:
-                valores_periodos = [alumno[campo] for _, campo in periodos_calificacion]
-                if all(valor is not None for valor in valores_periodos):
-                    promedio_exacto = sum(
-                        Decimal(str(valor)) for valor in valores_periodos
-                    ) / Decimal(3)
-                    promedio = promedio_exacto.quantize(
-                        Decimal("1"), rounding=ROUND_HALF_UP,
-                    )
-                    final_calculada = (
-                        promedio if promedio_exacto >= 70 else Decimal("0")
-                    )
-                    return ft.Column(spacing=2, controls=[
-                        ft.Text(f"Promedio final: {promedio:.0f}", size=11, color=MUTED),
-                        ft.TextButton(
-                            "Confirmar",
-                            icon=ft.Icons.LOCK_OUTLINE,
-                            on_click=lambda _, a=alumno, p=promedio, f=final_calculada:
-                                confirmar_final(a, p, f),
-                        ),
-                    ])
-                return ft.Text("Faltan periodos", size=11, color=MUTED)
-            return ft.Text(
-                formato_calificacion(valor_final),
-                size=13,
-                color=MUTED if valor_final is None else TEXT,
-            )
-
-        encabezado_calificaciones = ft.ResponsiveRow(spacing=8, controls=[
-            ft.Container(col={"xs": 12, "md": 4}, content=ft.Text("Alumno", weight=ft.FontWeight.BOLD, color=NAVY)),
-            *[
-                ft.Container(
-                    col={"xs": 4, "md": 2},
-                    content=ft.Text(etiqueta, size=12, weight=ft.FontWeight.BOLD, color=NAVY),
-                )
-                for etiqueta in ("Semana 5", "Semana 9", "Semana 13", "Final")
+        page.show_dialog(ft.AlertDialog(
+            title=ft.Text("Revisar calificación final"),
+            content=ft.Text(
+                f"El promedio redondeado de los tres periodos es {promedio:.0f}. "
+                f"Se registrará {valor_final:.0f}"
+                f"{' porque el promedio exacto es menor a 70' if valor_final == 0 else ''}. "
+                "Después de confirmar, la calificación final no se podrá modificar. ¿Continuar?"
+            ),
+            actions=[
+                ft.TextButton("Cancelar", on_click=lambda _: page.pop_dialog()),
+                ft.FilledButton("Continuar", on_click=preguntar_confirmacion_final),
             ],
-        ])
+        ))
 
-        filas_alumnos = []
-        for alumno in grupo["alumnos"]:
-            celdas = []
-            for periodo, campo in periodos_calificacion:
-                valor = alumno[campo]
-                if periodo in disponibles:
-                    entrada = ft.TextField(
-                        value="" if valor is None else formato_calificacion(valor),
-                        hint_text="0 o 70–100",
-                        width=88,
-                        dense=True,
-                        text_size=12,
-                        keyboard_type=ft.KeyboardType.NUMBER,
-                        input_filter=ft.InputFilter(
-                            regex_string=r"^[0-9]*$", allow=True, replacement_string="",
-                        ),
-                    )
-                    aviso_error = ft.Text("", size=10, color=WARN_FG)
-                    celda = ft.Column(spacing=2, controls=[
-                        ft.Row(spacing=0, controls=[
-                            entrada,
-                            ft.IconButton(
-                                icon=ft.Icons.SAVE_OUTLINED,
-                                tooltip=f"Guardar {periodo}",
-                                on_click=lambda e, a=alumno, p=periodo, c=campo,
-                                    i=entrada, aviso=aviso_error:
-                                    guardar_calificacion(a, p, c, i, aviso),
-                            ),
-                        ]),
-                        aviso_error,
-                    ])
-                else:
-                    celda = ft.Text(formato_calificacion(valor), size=13, color=MUTED if valor is None else TEXT)
-                celdas.append(ft.Container(col={"xs": 4, "md": 2}, content=celda))
-
-            contenedor_final = ft.Container(
-                col={"xs": 4, "md": 2},
-                content=crear_celda_final(alumno),
-            )
-            contenedores_finales[alumno["numero_control"]] = contenedor_final
-            celdas.append(contenedor_final)
-
-            filas_alumnos.append(ft.Container(
-                padding=ft.Padding.symmetric(vertical=9),
-                border=ft.Border.only(bottom=ft.BorderSide(1, BORDER)),
-                content=ft.ResponsiveRow(spacing=8, run_spacing=4, controls=[
-                    ft.Container(
-                        col={"xs": 12, "md": 4},
-                        content=ft.Column(spacing=2, controls=[
-                            ft.Text(alumno["nombre_completo"], size=13, color=TEXT),
-                            ft.Text(alumno["numero_control"], size=11, color=MUTED),
-                        ]),
+    def crear_celda_final(alumno):
+        valor_final = alumno["final"]
+        if alumno.get("final_confirmada"):
+            return ft.Row(spacing=3, controls=[
+                ft.Text(formato_calificacion(valor_final), size=13, color=TEXT),
+                ft.Icon(ft.Icons.LOCK_OUTLINE, size=14, color=MUTED),
+            ])
+        if "Final" in disponibles:
+            valores_periodos = [alumno[campo] for _, campo in periodos_calificacion]
+            if all(valor is not None for valor in valores_periodos):
+                promedio_exacto = sum(
+                    Decimal(str(valor)) for valor in valores_periodos
+                ) / Decimal(3)
+                promedio = promedio_exacto.quantize(
+                    Decimal("1"), rounding=ROUND_HALF_UP,
+                )
+                final_calculada = (
+                    promedio if promedio_exacto >= 70 else Decimal("0")
+                )
+                return ft.Column(spacing=2, controls=[
+                    ft.Text(f"Promedio final: {promedio:.0f}", size=11, color=MUTED),
+                    ft.TextButton(
+                        "Confirmar",
+                        icon=ft.Icons.LOCK_OUTLINE,
+                        on_click=lambda _, a=alumno, p=promedio, f=final_calculada:
+                            confirmar_final(a, p, f),
                     ),
-                    *celdas,
-                ]),
-            ))
+                ])
+            return ft.Text("Faltan periodos", size=11, color=MUTED)
+        return ft.Text(
+            formato_calificacion(valor_final),
+            size=13,
+            color=MUTED if valor_final is None else TEXT,
+        )
 
-        if not filas_alumnos:
-            filas_alumnos = [ft.Text("Aún no hay alumnos inscritos en este grupo.", color=MUTED)]
+    encabezado_calificaciones = ft.ResponsiveRow(spacing=8, controls=[
+        ft.Container(col={"xs": 12, "md": 4}, content=ft.Text("Alumno", weight=ft.FontWeight.BOLD, color=NAVY)),
+        *[
+            ft.Container(
+                col={"xs": 4, "md": 2},
+                content=ft.Text(etiqueta, size=12, weight=ft.FontWeight.BOLD, color=NAVY),
+            )
+            for etiqueta in ("Semana 5", "Semana 9", "Semana 13", "Final")
+        ],
+    ])
 
-        contenido.controls = [
-            crear_tarjeta(ft.ResponsiveRow(spacing=16, run_spacing=12, controls=[
-                ft.Container(col={"xs": 6, "md": 3}, content=ft.Column(spacing=3, controls=[
-                    ft.Text("Grupo", size=12, color=MUTED),
-                    ft.Text(grupo["grupo"], size=15, weight=ft.FontWeight.BOLD, color=NAVY),
-                ])),
-                ft.Container(col={"xs": 6, "md": 5}, content=ft.Column(spacing=3, controls=[
-                    ft.Text("Materia", size=12, color=MUTED),
-                    ft.Text(grupo["nombre_materia"], size=15, weight=ft.FontWeight.BOLD, color=NAVY),
-                ])),
-                ft.Container(col={"xs": 6, "md": 2}, content=ft.Column(spacing=3, controls=[
-                    ft.Text("Aula", size=12, color=MUTED),
-                    ft.Text(grupo["aula"] or "Sin asignar", size=14, color=TEXT),
-                ])),
-                ft.Container(col={"xs": 6, "md": 2}, content=ft.Column(spacing=3, controls=[
-                    ft.Text("Turno", size=12, color=MUTED),
-                    ft.Text(grupo["turno"], size=14, color=TEXT),
-                ])),
-                ft.Container(col={"xs": 12}, content=ft.Text(
-                    f"Periodo: {grupo['periodo']} · {grupo['creditos']} créditos",
-                    size=12,
-                    color=MUTED,
-                )),
-            ]), padding=18),
-            ft.Text("Horario semanal", size=19, weight=ft.FontWeight.BOLD, color=NAVY),
-            ft.ResponsiveRow(spacing=10, run_spacing=10, controls=resumen_horario),
-            crear_tarjeta(ft.Column(spacing=12, controls=[
+    filas_alumnos = []
+    for alumno in grupo["alumnos"]:
+        celdas = []
+        for periodo, campo in periodos_calificacion:
+            valor = alumno[campo]
+            if periodo in disponibles:
+                entrada = ft.TextField(
+                    value="" if valor is None else formato_calificacion(valor),
+                    hint_text="0 o 70–100",
+                    width=88,
+                    dense=True,
+                    text_size=12,
+                    keyboard_type=ft.KeyboardType.NUMBER,
+                    input_filter=ft.InputFilter(
+                        regex_string=r"^[0-9]*$", allow=True, replacement_string="",
+                    ),
+                )
+                aviso_error = ft.Text("", size=10, color=WARN_FG)
+                celda = ft.Column(spacing=2, controls=[
+                    ft.Row(spacing=0, controls=[
+                        entrada,
+                        ft.IconButton(
+                            icon=ft.Icons.SAVE_OUTLINED,
+                            tooltip=f"Guardar {periodo}",
+                            on_click=lambda e, a=alumno, p=periodo, c=campo,
+                                i=entrada, aviso=aviso_error:
+                                guardar_calificacion(a, p, c, i, aviso),
+                        ),
+                    ]),
+                    aviso_error,
+                ])
+            else:
+                celda = ft.Text(formato_calificacion(valor), size=13, color=MUTED if valor is None else TEXT)
+            celdas.append(ft.Container(col={"xs": 4, "md": 2}, content=celda))
+
+        contenedor_final = ft.Container(
+            col={"xs": 4, "md": 2},
+            content=crear_celda_final(alumno),
+        )
+        contenedores_finales[alumno["numero_control"]] = contenedor_final
+        celdas.append(contenedor_final)
+
+        filas_alumnos.append(ft.Container(
+            padding=ft.Padding.symmetric(vertical=9),
+            border=ft.Border.only(bottom=ft.BorderSide(1, BORDER)),
+            content=ft.ResponsiveRow(spacing=8, run_spacing=4, controls=[
+                ft.Container(
+                    col={"xs": 12, "md": 4},
+                    content=ft.Column(spacing=2, controls=[
+                        ft.Text(alumno["nombre_completo"], size=13, color=TEXT),
+                        ft.Text(alumno["numero_control"], size=11, color=MUTED),
+                    ]),
+                ),
+                *celdas,
+            ]),
+        ))
+
+    if not filas_alumnos:
+        filas_alumnos = [ft.Text("Aún no hay alumnos inscritos en este grupo.", color=MUTED)]
+    return crear_tarjeta(ft.Column(spacing=12, controls=[
                 ft.Text(
                     (
                         "Captura una calificación entera: 0 o de 70 a 100. Las evaluaciones se habilitan "
@@ -309,7 +245,7 @@ def build_inicio_docente(page: ft.Page, usuario: dict, navegar) -> ft.Control:
                         "Descargar lista de alumnos",
                         icon=ft.Icons.GROUP_OUTLINED,
                         on_click=lambda _, gid=grupo["id_grupo"]:
-                            descargar_pdf_docente(
+                            _descargar_pdf_docente(page, navegar, 
                                 lambda: api.descargar_lista_alumnos_docente(gid),
                                 f"alumnos_{gid}.pdf",
                             ),
@@ -318,7 +254,7 @@ def build_inicio_docente(page: ft.Page, usuario: dict, navegar) -> ft.Control:
                         "Descargar lista de calificaciones",
                         icon=ft.Icons.DOWNLOAD_OUTLINED,
                         on_click=lambda _, gid=grupo["id_grupo"]:
-                            descargar_pdf_docente(
+                            _descargar_pdf_docente(page, navegar, 
                                 lambda: api.descargar_calificaciones_docente(gid),
                                 f"calificaciones_{gid}.pdf",
                             ),
@@ -332,13 +268,82 @@ def build_inicio_docente(page: ft.Page, usuario: dict, navegar) -> ft.Control:
                 ),
                 encabezado_calificaciones,
                 ft.Column(spacing=0, controls=filas_alumnos),
-            ]), padding=18),
+            ]), padding=18)
+
+
+def _mostrar_grupo_docente(
+    page: ft.Page, grupos: list[dict], id_grupo: int | None,
+    contenido: ft.Column, navegar,
+):
+    grupo = next((item for item in grupos if item["id_grupo"] == id_grupo), None)
+    if grupo is None:
+        contenido.controls = [
+            crear_tarjeta(ft.Text(
+                "No tienes grupos asignados en el periodo actual.",
+                size=14,
+                color=MUTED,
+            ))
         ]
         page.update()
+        return
+
+    horarios = grupo["horarios"]
+    resumen_horario = [
+        ft.Container(
+            col={"xs": 6, "md": 4, "lg": 2},
+            content=crear_tarjeta(ft.Column(spacing=4, controls=[
+                ft.Text(horario["dia"], size=12, weight=ft.FontWeight.BOLD, color=NAVY),
+                ft.Text(f"{horario['inicio']} – {horario['fin']}", size=13, color=TEXT),
+            ]), padding=12),
+        )
+        for horario in horarios
+    ]
+    if not resumen_horario:
+        resumen_horario = [ft.Text("Este grupo no tiene horario publicado.", color=MUTED)]
+
+
+    contenido.controls = [
+        crear_tarjeta(ft.ResponsiveRow(spacing=16, run_spacing=12, controls=[
+            ft.Container(col={"xs": 6, "md": 3}, content=ft.Column(spacing=3, controls=[
+                ft.Text("Grupo", size=12, color=MUTED),
+                ft.Text(grupo["grupo"], size=15, weight=ft.FontWeight.BOLD, color=NAVY),
+            ])),
+            ft.Container(col={"xs": 6, "md": 5}, content=ft.Column(spacing=3, controls=[
+                ft.Text("Materia", size=12, color=MUTED),
+                ft.Text(grupo["nombre_materia"], size=15, weight=ft.FontWeight.BOLD, color=NAVY),
+            ])),
+            ft.Container(col={"xs": 6, "md": 2}, content=ft.Column(spacing=3, controls=[
+                ft.Text("Aula", size=12, color=MUTED),
+                ft.Text(grupo["aula"] or "Sin asignar", size=14, color=TEXT),
+            ])),
+            ft.Container(col={"xs": 6, "md": 2}, content=ft.Column(spacing=3, controls=[
+                ft.Text("Turno", size=12, color=MUTED),
+                ft.Text(grupo["turno"], size=14, color=TEXT),
+            ])),
+            ft.Container(col={"xs": 12}, content=ft.Text(
+                f"Periodo: {grupo['periodo']} · {grupo['creditos']} créditos",
+                size=12,
+                color=MUTED,
+            )),
+        ]), padding=18),
+        ft.Text("Horario semanal", size=19, weight=ft.FontWeight.BOLD, color=NAVY),
+        ft.ResponsiveRow(spacing=10, run_spacing=10, controls=resumen_horario),
+        _crear_panel_calificaciones(page, navegar, grupo),
+    ]
+    page.update()
+
+
+def build_inicio_docente(page: ft.Page, usuario: dict, navegar) -> ft.Control:
+    grupos: list[dict] = []
+    selector = ft.Dropdown(label="Grupo y materia", expand=True, options=[])
+    aviso = ft.Text("", size=13, color=WARN_FG, visible=False)
+    contenido = ft.Column(spacing=16)
+
+
 
     def seleccionar_grupo(e):
         try:
-            mostrar_grupo(int(e.control.value) if e.control.value else None)
+            _mostrar_grupo_docente(page, grupos, int(e.control.value) if e.control.value else None, contenido, navegar)
         except ValueError:
             selector.error_text = "Selecciona un grupo válido"
             page.update()
@@ -349,11 +354,8 @@ def build_inicio_docente(page: ft.Page, usuario: dict, navegar) -> ft.Control:
         try:
             grupos = api.grupos_docente()
         except ApiError as ex:
-            if ex.status == 401:
-                navegar("/")
+            if manejar_error_api(ex, navegar, "/", page, aviso):
                 return
-            aviso.value = ex.mensaje
-            aviso.visible = True
             contenido.controls = []
             page.update()
             return
@@ -367,7 +369,7 @@ def build_inicio_docente(page: ft.Page, usuario: dict, navegar) -> ft.Control:
         ]
         grupo_inicial = grupos[0]["id_grupo"] if grupos else None
         selector.value = str(grupo_inicial) if grupo_inicial is not None else None
-        mostrar_grupo(grupo_inicial)
+        _mostrar_grupo_docente(page, grupos, grupo_inicial, contenido, navegar)
 
     selector.on_select = seleccionar_grupo
     cargar()
@@ -381,7 +383,7 @@ def build_inicio_docente(page: ft.Page, usuario: dict, navegar) -> ft.Control:
             ft.Container(col={"xs": 6, "md": 3}, content=ft.OutlinedButton(
                 "Descargar grupos y horarios",
                 icon=ft.Icons.DOWNLOAD_OUTLINED,
-                on_click=lambda _: descargar_pdf_docente(
+                on_click=lambda _: _descargar_pdf_docente(page, navegar, 
                     api.descargar_grupos_docente, "mis_grupos_horarios.pdf",
                 ),
             )),
@@ -419,13 +421,9 @@ def build_grupos_horarios(page: ft.Page, navegar) -> ft.Control:
     vista: ft.Column | None = None
 
     def mostrar_error(ex: ApiError):
-        if ex.status == 401:
-            navegar("/secretaria")
-            return
-        aviso.value = ex.mensaje
-        aviso.visible = True
-        panel_grupo.controls = []
-        page.update()
+        if not manejar_error_api(ex, navegar, "/secretaria", page, aviso):
+            panel_grupo.controls = []
+            page.update()
 
     def _materia_control(materia: dict) -> ft.Control:
         horarios = ", ".join(
@@ -460,10 +458,10 @@ def build_grupos_horarios(page: ft.Page, navegar) -> ft.Control:
         if paquete is None:
             return
         try:
-            contenido = api.descargar_lista_grupo(paquete_seleccionado)
-            destino = _carpeta_pdf_temporal() / f"lista_{paquete['nombre']}.pdf"
-            destino.write_bytes(contenido)
-            abrir_archivo(destino)
+            descargar_pdf_y_abrir(
+                f"lista_{paquete['nombre']}.pdf",
+                lambda _: api.descargar_lista_grupo(paquete_seleccionado),
+            )
         except ApiError as ex:
             mostrar_error(ex)
         except OSError as ex:
