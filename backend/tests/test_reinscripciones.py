@@ -278,8 +278,8 @@ class ReinscripcionesServiceTests(unittest.TestCase):
         bloqueo = MagicMock()
         bloqueo.execute.return_value.scalar.return_value = 1
         with (
-            patch("backend.servicios.engine.connect") as connect,
-            patch("backend.servicios.engine.begin") as begin,
+            patch("backend.services.reinscripciones.engine.connect") as connect,
+            patch("backend.services.reinscripciones.engine.begin") as begin,
         ):
             connect.return_value.__enter__.return_value = bloqueo
             begin.return_value.__enter__.return_value = conn
@@ -315,8 +315,8 @@ class ReinscripcionesServiceTests(unittest.TestCase):
         bloqueo.execute.return_value.scalar.return_value = 1
 
         with (
-            patch("backend.servicios.engine.connect") as connect,
-            patch("backend.servicios.engine.begin") as begin,
+            patch("backend.services.reinscripciones.engine.connect") as connect,
+            patch("backend.services.reinscripciones.engine.begin") as begin,
             self.assertRaisesRegex(servicios.Conflicto, "El número de control ya existe"),
         ):
             connect.return_value.__enter__.return_value = bloqueo
@@ -383,8 +383,8 @@ class ReinscripcionesServiceTests(unittest.TestCase):
         bloqueo.execute.return_value.scalar.return_value = 1
 
         with (
-            patch("backend.servicios.engine.connect") as connect,
-            patch("backend.servicios.engine.begin") as begin,
+            patch("backend.services.reinscripciones.engine.connect") as connect,
+            patch("backend.services.reinscripciones.engine.begin") as begin,
             self.assertRaisesRegex(servicios.Conflicto, "No se puede modificar el número"),
         ):
             connect.return_value.__enter__.return_value = bloqueo
@@ -406,8 +406,8 @@ class ReinscripcionesServiceTests(unittest.TestCase):
         conn.execute.side_effect = [fila, MagicMock()]
 
         with (
-            patch("backend.servicios.engine.begin") as begin,
-            patch("backend.servicios._liberar_cupos_inscripciones") as liberar_cupos,
+            patch("backend.services.reinscripciones.engine.begin") as begin,
+            patch("backend.services.reinscripciones._liberar_cupos_inscripciones") as liberar_cupos,
         ):
             begin.return_value.__enter__.return_value = conn
             resultado = servicios.eliminar_reinscripcion("26320200", 7)
@@ -460,7 +460,7 @@ class ReinscripcionesServiceTests(unittest.TestCase):
         conn.execute.return_value = fila
 
         with (
-            patch("backend.servicios.engine.begin") as begin,
+            patch("backend.services.reinscripciones.engine.begin") as begin,
             self.assertRaisesRegex(servicios.Conflicto, "ya se encuentra dada de baja"),
         ):
             begin.return_value.__enter__.return_value = conn
@@ -488,8 +488,8 @@ class ReinscripcionesServiceTests(unittest.TestCase):
         bloqueo.execute.return_value.scalar.return_value = 1
 
         with (
-            patch("backend.servicios.engine.connect") as connect,
-            patch("backend.servicios.engine.begin") as begin,
+            patch("backend.services.reinscripciones.engine.connect") as connect,
+            patch("backend.services.reinscripciones.engine.begin") as begin,
         ):
             connect.return_value.__enter__.return_value = bloqueo
             begin.return_value.__enter__.return_value = conn
@@ -583,9 +583,9 @@ class ReinscripcionesServiceTests(unittest.TestCase):
         ]
 
         with (
-            patch("backend.servicios.engine.begin") as begin,
+            patch("backend.services.reinscripciones.engine.begin") as begin,
             patch(
-                "backend.servicios.estado_reinscripcion_alumno",
+                "backend.services.reinscripciones.estado_reinscripcion_alumno",
                 return_value={"asignado": True},
             ) as estado,
         ):

@@ -1,9 +1,30 @@
-"""Excepciones compartidas por los servicios de dominio."""
+"""Utilidades y excepciones comunes de los servicios."""
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import date, time, timedelta
 
+from sqlalchemy import text
 from sqlalchemy.engine import Connection
 from sqlalchemy.sql.elements import TextClause
+
+from ..config import engine
+
+NOMBRE_CANDADO = "sige_altas"
+
+
+@contextmanager
+def _administrar_candado_mysql_altas() -> Iterator[None]:
+    """Adquiere y libera el candado MySQL de altas."""
+    with engine.connect() as candado:
+        if candado.execute(
+            text("SELECT GET_LOCK(:n, 20)"), {"n": NOMBRE_CANDADO},
+        ).scalar() != 1:
+            raise Ocupado()
+        try:
+            yield
+        finally:
+            candado.execute(text("SELECT RELEASE_LOCK(:n)"), {"n": NOMBRE_CANDADO})
 
 
 def _formatear_hora(valor: time | timedelta | None) -> str | None:

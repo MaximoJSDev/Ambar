@@ -10,7 +10,8 @@ from backend import servicios
 from backend.deps import usuario_actual
 from backend.esquemas import AltaIn
 from backend.main import app
-from backend.servicios import Ocupado, _administrar_candado_mysql_altas, validar_alta
+from backend.servicios import Ocupado, validar_alta
+from backend.services.common import _administrar_candado_mysql_altas
 
 
 def datos_validos() -> dict:
@@ -410,7 +411,7 @@ class ValidacionAltaAntesDePersistirTests(unittest.TestCase):
                     )
 
     def test_candado_mysql_se_libera_si_falla_la_operacion(self):
-        with patch("backend.servicios.engine.connect") as conectar:
+        with patch("backend.services.common.engine.connect") as conectar:
             candado = conectar.return_value.__enter__.return_value
             candado.execute.return_value.scalar.return_value = 1
 
@@ -424,7 +425,7 @@ class ValidacionAltaAntesDePersistirTests(unittest.TestCase):
         )
 
     def test_candado_mysql_ocupado_no_intenta_liberar_un_candado_no_adquirido(self):
-        with patch("backend.servicios.engine.connect") as conectar:
+        with patch("backend.services.common.engine.connect") as conectar:
             candado = conectar.return_value.__enter__.return_value
             candado.execute.return_value.scalar.return_value = 0
 
