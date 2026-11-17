@@ -561,3 +561,44 @@ class ReinscripcionesServiceTests(unittest.TestCase):
             "FROM reinscripciones\n                    WHERE numero_control = :numero AND eliminado = FALSE",
             str(conn.execute.call_args_list[0].args[0]),
         )
+
+    def test_asigna_paquete_de_reinscripcion_en_el_periodo_activo(self):
+        alumno = MagicMock()
+        alumno.mappings.return_value.first.return_value = {
+            "semestre_actual": 2,
+            "estatus": "Activo",
+            "eliminado": False,
+        }
+        paquete = MagicMock()
+        paquete.mappings.return_value.first.return_value = {"id_paquete": 10}
+        existentes = MagicMock()
+        existentes.scalars.return_value.all.return_value = []
+        grupos = MagicMock()
+        grupos.mappings.return_value.all.return_value = [
+            {"id_grupo": 10, "turno": "Matutino", "cupo_disponible": 5},
+        ]
+        conn = MagicMock()
+        conn.execute.side_effect = [
+            alumno, paquete, existentes, grupos, MagicMock(), MagicMock(),
+        ]
+
+        with (
+            patch("backend.servicios.engine.begin") as begin,
+            patch(
+                "backend.servicios.estado_reinscripcion_alumno",
+                return_value={"asignado": True},
+            ) as estado,
+        ):
+            begin.return_value.__enter__.return_value = conn
+            resultado = servicios.asignar_paquete_reinscripcion("26320200", 10)
+
+        self.assertEqual(resultado, {"asignado": True})
+        self.assertEqual(
+            conn.execute.call_args_list[2].args[1],
+            {"numero": "26320200", "periodo": servicios.settings.periodo},
+        )
+        self.assertEqual(
+            conn.execute.call_args_list[3].args[1],
+            {"paquete": 10, "periodo": servicios.settings.periodo},
+        )
+        estado.assert_called_once_with("26320200")

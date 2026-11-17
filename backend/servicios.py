@@ -1514,6 +1514,69 @@ def estado_reinscripcion_alumno(consulta: str) -> dict:
         }
 
 
+def asignar_paquete_reinscripcion(numero_control: str, id_paquete: int) -> dict:
+    with engine.begin() as conn:
+        alumno = conn.execute(
+            text("""SELECT semestre_actual, estatus, eliminado
+                    FROM alumnos WHERE numero_control = :numero FOR UPDATE"""),
+            {"numero": numero_control},
+        ).mappings().first()
+        if alumno is None or alumno["eliminado"] or alumno["estatus"] != "Activo":
+            raise NoEncontrado()
+
+        semestre = alumno["semestre_actual"]
+        if semestre is None or not 2 <= semestre <= 10:
+            raise Conflicto(
+                "La reinscripciÃ³n estÃ¡ disponible Ãºnicamente para alumnos de semestres 2 a 10."
+            )
+
+        paquete = conn.execute(
+            text("""SELECT id_paquete FROM paquetes_horario
+                    WHERE id_paquete = :paquete AND semestre = :semestre"""),
+            {"paquete": id_paquete, "semestre": semestre},
+        ).mappings().first()
+        if paquete is None:
+            raise Conflicto("El paquete seleccionado no corresponde al semestre del alumno.")
+
+        existentes = conn.execute(
+            text("""SELECT DISTINCT p.nombre_paquete
+                    FROM inscripciones_grupos i
+                    JOIN grupos g ON g.id_grupo = i.id_grupo
+                    JOIN paquetes_horario p ON p.id_paquete = g.id_paquete
+                    WHERE i.numero_control = :numero AND g.periodo_escolar = :periodo"""),
+            {"numero": numero_control, "periodo": settings.periodo},
+        ).scalars().all()
+        if existentes:
+            raise Conflicto(
+                f"El alumno ya tiene un paquete asignado en {settings.periodo}: "
+                f"{', '.join(existentes)}."
+            )
+
+        grupos = conn.execute(
+            text("""SELECT id_grupo, turno, cupo_disponible
+                    FROM grupos
+                    WHERE id_paquete = :paquete AND periodo_escolar = :periodo
+                    ORDER BY id_grupo FOR UPDATE"""),
+            {"paquete": id_paquete, "periodo": settings.periodo},
+        ).mappings().all()
+        if not grupos:
+            raise NoEncontrado()
+        if any(fila["cupo_disponible"] <= 0 for fila in grupos):
+            raise CupoLleno("El paquete seleccionado ya no tiene cupo disponible.")
+
+        conn.execute(
+            text("""INSERT INTO inscripciones_grupos (numero_control, id_grupo)
+                    VALUES (:numero, :grupo)"""),
+            [{"numero": numero_control, "grupo": fila["id_grupo"]} for fila in grupos],
+        )
+        conn.execute(
+            text("UPDATE alumnos SET turno = :turno WHERE numero_control = :numero"),
+            {"turno": grupos[0]["turno"], "numero": numero_control},
+        )
+
+    return estado_reinscripcion_alumno(numero_control)
+
+
 def asignar_paquete_horario(numero_control: str, id_paquete: int) -> dict:
     with engine.begin() as conn:
         alumno = conn.execute(
