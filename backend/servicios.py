@@ -22,7 +22,9 @@ from decimal import Decimal, ROUND_HALF_UP
 from pathlib import Path
 
 from sqlalchemy import bindparam, text
+from sqlalchemy.engine import Connection
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.sql.elements import TextClause
 
 from ambar_common import validators as v
 
@@ -41,6 +43,12 @@ from .seguridad import hashear
 
 log = logging.getLogger("sige")
 NOMBRE_CANDADO = "sige_altas"
+_SQL_FECHA_INICIO = text("SELECT fecha_inicio FROM periodos_escolares WHERE periodo = :periodo")
+_SQL_FECHA_INICIO_BLOQUEADA = text("SELECT fecha_inicio FROM periodos_escolares WHERE periodo = :periodo FOR UPDATE")
+_SQL_FECHA_INICIO_BLOQUEADA_AVANCE = text(
+    "SELECT fecha_inicio FROM periodos_escolares\n"
+    "                    WHERE periodo = :periodo FOR UPDATE"
+)
 # Constancia fiscal existe en el ENUM de la BD, aunque Altas todavía no la solicita.
 TIPOS_EXPEDIENTE = [
     DOCUMENTOS["doc_acta_nacimiento"],
@@ -78,6 +86,12 @@ class Conflicto(Exception):
 
 class NumeroControlDuplicado(Conflicto):
     pass
+
+
+def _obtener_fecha_inicio_periodo(conn: Connection, periodo: str, consulta: TextClause) -> date | None:
+    """Devuelve la fecha de inicio guardada para un periodo."""
+    fila = conn.execute(consulta, {"periodo": periodo}).mappings().first()
+    return fila["fecha_inicio"] if fila else None
 
 
 @contextmanager
@@ -1649,15 +1663,13 @@ def preparar_avances_semestre(conn) -> None:
 def avanzar_semestre_si_corresponde() -> dict | None:
     periodo = settings.periodo
     with engine.begin() as conn:
-        configuracion = conn.execute(
-            text("""SELECT fecha_inicio FROM periodos_escolares
-                    WHERE periodo = :periodo FOR UPDATE"""),
-            {"periodo": periodo},
-        ).mappings().first()
-        if configuracion is None:
+        fecha_inicio = _obtener_fecha_inicio_periodo(
+            conn, periodo, _SQL_FECHA_INICIO_BLOQUEADA_AVANCE,
+        )
+        if fecha_inicio is None:
             return None
 
-        semana = _semana_del_periodo(configuracion["fecha_inicio"])
+        semana = _semana_del_periodo(fecha_inicio)
         if semana < 18:
             return None
 
@@ -1706,11 +1718,10 @@ def guardar_periodo_escolar(
 ) -> dict:
     origen = periodo_anterior or periodo
     with engine.begin() as conn:
-        existente = conn.execute(
-            text("SELECT fecha_inicio FROM periodos_escolares WHERE periodo = :periodo FOR UPDATE"),
-            {"periodo": origen},
-        ).mappings().first()
-        if periodo_anterior and not existente:
+        existente = _obtener_fecha_inicio_periodo(
+            conn, origen, _SQL_FECHA_INICIO_BLOQUEADA,
+        )
+        if periodo_anterior and existente is None:
             raise Conflicto("El periodo seleccionado ya no existe. Actualiza la lista e inténtalo de nuevo.")
 
         if origen != periodo:
@@ -1747,7 +1758,7 @@ def guardar_periodo_escolar(
                 text("UPDATE avances_semestre SET periodo = :nuevo WHERE periodo = :anterior"),
                 {"nuevo": periodo, "anterior": origen},
             )
-        elif existente:
+        elif existente is not None:
             conn.execute(
                 text("""UPDATE periodos_escolares
                         SET fecha_inicio = :fecha_inicio, actualizado_por = :usuario
@@ -1774,10 +1785,7 @@ def listar_grupos_docente(id_usuario: int) -> list[dict]:
     """Devuelve solo los grupos asignados al docente, con su horario y calificaciones."""
     dias = ("", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes")
     with engine.connect() as conn:
-        fecha_inicio = conn.execute(
-            text("SELECT fecha_inicio FROM periodos_escolares WHERE periodo = :periodo"),
-            {"periodo": settings.periodo},
-        ).scalar_one_or_none()
+        fecha_inicio = _obtener_fecha_inicio_periodo(conn, settings.periodo, _SQL_FECHA_INICIO)
         filas = conn.execute(
             text("""SELECT g.id_grupo, p.id_paquete, p.nombre_paquete AS grupo,
                            m.nombre_materia, g.aula, g.creditos, g.turno,
@@ -1922,10 +1930,7 @@ def guardar_calificacion_docente(
         inscripcion = _inscripcion_docente_bloqueada(
             conn, id_usuario, id_grupo, numero_control,
         )
-        fecha_inicio = conn.execute(
-            text("SELECT fecha_inicio FROM periodos_escolares WHERE periodo = :periodo"),
-            {"periodo": settings.periodo},
-        ).scalar_one_or_none()
+        fecha_inicio = _obtener_fecha_inicio_periodo(conn, settings.periodo, _SQL_FECHA_INICIO)
         if fecha_inicio is None:
             raise Conflicto("El administrador aún no configuró la fecha de inicio de este periodo.")
         if _semana_del_periodo(fecha_inicio) < SEMANAS_EVALUACION[periodo_evaluacion]:
@@ -1977,10 +1982,7 @@ def confirmar_calificacion_final_docente(
         inscripcion = _inscripcion_docente_bloqueada(
             conn, id_usuario, id_grupo, numero_control,
         )
-        fecha_inicio = conn.execute(
-            text("SELECT fecha_inicio FROM periodos_escolares WHERE periodo = :periodo"),
-            {"periodo": settings.periodo},
-        ).scalar_one_or_none()
+        fecha_inicio = _obtener_fecha_inicio_periodo(conn, settings.periodo, _SQL_FECHA_INICIO)
         if fecha_inicio is None:
             raise Conflicto("El administrador aún no configuró la fecha de inicio de este periodo.")
         if _semana_del_periodo(fecha_inicio) < SEMANAS_EVALUACION["Final"]:
