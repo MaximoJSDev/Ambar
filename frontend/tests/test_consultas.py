@@ -3,10 +3,31 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import flet as ft
+
 from views.consultas import ConsultaExpediente
 
 
 class ConsultaExpedienteTests(unittest.TestCase):
+    def test_encabezado_de_expediente_se_puede_renderizar(self):
+        vista = ConsultaExpediente.__new__(ConsultaExpediente)
+        vista.datos = {
+            "numero_control": "26320703",
+            "nombre_completo": "Alumno de prueba",
+            "semestre_actual": 1,
+            "estatus": "Activo",
+            "eliminado": False,
+            "personales": {"nombres": "Alumno", "apellido_paterno": "Prueba"},
+            "academicos": {"turno": "Matutino"},
+        }
+        vista.boton_descargar = ft.Text("Descargar expediente PDF")
+        vista.modo_modificacion = False
+        vista.modo_bajas = False
+
+        encabezado = vista._encabezado()
+
+        self.assertIsInstance(encabezado, ft.Control)
+
     def test_descarga_horario_de_reinscripcion_sin_expediente(self):
         vista = ConsultaExpediente.__new__(ConsultaExpediente)
         vista.horario = {

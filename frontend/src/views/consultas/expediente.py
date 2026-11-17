@@ -10,6 +10,7 @@ from ambar_common import validators as v
 from app_state import api
 from forms.domicilio import DomicilioCampos
 from ui.components import (
+    chip,
     crear_campo_etiquetado,
     crear_campo_texto,
     crear_tarjeta,
@@ -21,7 +22,7 @@ from ui.components import (
 from ui.errors import manejar_error_api
 from ui.theme import BORDER, MUTED, NAVY, TEXT, WHITE
 from .documentos import DocumentosMixin
-from .historial import HistorialMixin
+from .historial import HistorialMixin, ordinal_semestre
 from .horario import HorarioMixin
 from .reinscripcion import ReinscripcionMixin
 
