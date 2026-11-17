@@ -369,6 +369,15 @@ class ValidacionAltaAntesDePersistirTests(unittest.TestCase):
                 self.assertEqual(respuesta.status_code, status_esperado)
                 if codigo_esperado:
                     self.assertEqual(respuesta.json()["detail"]["codigo"], codigo_esperado)
+                if isinstance(excepcion, Ocupado):
+                    self.assertEqual(
+                        respuesta.json(),
+                        {
+                            "detail": {
+                                "mensaje": "El servidor está procesando otra alta. Intenta de nuevo.",
+                            },
+                        },
+                    )
 
     def test_excepcion_no_controlada_del_servicio_responde_500(self):
         client = TestClient(app, raise_server_exceptions=False)

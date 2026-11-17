@@ -281,8 +281,6 @@ def registrar_alta(
                 503,
                 {"mensaje": f"{ex} Ejecuta python -m backend.seed o configura los grupos."},
             )
-        except servicios.Ocupado:
-            raise HTTPException(503, {"mensaje": "El servidor está procesando otra alta. Intenta de nuevo."})
         except OSError:
             log.exception("Error al guardar los PDF del expediente")
             raise HTTPException(500, {"mensaje": "No se pudieron guardar los archivos PDF en el servidor"})

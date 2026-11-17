@@ -46,11 +46,6 @@ def registrar_reinscripcion(
             status.HTTP_422_UNPROCESSABLE_ENTITY,
             {"mensaje": ex.mensaje, "errores": ex.errores},
         )
-    except servicios.Ocupado:
-        raise HTTPException(
-            status.HTTP_503_SERVICE_UNAVAILABLE,
-            {"mensaje": "El servidor está procesando otra alta. Intenta de nuevo."},
-        )
     except servicios.CupoLleno as ex:
         raise HTTPException(status.HTTP_409_CONFLICT, {"mensaje": str(ex)})
 
@@ -105,11 +100,6 @@ def modificar_reinscripcion(
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_ENTITY,
             {"mensaje": ex.mensaje, "errores": ex.errores},
-        )
-    except servicios.Ocupado:
-        raise HTTPException(
-            status.HTTP_503_SERVICE_UNAVAILABLE,
-            {"mensaje": "El servidor está procesando otra alta. Intenta de nuevo."},
         )
     except servicios.CupoLleno as ex:
         raise HTTPException(status.HTTP_409_CONFLICT, {"mensaje": str(ex)})
