@@ -178,19 +178,13 @@ def _seccion(
 
 def generar_expediente_pdf(datos: dict) -> bytes:
     """Genera un expediente imprimible con membrete institucional y datos agrupados."""
-    if not MEMBRETE.is_file():
-        raise FileNotFoundError(f"No se encontró la imagen del membrete: {MEMBRETE}")
-
     buffer = BytesIO()
-    documento = SimpleDocTemplate(
+    documento = _documento_pdf(
         buffer,
-        pagesize=letter,
-        rightMargin=17 * mm,
-        leftMargin=17 * mm,
-        topMargin=41 * mm,
-        bottomMargin=19 * mm,
-        title=f"Expediente escolar {datos['numero_control']}",
-        author="Sistema Integral de Gestión Escolar",
+        f"Expediente escolar {datos['numero_control']}",
+        "Sistema Integral de Gestión Escolar",
+        letter,
+        (17 * mm, 17 * mm, 41 * mm, 19 * mm),
     )
     estilos = _crear_estilos()
     ancho_contenido = letter[0] - documento.leftMargin - documento.rightMargin
@@ -303,36 +297,7 @@ def generar_expediente_pdf(datos: dict) -> bytes:
             estilos["ReportSmall"],
         ))
 
-    def dibujar_membrete(canvas, doc):
-        canvas.saveState()
-        ancho, alto = letter
-        imagen = ImageReader(str(MEMBRETE))
-        imagen_ancho, imagen_alto = imagen.getSize()
-        membrete_alto = ancho * imagen_alto / imagen_ancho
-        canvas.drawImage(
-            imagen,
-            0,
-            alto - membrete_alto,
-            width=ancho,
-            height=membrete_alto,
-            preserveAspectRatio=True,
-            mask="auto",
-        )
-        canvas.setStrokeColor(LINE)
-        canvas.setLineWidth(0.5)
-        canvas.line(doc.leftMargin, 15 * mm, ancho - doc.rightMargin, 15 * mm)
-        canvas.setFillColor(MUTED)
-        canvas.setFont("Helvetica", 7)
-        canvas.drawString(doc.leftMargin, 10.5 * mm, "Este documento no tiene validez oficial.")
-        canvas.drawRightString(ancho - doc.rightMargin, 10.5 * mm, f"Página {doc.page}")
-        canvas.restoreState()
-
-    documento.build(
-        elementos,
-        onFirstPage=dibujar_membrete,
-        onLaterPages=dibujar_membrete,
-    )
-    return buffer.getvalue()
+    return _construir_pdf(buffer, documento, elementos)
 
 
 def _dibujar_membrete(canvas, documento):
@@ -360,19 +325,30 @@ def _dibujar_membrete(canvas, documento):
     canvas.restoreState()
 
 
-def _documento_horario(buffer: BytesIO, titulo: str, autor: str) -> SimpleDocTemplate:
+def _documento_pdf(
+    buffer: BytesIO,
+    titulo: str,
+    autor: str,
+    paginas: tuple[float, float] = landscape(letter),
+    margenes: tuple[float, float, float, float] = (13 * mm, 13 * mm, 39 * mm, 19 * mm),
+) -> SimpleDocTemplate:
     if not MEMBRETE.is_file():
         raise FileNotFoundError(f"No se encontró la imagen del membrete: {MEMBRETE}")
     return SimpleDocTemplate(
         buffer,
-        pagesize=landscape(letter),
-        rightMargin=13 * mm,
-        leftMargin=13 * mm,
-        topMargin=39 * mm,
-        bottomMargin=19 * mm,
+        pagesize=paginas,
+        rightMargin=margenes[0],
+        leftMargin=margenes[1],
+        topMargin=margenes[2],
+        bottomMargin=margenes[3],
         title=titulo,
         author=autor,
     )
+
+
+def _construir_pdf(buffer: BytesIO, documento: SimpleDocTemplate, elementos: list) -> bytes:
+    documento.build(elementos, onFirstPage=_dibujar_membrete, onLaterPages=_dibujar_membrete)
+    return buffer.getvalue()
 
 
 def _estilo_tabla_horario() -> ParagraphStyle:
@@ -386,10 +362,23 @@ def _estilo_tabla_horario() -> ParagraphStyle:
     )
 
 
+def _estilo_tabla_datos() -> TableStyle:
+    return TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), NAVY),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("GRID", (0, 0), (-1, -1), 0.4, LINE),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 5),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+    ])
+
+
 def generar_horario_alumno_pdf(datos: dict) -> bytes:
     """Genera el horario individual del alumno con membrete institucional."""
     buffer = BytesIO()
-    documento = _documento_horario(
+    documento = _documento_pdf(
         buffer,
         f"Horario {datos['alumno']['numero_control']}",
         "Sistema Integral de Gestión Escolar",
@@ -422,16 +411,7 @@ def generar_horario_alumno_pdf(datos: dict) -> bytes:
         repeatRows=1,
         hAlign="LEFT",
     )
-    tabla.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), NAVY),
-        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-        ("GRID", (0, 0), (-1, -1), 0.4, LINE),
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("LEFTPADDING", (0, 0), (-1, -1), 5),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 5),
-        ("TOPPADDING", (0, 0), (-1, -1), 5),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
-    ]))
+    tabla.setStyle(_estilo_tabla_datos())
     elementos = [
         Paragraph("HORARIO DEL ESTUDIANTE", estilos["ReportTitle"]),
         Paragraph(
@@ -448,15 +428,14 @@ def generar_horario_alumno_pdf(datos: dict) -> bytes:
         Spacer(1, 4 * mm),
         tabla,
     ]
-    documento.build(elementos, onFirstPage=_dibujar_membrete, onLaterPages=_dibujar_membrete)
-    return buffer.getvalue()
+    return _construir_pdf(buffer, documento, elementos)
 
 
 def generar_lista_grupo_pdf(datos: dict) -> bytes:
     """Genera la lista de alumnos inscritos en una sección con membrete."""
     buffer = BytesIO()
     paquete = datos["paquete"]
-    documento = _documento_horario(
+    documento = _documento_pdf(
         buffer,
         f"Lista {paquete['nombre']}",
         "Sistema Integral de Gestión Escolar",
@@ -489,16 +468,7 @@ def generar_lista_grupo_pdf(datos: dict) -> bytes:
         repeatRows=1,
         hAlign="LEFT",
     )
-    tabla.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), NAVY),
-        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-        ("GRID", (0, 0), (-1, -1), 0.4, LINE),
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("LEFTPADDING", (0, 0), (-1, -1), 5),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 5),
-        ("TOPPADDING", (0, 0), (-1, -1), 5),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
-    ]))
+    tabla.setStyle(_estilo_tabla_datos())
     elementos = [
         Paragraph("LISTA DE ALUMNOS POR GRUPO", estilos["ReportTitle"]),
         Paragraph(
@@ -514,15 +484,14 @@ def generar_lista_grupo_pdf(datos: dict) -> bytes:
         Spacer(1, 4 * mm),
         tabla,
     ]
-    documento.build(elementos, onFirstPage=_dibujar_membrete, onLaterPages=_dibujar_membrete)
-    return buffer.getvalue()
+    return _construir_pdf(buffer, documento, elementos)
 
 
 def generar_grupos_docente_pdf(datos: dict) -> bytes:
     """Genera el horario de los grupos asignados a un docente."""
     buffer = BytesIO()
     docente = datos["docente"]
-    documento = _documento_horario(
+    documento = _documento_pdf(
         buffer,
         f"Grupos y horarios {docente}",
         "Sistema Integral de Gestión Escolar",
@@ -553,16 +522,7 @@ def generar_grupos_docente_pdf(datos: dict) -> bytes:
         repeatRows=1,
         hAlign="LEFT",
     )
-    tabla.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), NAVY),
-        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-        ("GRID", (0, 0), (-1, -1), 0.4, LINE),
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("LEFTPADDING", (0, 0), (-1, -1), 5),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 5),
-        ("TOPPADDING", (0, 0), (-1, -1), 5),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
-    ]))
+    tabla.setStyle(_estilo_tabla_datos())
     elementos = [
         Paragraph("GRUPOS Y HORARIOS DEL DOCENTE", estilos["ReportTitle"]),
         Paragraph(
@@ -573,8 +533,7 @@ def generar_grupos_docente_pdf(datos: dict) -> bytes:
         Spacer(1, 4 * mm),
         tabla,
     ]
-    documento.build(elementos, onFirstPage=_dibujar_membrete, onLaterPages=_dibujar_membrete)
-    return buffer.getvalue()
+    return _construir_pdf(buffer, documento, elementos)
 
 
 def generar_lista_docente_pdf(datos: dict, incluir_calificaciones: bool = False) -> bytes:
@@ -582,7 +541,7 @@ def generar_lista_docente_pdf(datos: dict, incluir_calificaciones: bool = False)
     buffer = BytesIO()
     grupo = datos
     docente = grupo["docente"]
-    documento = _documento_horario(
+    documento = _documento_pdf(
         buffer,
         f"Lista {grupo['grupo']} {grupo['nombre_materia']}",
         "Sistema Integral de Gestión Escolar",
@@ -639,16 +598,7 @@ def generar_lista_docente_pdf(datos: dict, incluir_calificaciones: bool = False)
         filas.append(fila)
 
     tabla = Table(filas, colWidths=anchos, repeatRows=1, hAlign="LEFT")
-    tabla.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), NAVY),
-        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-        ("GRID", (0, 0), (-1, -1), 0.4, LINE),
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("LEFTPADDING", (0, 0), (-1, -1), 5),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 5),
-        ("TOPPADDING", (0, 0), (-1, -1), 5),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
-    ]))
+    tabla.setStyle(_estilo_tabla_datos())
     elementos = [
         Paragraph(
             "LISTA DE CALIFICACIONES" if incluir_calificaciones else "LISTA DE ALUMNOS",
@@ -671,5 +621,4 @@ def generar_lista_docente_pdf(datos: dict, incluir_calificaciones: bool = False)
         Spacer(1, 4 * mm),
         tabla,
     ]
-    documento.build(elementos, onFirstPage=_dibujar_membrete, onLaterPages=_dibujar_membrete)
-    return buffer.getvalue()
+    return _construir_pdf(buffer, documento, elementos)

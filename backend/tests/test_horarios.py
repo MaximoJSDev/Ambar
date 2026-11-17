@@ -668,7 +668,7 @@ class HorariosTests(unittest.TestCase):
             ],
         }
         documento = MagicMock()
-        with patch.object(reportes, "_documento_horario", return_value=documento):
+        with patch.object(reportes, "_documento_pdf", return_value=documento):
             reportes.generar_lista_docente_pdf(datos, incluir_calificaciones=True)
 
         elementos = documento.build.call_args.args[0]
@@ -684,7 +684,7 @@ class HorariosTests(unittest.TestCase):
 
         for alumno in datos["alumnos"]:
             alumno["final"] = None
-        with patch.object(reportes, "_documento_horario", return_value=documento):
+        with patch.object(reportes, "_documento_pdf", return_value=documento):
             reportes.generar_lista_docente_pdf(datos, incluir_calificaciones=True)
         resumen_sin_finales = next(
             elemento.getPlainText()
