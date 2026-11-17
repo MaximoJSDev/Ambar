@@ -12,6 +12,7 @@ from backend.routers.alumnos import (
     eliminar_alumno,
     expediente,
     historial_alumno,
+    permitir_incluir_bajas,
     secretaria_o_administrador,
 )
 
@@ -23,12 +24,18 @@ class GestionConsultasTests(unittest.TestCase):
         esperado = {"numero_control": "26320700"}
 
         with patch("backend.routers.alumnos.servicios.buscar_expediente", return_value=esperado) as buscar:
-            self.assertEqual(expediente("26320700", admin, True), esperado)
+            self.assertEqual(expediente("26320700", True), esperado)
         buscar.assert_called_once_with("26320700", True)
 
+        self.assertTrue(permitir_incluir_bajas(True, admin))
+        self.assertFalse(permitir_incluir_bajas(False, secretaria))
         with self.assertRaises(HTTPException) as error:
-            expediente("26320700", secretaria, True)
+            permitir_incluir_bajas(True, secretaria)
         self.assertEqual(error.exception.status_code, 403)
+        self.assertEqual(
+            error.exception.detail,
+            {"mensaje": "Solo Administración puede consultar expedientes dados de baja"},
+        )
 
     def test_documentos_puede_agregar_un_pdf_a_un_expediente(self):
         archivo = UploadFile(
@@ -145,6 +152,14 @@ class GestionConsultasTests(unittest.TestCase):
         self.assertIn("put", paths["/alumnos/{numero_control}/documentos"])
         self.assertIn("delete", paths["/alumnos/{numero_control}"])
         self.assertIn("get", paths["/alumnos/{numero_control}/historial"])
+        for ruta in (
+            "/alumnos/expediente",
+            "/alumnos/expediente/pdf",
+            "/alumnos/documentos/{id_documento}",
+        ):
+            parametros = paths[ruta]["get"]["parameters"]
+            incluir_bajas = next(parametro for parametro in parametros if parametro["name"] == "incluir_bajas")
+            self.assertEqual(incluir_bajas["in"], "query")
 
 
 if __name__ == "__main__":

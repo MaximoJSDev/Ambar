@@ -23,6 +23,16 @@ secretaria_o_administrador = requiere_roles(ROL_SECRETARIA, ROL_ADMINISTRADOR)
 log = logging.getLogger("sige")
 
 
+def permitir_incluir_bajas(
+    incluir_bajas: bool = Query(False),
+    usuario: dict = Depends(usuario_actual),
+) -> bool:
+    """Permite consultar bajas solo a Administración."""
+    if incluir_bajas and usuario["rol"] != ROL_ADMINISTRADOR:
+        raise HTTPException(403, {"mensaje": "Solo Administración puede consultar expedientes dados de baja"})
+    return incluir_bajas
+
+
 @router.get("/cupo-ingreso")
 def cupo_ingreso(_: dict = Depends(solo_secretaria)):
     """Lugares disponibles por turno en primer semestre del periodo actual."""
@@ -57,12 +67,9 @@ def consultar_domicilio(codigo_postal: str, _: dict = Depends(usuario_actual)):
 @router.get("/expediente")
 def expediente(
     q: str = Query(..., min_length=1, max_length=40),
-    usuario: dict = Depends(usuario_actual),
-    incluir_bajas: bool = Query(False),
+    incluir_bajas: bool = Depends(permitir_incluir_bajas),
 ):
     """Expediente completo por número de control o CURP."""
-    if incluir_bajas and usuario["rol"] != ROL_ADMINISTRADOR:
-        raise HTTPException(403, {"mensaje": "Solo Administración puede consultar expedientes dados de baja"})
     try:
         return servicios.buscar_expediente(q, incluir_bajas)
     except servicios.NoEncontrado:
@@ -72,12 +79,9 @@ def expediente(
 @router.get("/expediente/pdf")
 def descargar_expediente_pdf(
     q: str = Query(..., min_length=1, max_length=40),
-    usuario: dict = Depends(usuario_actual),
-    incluir_bajas: bool = Query(False),
+    incluir_bajas: bool = Depends(permitir_incluir_bajas),
 ):
     """Descarga una ficha PDF con membrete institucional y el estado del expediente."""
-    if incluir_bajas and usuario["rol"] != ROL_ADMINISTRADOR:
-        raise HTTPException(403, {"mensaje": "Solo Administración puede consultar expedientes dados de baja"})
     try:
         datos = servicios.buscar_expediente(q, incluir_bajas)
     except servicios.NoEncontrado:
@@ -96,12 +100,9 @@ def descargar_expediente_pdf(
 @router.get("/documentos/{id_documento}")
 def descargar_documento(
     id_documento: int,
-    usuario: dict = Depends(usuario_actual),
-    incluir_bajas: bool = Query(False),
+    incluir_bajas: bool = Depends(permitir_incluir_bajas),
 ):
     """Sirve el PDF guardado en el servidor."""
-    if incluir_bajas and usuario["rol"] != ROL_ADMINISTRADOR:
-        raise HTTPException(403, {"mensaje": "Solo Administración puede consultar expedientes dados de baja"})
     try:
         ruta, nombre = servicios.ruta_documento(id_documento, incluir_bajas)
     except servicios.NoEncontrado:
