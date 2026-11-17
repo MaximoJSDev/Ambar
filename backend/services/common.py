@@ -1,6 +1,9 @@
 """Excepciones compartidas por los servicios de dominio."""
 
-from datetime import time, timedelta
+from datetime import date, time, timedelta
+
+from sqlalchemy.engine import Connection
+from sqlalchemy.sql.elements import TextClause
 
 
 def _formatear_hora(valor: time | timedelta | None) -> str | None:
@@ -13,6 +16,19 @@ def _formatear_hora(valor: time | timedelta | None) -> str | None:
         minutos, segundos = divmod(resto, 60)
         return f"{signo}{horas:02d}:{minutos:02d}:{segundos:02d}"
     return valor.strftime("%H:%M:%S")
+
+
+def _obtener_fecha_inicio_periodo(
+    conn: Connection, periodo: str, consulta: TextClause,
+) -> date | None:
+    """Devuelve la fecha de inicio guardada para un periodo."""
+    fila = conn.execute(consulta, {"periodo": periodo}).mappings().first()
+    return fila["fecha_inicio"] if fila else None
+
+
+def _semana_del_periodo(fecha_inicio: date, hoy: date | None = None) -> int:
+    hoy = hoy or date.today()
+    return max(0, (hoy - fecha_inicio).days // 7 + 1)
 
 
 class NoEncontrado(Exception):
