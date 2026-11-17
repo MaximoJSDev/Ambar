@@ -23,6 +23,7 @@ from pathlib import Path
 
 from sqlalchemy import bindparam, text
 from sqlalchemy.engine import Connection
+from sqlalchemy.engine.result import MappingResult
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.sql.elements import TextClause
 
@@ -48,6 +49,14 @@ _SQL_FECHA_INICIO_BLOQUEADA = text("SELECT fecha_inicio FROM periodos_escolares 
 _SQL_FECHA_INICIO_BLOQUEADA_AVANCE = text(
     "SELECT fecha_inicio FROM periodos_escolares\n"
     "                    WHERE periodo = :periodo FOR UPDATE"
+)
+_SQL_DOMICILIO_EXPEDIENTE = text(
+    """SELECT codigo_postal, estado, municipio, colonia, calle, numero_exterior
+                    FROM domicilios WHERE numero_control = :n""",
+)
+_SQL_DOMICILIO_MODIFICACION = text(
+    """SELECT codigo_postal, estado, municipio, colonia, calle, numero_exterior
+                        FROM domicilios WHERE numero_control = :numero""",
 )
 # Constancia fiscal existe en el ENUM de la BD, aunque Altas todavía no la solicita.
 TIPOS_EXPEDIENTE = [
@@ -92,6 +101,77 @@ def _obtener_fecha_inicio_periodo(conn: Connection, periodo: str, consulta: Text
     """Devuelve la fecha de inicio guardada para un periodo."""
     fila = conn.execute(consulta, {"periodo": periodo}).mappings().first()
     return fila["fecha_inicio"] if fila else None
+
+
+MENSAJES_DUPLICADOS_ALUMNO = {
+    "ficha": "Esta ficha ya está registrada",
+    "curp": "Esta CURP ya está registrada",
+    "nss": "Este NSS ya está registrado",
+    "rfc": "Este RFC ya está registrado",
+    "ine": "Este IDMEX ya está registrado",
+    "correo": "Este correo personal ya está registrado",
+}
+_CLAVES_PARAMETROS_ALTA = ("nombres", "ap_p", "ap_m", "nacimiento", "cel_emerg", "correo_emerg", "prepa")
+_CLAVES_PARAMETROS_MODIFICACION = ("nombre", "ap_paterno", "ap_materno", "fecha", "celular_emergencia", "correo_emergencia", "preparatoria")
+
+
+def _errores_duplicados(duplicados_alumno: dict[str, bool]) -> dict[str, str]:
+    """Construye los errores visibles para los identificadores duplicados."""
+    return {
+        campo: mensaje
+        for campo, mensaje in MENSAJES_DUPLICADOS_ALUMNO.items()
+        if duplicados_alumno[campo]
+    }
+
+
+def _limpiar_celular(celular: str) -> str:
+    """Elimina espacios y guiones del número celular."""
+    return re.sub(r"[\s-]", "", celular)
+
+
+def _parametros_alumno(
+    datos: AltaIn,
+    numero_control: str,
+    claves: tuple[str, str, str, str, str, str, str],
+    adicionales: dict[str, object] | None = None,
+) -> dict[str, object]:
+    """Arma parámetros conservando los nombres de bind de cada consulta."""
+    parametros = {
+        "numero": numero_control, "ficha": datos.ficha,
+        "genero": datos.genero, "curp": datos.curp, "rfc": datos.rfc,
+        "ine": v.normalizar_ine(datos.ine), "nss": datos.nss,
+        "celular": _limpiar_celular(datos.celular), "correo": datos.correo,
+        "tipo_sangre": datos.tipo_sangre, "alergias": datos.alergias,
+        "promedio": datos.promedio,
+    }
+    parametros.update(
+        zip(
+            claves,
+            (
+                datos.nombre, datos.ap_paterno, datos.ap_materno, datos.fecha_nacimiento,
+                _limpiar_celular(datos.celular_emergencia), datos.correo_emergencia,
+                datos.preparatoria,
+            ),
+        )
+    )
+    return parametros | (adicionales or {})
+
+
+def _parametros_domicilio(datos: AltaIn, numero_control: str) -> dict[str, object]:
+    """Arma los parámetros del domicilio del alumno."""
+    return {
+        "numero": numero_control, "codigo_postal": datos.codigo_postal,
+        "estado": datos.estado, "municipio": datos.municipio,
+        "colonia": datos.colonia, "calle": datos.calle,
+        "numero_exterior": datos.numero_exterior,
+    }
+
+
+def _consulta_domicilio(
+    conn: Connection, numero_control: str, consulta: TextClause, clave_numero: str,
+) -> MappingResult:
+    """Ejecuta la consulta del domicilio con el bind requerido."""
+    return conn.execute(consulta, {clave_numero: numero_control}).mappings()
 
 
 @contextmanager
@@ -739,11 +819,7 @@ def buscar_expediente(q: str, incluir_bajas: bool = False) -> dict:
                     ORDER BY i.id_inscripcion DESC LIMIT 1"""),
             {"n": a["numero_control"]},
         ).mappings().first()
-        domicilio = conn.execute(
-            text("""SELECT codigo_postal, estado, municipio, colonia, calle, numero_exterior
-                    FROM domicilios WHERE numero_control = :n"""),
-            {"n": a["numero_control"]},
-        ).mappings().first()
+        domicilio = _consulta_domicilio(conn, a["numero_control"], _SQL_DOMICILIO_EXPEDIENTE, "n").first()
 
     nombre = " ".join(p for p in (a["nombres"], a["apellido_paterno"], a["apellido_materno"]) if p)
     return {
@@ -856,11 +932,9 @@ def actualizar_alumno(numero_control: str, datos: AltaIn, id_usuario: int) -> No
             ).mappings().first()
             if anterior is None or anterior["eliminado"]:
                 raise NoEncontrado()
-            domicilio_anterior = conn.execute(
-                text("""SELECT codigo_postal, estado, municipio, colonia, calle, numero_exterior
-                        FROM domicilios WHERE numero_control = :numero"""),
-                {"numero": numero_control},
-            ).mappings().first()
+            domicilio_anterior = _consulta_domicilio(
+                conn, numero_control, _SQL_DOMICILIO_MODIFICACION, "numero",
+            ).first()
             if not _domicilio_catalogo_valido(conn, datos):
                 raise Conflicto(
                     "La colonia no corresponde al código postal seleccionado",
@@ -871,18 +945,7 @@ def actualizar_alumno(numero_control: str, datos: AltaIn, id_usuario: int) -> No
                 conn, datos.ficha, datos.curp, datos.nss, datos.rfc or "", datos.ine or "",
                 datos.correo, excluir_numero_control=numero_control,
             )
-            errores_duplicados = {
-                "ficha": "Esta ficha ya está registrada",
-                "curp": "Esta CURP ya está registrada",
-                "nss": "Este NSS ya está registrado",
-                "rfc": "Este RFC ya está registrado",
-                "ine": "Este IDMEX ya está registrado",
-                "correo": "Este correo personal ya está registrado",
-            }
-            errores_duplicados = {
-                campo: mensaje for campo, mensaje in errores_duplicados.items()
-                if duplicados_alumno[campo]
-            }
+            errores_duplicados = _errores_duplicados(duplicados_alumno)
             if errores_duplicados:
                 raise Conflicto("Los datos ya están registrados para otro alumno", errores_duplicados)
 
@@ -898,18 +961,7 @@ def actualizar_alumno(numero_control: str, datos: AltaIn, id_usuario: int) -> No
                             preparatoria_procedencia = :preparatoria,
                             promedio_preparatoria = :promedio
                         WHERE numero_control = :numero"""),
-                {
-                    "numero": numero_control, "ficha": datos.ficha, "nombre": datos.nombre,
-                    "ap_paterno": datos.ap_paterno, "ap_materno": datos.ap_materno,
-                    "fecha": datos.fecha_nacimiento, "genero": datos.genero, "curp": datos.curp,
-                    "rfc": datos.rfc, "ine": v.normalizar_ine(datos.ine), "nss": datos.nss,
-                    "celular": re.sub(r"[\s-]", "", datos.celular),
-                    "celular_emergencia": re.sub(r"[\s-]", "", datos.celular_emergencia),
-                    "correo": datos.correo, "correo_emergencia": datos.correo_emergencia,
-                    "tipo_sangre": datos.tipo_sangre, "alergias": datos.alergias,
-                    "preparatoria": datos.preparatoria,
-                    "promedio": datos.promedio,
-                },
+                _parametros_alumno(datos, numero_control, _CLAVES_PARAMETROS_MODIFICACION),
             )
             conn.execute(
                 text("""INSERT INTO domicilios
@@ -923,25 +975,15 @@ def actualizar_alumno(numero_control: str, datos: AltaIn, id_usuario: int) -> No
                             colonia = VALUES(colonia),
                             calle = VALUES(calle),
                             numero_exterior = VALUES(numero_exterior)"""),
-                {
-                    "numero": numero_control,
-                    "codigo_postal": datos.codigo_postal,
-                    "estado": datos.estado,
-                    "municipio": datos.municipio,
-                    "colonia": datos.colonia,
-                    "calle": datos.calle,
-                    "numero_exterior": datos.numero_exterior,
-                },
+                _parametros_domicilio(datos, numero_control),
             )
             nuevo = conn.execute(
                 text("SELECT * FROM alumnos WHERE numero_control = :numero"),
                 {"numero": numero_control},
             ).mappings().one()
-            domicilio_nuevo = conn.execute(
-                text("""SELECT codigo_postal, estado, municipio, colonia, calle, numero_exterior
-                        FROM domicilios WHERE numero_control = :numero"""),
-                {"numero": numero_control},
-            ).mappings().one()
+            domicilio_nuevo = _consulta_domicilio(
+                conn, numero_control, _SQL_DOMICILIO_MODIFICACION, "numero",
+            ).one()
             anterior = dict(anterior)
             anterior["domicilio"] = _formatear_domicilio(
                 dict(domicilio_anterior) if domicilio_anterior else None,
@@ -2209,19 +2251,7 @@ def registrar_alta(d: AltaIn, pdfs: dict[str, str], usuario: dict) -> dict:
                 dup = duplicados(
                     conn, d.ficha, d.curp, d.nss, d.rfc or "", d.ine or "", d.correo,
                 )
-                errores = {}
-                if dup["ficha"]:
-                    errores["ficha"] = "Esta ficha ya está registrada"
-                if dup["curp"]:
-                    errores["curp"] = "Esta CURP ya está registrada"
-                if dup["nss"]:
-                    errores["nss"] = "Este NSS ya está registrado"
-                if dup["rfc"]:
-                    errores["rfc"] = "Este RFC ya está registrado"
-                if dup["ine"]:
-                    errores["ine"] = "Este IDMEX ya está registrado"
-                if dup["correo"]:
-                    errores["correo"] = "Este correo personal ya está registrado"
+                errores = _errores_duplicados(dup)
                 if errores:
                     raise Conflicto("El alumno ya está registrado", errores)
                 if not _domicilio_catalogo_valido(conn, d):
@@ -2273,33 +2303,18 @@ def registrar_alta(d: AltaIn, pdfs: dict[str, str], usuario: dict) -> dict:
                         :ine, :nss, :celular, :cel_emerg, :correo,
                         :correo_emerg, :correo_inst, :tipo_sangre, :alergias, :prepa, :promedio, :turno, :sem,
                         'Activo'
-                    )"""), {
-                    "numero": numero, "ficha": d.ficha, "nombres": d.nombre,
-                    "ap_p": d.ap_paterno, "ap_m": d.ap_materno, "nacimiento": d.fecha_nacimiento,
-                    "genero": d.genero, "curp": d.curp, "rfc": d.rfc,
-                    "ine": v.normalizar_ine(d.ine), "nss": d.nss,
-                    "celular": re.sub(r"[\s-]", "", d.celular),
-                    "cel_emerg": re.sub(r"[\s-]", "", d.celular_emergencia),
-                    "correo": d.correo,
-                    "correo_emerg": d.correo_emergencia, "correo_inst": correo_inst,
-                    "tipo_sangre": d.tipo_sangre, "alergias": d.alergias,
-                    "prepa": d.preparatoria, "promedio": d.promedio,
-                    "turno": turno, "sem": SEMESTRE_INGRESO,
-                })
+                    )"""),
+                    _parametros_alumno(
+                        d, numero, _CLAVES_PARAMETROS_ALTA,
+                        {"correo_inst": correo_inst, "turno": turno, "sem": SEMESTRE_INGRESO},
+                    ),
+                )
                 conn.execute(
                     text("""INSERT INTO domicilios
                                 (numero_control, codigo_postal, estado, municipio, colonia, calle, numero_exterior)
                             VALUES
                                 (:numero, :codigo_postal, :estado, :municipio, :colonia, :calle, :numero_exterior)"""),
-                    {
-                        "numero": numero,
-                        "codigo_postal": d.codigo_postal,
-                        "estado": d.estado,
-                        "municipio": d.municipio,
-                        "colonia": d.colonia,
-                        "calle": d.calle,
-                        "numero_exterior": d.numero_exterior,
-                    },
+                    _parametros_domicilio(d, numero),
                 )
 
                 # La BD guarda solo la ruta, relativa a STORAGE_DIR (portable entre servidores)

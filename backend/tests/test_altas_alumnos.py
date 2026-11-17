@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
+from backend import servicios
 from backend.deps import usuario_actual
 from backend.esquemas import AltaIn
 from backend.main import app
@@ -55,6 +56,35 @@ class ValidacionAltaAntesDePersistirTests(unittest.TestCase):
         )
         parche_catalogo.start()
         self.addCleanup(parche_catalogo.stop)
+
+    def test_parametros_compartidos_conservan_los_bind_de_alta_y_edicion(self):
+        datos = AltaIn.model_validate(
+            datos_validos() | {"celular": "744-123 4567", "celular_emergencia": "744-765 4321"},
+        )
+        alta = servicios._parametros_alumno(
+            datos,
+            "26320700",
+            servicios._CLAVES_PARAMETROS_ALTA,
+            {"correo_inst": "alumno@ambar.edu.mx", "turno": "matutino", "sem": 1},
+        )
+        edicion = servicios._parametros_alumno(
+            datos, "26320700", servicios._CLAVES_PARAMETROS_MODIFICACION,
+        )
+
+        self.assertEqual(
+            (alta["nombres"], alta["ap_p"], alta["ap_m"]),
+            ("Gael", "Castanon", "Jesus"),
+        )
+        self.assertEqual(
+            (edicion["nombre"], edicion["ap_paterno"], edicion["ap_materno"]),
+            ("Gael", "Castanon", "Jesus"),
+        )
+        self.assertEqual(alta["celular"], edicion["celular"])
+        self.assertEqual(alta["celular"], "7441234567")
+        self.assertEqual(
+            (alta["correo_inst"], alta["turno"], alta["sem"]),
+            ("alumno@ambar.edu.mx", "matutino", 1),
+        )
 
     def post_alta(self, payload: dict, incluir_documentos: bool = False):
         files = {
