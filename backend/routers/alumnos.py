@@ -118,7 +118,7 @@ def actualizar_alumno(
     usuario: dict = Depends(secretaria_o_administrador),
 ):
     """Modifica datos personales y de contacto sin cambiar el historial académico."""
-    errores = servicios.validar_alta(datos, exigir_identificacion_adulto=False)
+    errores = servicios.validar_alta(datos)
     if not errores:
         errores.update(
             servicios.validar_domicilio_catalogo(datos, permitir_cp_sin_catalogo=True)

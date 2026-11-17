@@ -920,10 +920,6 @@ def _guardar_historial(
 
 
 def actualizar_alumno(numero_control: str, datos: AltaIn, id_usuario: int) -> None:
-    errores = validar_alta(datos)
-    if errores:
-        raise Conflicto("Revisa los datos capturados", errores)
-
     try:
         with engine.begin() as conn:
             anterior = conn.execute(
