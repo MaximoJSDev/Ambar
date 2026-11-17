@@ -356,7 +356,7 @@ class HorariosTests(unittest.TestCase):
         conn = MagicMock()
         conn.execute.side_effect = [resultado_inicio, resultado_grupos, resultado_alumnos]
 
-        with patch("backend.servicios.engine.connect") as conectar:
+        with patch("backend.services.docentes.engine.connect") as conectar:
             conectar.return_value.__enter__.return_value = conn
             grupos = servicios.listar_grupos_docente(42)
 
