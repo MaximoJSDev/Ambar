@@ -1,4 +1,4 @@
-"""Administrative login and activity audit screen."""
+"""Pantalla administrativa de acceso y auditoría de actividad."""
 
 import flet as ft
 from api_client import ApiError

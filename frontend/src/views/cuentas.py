@@ -1,4 +1,4 @@
-"""Administrative account creation and directory screens."""
+"""Pantallas de creación de cuentas administrativas y consulta de directorios."""
 
 import flet as ft
 from api_client import ApiError

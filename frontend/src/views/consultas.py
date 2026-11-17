@@ -1,4 +1,4 @@
-"""Student record lookup, editing, and lifecycle actions."""
+"""Consulta, edición y gestión del ciclo de vida del expediente del alumno."""
 
 import asyncio
 import datetime

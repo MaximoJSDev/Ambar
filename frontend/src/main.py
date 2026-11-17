@@ -2,8 +2,7 @@ import flet as ft
 
 from api_client import ApiError
 from app_state import api, log
-from forms.alta import FormAltas, build_formulario_inscripcion
-from forms.domicilio import DomicilioCampos, formatear_ficha
+from forms.alta import build_formulario_inscripcion
 from ui.components import snackbar
 from ui.navigation import IMPLEMENTADAS, RUTAS_ADMIN
 from ui.shell import Shell
@@ -16,12 +15,9 @@ from views.cuentas import (
     build_consulta_secretarias,
 )
 from views.consultas import (
-    ConsultaExpediente,
-    _cambios_historial,
     build_bajas,
     build_consultas,
     build_modificacion,
-    ordinal_semestre,
 )
 from views.docente import build_grupos_horarios, build_inicio_docente
 from views.login import build_login

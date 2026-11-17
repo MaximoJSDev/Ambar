@@ -1,4 +1,4 @@
-"""Route catalogs shared by the shell and access-control checks."""
+"""Catálogos de rutas compartidos por el marco y los controles de acceso."""
 
 import flet as ft
 

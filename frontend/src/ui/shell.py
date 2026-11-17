@@ -1,4 +1,4 @@
-"""Persistent navigation frame reused while switching route content."""
+"""Marco de navegación persistente reutilizado al cambiar el contenido de la ruta."""
 
 import flet as ft
 

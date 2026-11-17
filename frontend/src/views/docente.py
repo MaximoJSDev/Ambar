@@ -1,4 +1,4 @@
-"""Teacher grading and schedule-management screens."""
+"""Pantallas de calificaciones y gestión de horarios del docente."""
 
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
@@ -7,7 +7,7 @@ from api_client import ApiError
 
 from app_state import api
 from ui.components import crear_tarjeta, estilo_boton_secundario, snackbar, titulo_pagina
-from ui.files import abrir_archivo, carpeta_pdf_temporal as _carpeta_pdf_temporal
+from ui.files import abrir_archivo, carpeta_pdf_temporal
 from ui.theme import BORDER, MUTED, NAVY, TEXT, WARN_FG
 
 
@@ -21,7 +21,7 @@ def build_inicio_docente(page: ft.Page, usuario: dict, navegar) -> ft.Control:
     def descargar_pdf_docente(descargar, nombre: str):
         try:
             contenido_pdf = descargar()
-            destino = _carpeta_pdf_temporal() / nombre
+            destino = carpeta_pdf_temporal() / nombre
             destino.write_bytes(contenido_pdf)
             abrir_archivo(destino)
         except ApiError as ex:
@@ -461,7 +461,7 @@ def build_grupos_horarios(page: ft.Page, navegar) -> ft.Control:
             return
         try:
             contenido = api.descargar_lista_grupo(paquete_seleccionado)
-            destino = _carpeta_pdf_temporal() / f"lista_{paquete['nombre']}.pdf"
+            destino = carpeta_pdf_temporal() / f"lista_{paquete['nombre']}.pdf"
             destino.write_bytes(contenido)
             abrir_archivo(destino)
         except ApiError as ex:

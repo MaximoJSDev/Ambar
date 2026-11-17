@@ -1,4 +1,4 @@
-"""Secretary dashboard and school-period management screens."""
+"""Panel de Secretaría y gestión de periodos escolares."""
 
 import datetime
 

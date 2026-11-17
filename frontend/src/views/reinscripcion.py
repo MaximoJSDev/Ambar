@@ -1,4 +1,4 @@
-"""Registration and maintenance flow for reinscribed students."""
+"""Flujo de registro y mantenimiento de alumnos reinscritos."""
 
 import re
 

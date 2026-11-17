@@ -1,4 +1,4 @@
-"""Desktop helpers for opening downloaded documents."""
+"""Ayudantes de escritorio para abrir documentos descargados."""
 
 import atexit
 import os

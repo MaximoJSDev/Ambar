@@ -1,4 +1,4 @@
-"""Shared palette and document policy used across screens."""
+"""Paleta compartida y políticas de documentos usadas en las pantallas."""
 
 NAVY = "#17345C"
 GOLD = "#D99A2B"

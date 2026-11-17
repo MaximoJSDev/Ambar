@@ -1,4 +1,4 @@
-"""Authentication screen and login interaction."""
+"""Pantalla de autenticación e inicio de sesión."""
 
 import asyncio
 import time

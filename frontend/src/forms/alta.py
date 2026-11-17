@@ -1,4 +1,4 @@
-"""Student admission form and its validation workflow."""
+"""Formulario de alta de alumnos y flujo de validación."""
 
 import asyncio
 import datetime
