@@ -350,7 +350,9 @@ class HorariosTests(unittest.TestCase):
             "final_confirmada": 0,
         }]
         resultado_inicio = MagicMock()
-        resultado_inicio.scalar_one_or_none.return_value = datetime.date(2026, 8, 24)
+        resultado_inicio.mappings.return_value.first.return_value = {
+            "fecha_inicio": datetime.date(2026, 8, 24),
+        }
         conn = MagicMock()
         conn.execute.side_effect = [resultado_inicio, resultado_grupos, resultado_alumnos]
 
