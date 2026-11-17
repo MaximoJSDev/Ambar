@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from backend.main import app
 from backend.deps import usuario_actual
 from backend import servicios
+from backend.services.common import _formatear_hora
 
 
 class GestionSecretariasAdminTests(unittest.TestCase):
@@ -110,14 +111,14 @@ class GestionSecretariasAdminTests(unittest.TestCase):
 
     def test_formatea_horas_mysql_recibidas_como_timedelta(self):
         self.assertEqual(
-            servicios._formatear_hora(timedelta(hours=9, minutes=5, seconds=7)),
+            _formatear_hora(timedelta(hours=9, minutes=5, seconds=7)),
             "09:05:07",
         )
         self.assertEqual(
-            servicios._formatear_hora(timedelta(hours=25, minutes=5)),
+            _formatear_hora(timedelta(hours=25, minutes=5)),
             "25:05:00",
         )
-        self.assertIsNone(servicios._formatear_hora(None))
+        self.assertIsNone(_formatear_hora(None))
 
     def test_administrador_puede_consultar_secretarias(self):
         registros = [{

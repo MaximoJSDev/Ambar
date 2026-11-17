@@ -38,7 +38,9 @@ from .services.common import (
     NumeroControlDuplicado,
     Ocupado,
     SinGrupos,
+    _formatear_hora,
 )
+from .services.bitacora import listar_bitacora_accesos
 from .services.personal import (
     _crear_cuenta_personal,
     _dar_baja_personal,
@@ -2068,51 +2070,6 @@ def actualizar_docente_grupo(id_grupo: int, id_docente: int | None) -> dict:
             {"docente": id_docente, "grupo": id_grupo},
         )
     return detalle_paquete_horario(id_paquete)
-
-
-def _formatear_hora(valor: time | timedelta | None) -> str | None:
-    if valor is None:
-        return None
-    if isinstance(valor, timedelta):
-        segundos_totales = int(valor.total_seconds())
-        signo = "-" if segundos_totales < 0 else ""
-        horas, resto = divmod(abs(segundos_totales), 3600)
-        minutos, segundos = divmod(resto, 60)
-        return f"{signo}{horas:02d}:{minutos:02d}:{segundos:02d}"
-    return valor.strftime("%H:%M:%S")
-
-
-def listar_bitacora_accesos(limite: int = 200) -> list[dict]:
-    with engine.connect() as conn:
-        filas = conn.execute(
-            text("""SELECT b.id_bitacora, b.fecha, b.hora_entrada, b.hora_salida,
-                           u.correo, r.nombre_rol AS rol,
-                           COALESCE(
-                               NULLIF(TRIM(CONCAT_WS(' ', ps.nombres, ps.apellidos)), ''),
-                               NULLIF(TRIM(CONCAT_WS(' ', d.nombres, d.apellidos)), ''),
-                               u.correo
-                           ) AS nombre
-                    FROM bitacora_accesos b
-                    JOIN usuarios u ON u.id_usuario = b.id_usuario
-                    JOIN roles r ON r.id_rol = u.id_rol
-                    LEFT JOIN personal_secretaria ps ON ps.id_usuario = u.id_usuario
-                    LEFT JOIN empleados_docentes d ON d.id_usuario = u.id_usuario
-                    ORDER BY b.fecha DESC, b.hora_entrada DESC, b.id_bitacora DESC
-                    LIMIT :limite"""),
-            {"limite": limite},
-        ).mappings().all()
-    return [
-        {
-            "id_bitacora": fila["id_bitacora"],
-            "fecha": fila["fecha"].strftime("%d/%m/%Y"),
-            "hora_entrada": _formatear_hora(fila["hora_entrada"]),
-            "hora_salida": _formatear_hora(fila["hora_salida"]),
-            "correo": fila["correo"],
-            "rol": fila["rol"],
-            "nombre": fila["nombre"],
-        }
-        for fila in filas
-    ]
 
 
 # --------------------------------------------------------------------------

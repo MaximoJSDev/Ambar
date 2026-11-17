@@ -1,5 +1,19 @@
 """Excepciones compartidas por los servicios de dominio."""
 
+from datetime import time, timedelta
+
+
+def _formatear_hora(valor: time | timedelta | None) -> str | None:
+    if valor is None:
+        return None
+    if isinstance(valor, timedelta):
+        segundos_totales = int(valor.total_seconds())
+        signo = "-" if segundos_totales < 0 else ""
+        horas, resto = divmod(abs(segundos_totales), 3600)
+        minutos, segundos = divmod(resto, 60)
+        return f"{signo}{horas:02d}:{minutos:02d}:{segundos:02d}"
+    return valor.strftime("%H:%M:%S")
+
 
 class NoEncontrado(Exception):
     pass
