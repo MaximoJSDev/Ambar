@@ -23,10 +23,10 @@ class ConsultaExpedienteTests(unittest.TestCase):
                     return_value=b"%PDF-horario",
                 ) as descargar,
                 patch(
-                    "views.consultas._carpeta_pdf_temporal",
+                    "ui.files.carpeta_pdf_temporal",
                     return_value=Path(directorio),
                 ),
-                patch("views.consultas.abrir_archivo") as abrir,
+                patch("ui.files.abrir_archivo") as abrir,
             ):
                 vista._descargar_horario()
 

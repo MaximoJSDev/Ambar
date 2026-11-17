@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
 
 
@@ -27,3 +28,15 @@ def abrir_archivo(ruta: Path) -> None:
         subprocess.Popen(["open", str(ruta)])
     else:
         subprocess.Popen(["xdg-open", str(ruta)])
+
+
+def descargar_pdf_y_abrir(
+    nombre: str, descargar: Callable[[Path], bytes | Path | None],
+) -> None:
+    destino = carpeta_pdf_temporal() / nombre
+    resultado = descargar(destino)
+    if isinstance(resultado, bytes):
+        destino.write_bytes(resultado)
+    elif isinstance(resultado, Path):
+        destino = resultado
+    abrir_archivo(destino)

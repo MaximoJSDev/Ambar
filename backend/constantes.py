@@ -1,26 +1,11 @@
 """Constantes de negocio compartidas por routers y servicios."""
 
+from ambar_common.documents import DOCUMENTOS, DOCUMENTOS_MODIFICABLES
+
 ROL_SECRETARIA = "Secretaría"
 ROL_DOCENTE = "Docente"
 ROL_ADMINISTRADOR = "Administrador"
 TURNOS = ("Matutino", "Vespertino")
 SEMESTRE_INGRESO = 1
 
-# campo del formulario multipart -> (nombre visible, valor del ENUM tipo_documento en la BD)
-# El nombre visible es el mismo que usa la app Flet y la clave que recibe guardar_pdfs.
-DOCUMENTOS = {
-    "doc_acta_nacimiento": ("Acta de nacimiento", "Acta de Nacimiento"),
-    "doc_curp": ("CURP", "CURP"),
-    "doc_comprobante_domicilio": ("Comprobante de domicilio", "Comprobante de domicilio"),
-    "doc_ine": ("INE", "INE"),
-    "doc_certificado_preparatoria": ("Certificado de preparatoria", "Certificado Preparatoria"),
-    "doc_certificado_medico": ("Certificado médico", "Certificado Medico"),
-}
-# Documento opcional del expediente; no forma parte de los requisitos de Alta.
-DOCUMENTOS_MODIFICABLES = DOCUMENTOS | {
-    "doc_constancia_situacion_fiscal": (
-        "Constancia de situación fiscal",
-        "Constancia Situacion Fiscal",
-    ),
-}
 TIPOS_REQUERIDOS = [tipo_bd for _, tipo_bd in DOCUMENTOS.values()]

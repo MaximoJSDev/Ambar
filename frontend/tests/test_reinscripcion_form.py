@@ -3,6 +3,7 @@ from unittest.mock import MagicMock, patch
 
 import flet as ft
 import main
+from views.consultas import ConsultaExpediente, ordinal_semestre
 
 
 def controles(control):
@@ -224,7 +225,7 @@ class ReinscripcionFormTests(unittest.TestCase):
             {"id_paquete": 11, "nombre": "2ISC2", "turno": "Vespertino", "lugares": 4},
             {"id_paquete": 12, "nombre": "2ISC3", "turno": "Mixto", "lugares": 0},
         ]
-        expediente = main.ConsultaExpediente.__new__(main.ConsultaExpediente)
+        expediente = ConsultaExpediente.__new__(ConsultaExpediente)
         expediente.page = MagicMock()
         expediente.navegar = MagicMock()
         expediente.reinscripcion_data = registro
@@ -292,7 +293,7 @@ class ReinscripcionFormTests(unittest.TestCase):
             ("Administrador", True),
         ):
             with self.subTest(rol=rol, modo_bajas=modo_bajas):
-                expediente = main.ConsultaExpediente.__new__(main.ConsultaExpediente)
+                expediente = ConsultaExpediente.__new__(ConsultaExpediente)
                 expediente.page = MagicMock()
                 expediente.usuario = {"rol": rol}
                 expediente.es_admin = rol == "Administrador"
@@ -336,14 +337,14 @@ class ReinscripcionFormTests(unittest.TestCase):
                 self.assertIn("26320200", textos)
                 if not modo_bajas:
                     self.assertIn(
-                        f"Horario y grupo · {main.ordinal_semestre(2)}",
+                        f"Horario y grupo · {ordinal_semestre(2)}",
                         textos,
                     )
                     self.assertIn("Matemáticas", textos)
                     self.assertIn("Lun 07:00-08:00", textos)
 
     def test_bajas_permite_dar_de_baja_y_muestra_el_estado(self):
-        expediente = main.ConsultaExpediente.__new__(main.ConsultaExpediente)
+        expediente = ConsultaExpediente.__new__(ConsultaExpediente)
         expediente.page = MagicMock()
         expediente.reinscripcion_data = {
             "numero_control": "26320200",

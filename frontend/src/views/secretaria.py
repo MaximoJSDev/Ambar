@@ -7,6 +7,7 @@ from api_client import ApiError
 
 from app_state import api
 from ui.components import chip_estado, crear_tarjeta, snackbar, titulo_pagina
+from ui.errors import manejar_error_api
 from ui.navigation import IMPLEMENTADAS
 from ui.theme import BORDER, GOLD, MUTED, NAVY, TEXT, WARN_BG, WARN_FG
 
@@ -186,8 +187,7 @@ def build_periodos_escolares(page: ft.Page) -> ft.Control:
         try:
             periodos = api.periodos_escolares()
         except ApiError as ex:
-            aviso.value = ex.mensaje
-            aviso.visible = True
+            manejar_error_api(ex, navegar, "/secretaria", page, aviso)
             page.update()
             return
         listado.controls = [
@@ -231,8 +231,7 @@ def build_periodos_escolares(page: ft.Page) -> ft.Control:
             page.update()
             return
         except ApiError as ex:
-            aviso.value = ex.mensaje
-            aviso.visible = True
+            manejar_error_api(ex, navegar, "/secretaria", page, aviso)
             page.update()
             return
         snackbar(page, "Periodo escolar guardado.")
