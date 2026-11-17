@@ -525,7 +525,7 @@ class ReinscripcionesServiceTests(unittest.TestCase):
         conn = MagicMock()
         conn.execute.side_effect = [resumen, reinscritos]
 
-        with patch("backend.servicios.engine.connect") as connect:
+        with patch("backend.services.horarios.engine.connect") as connect:
             connect.return_value.__enter__.return_value = conn
             resultado = servicios.lista_alumnos_paquete(20)
 
@@ -551,7 +551,7 @@ class ReinscripcionesServiceTests(unittest.TestCase):
         conn = MagicMock()
         conn.execute.side_effect = [registro, grupos]
 
-        with patch("backend.servicios.engine.connect") as connect:
+        with patch("backend.services.horarios.engine.connect") as connect:
             connect.return_value.__enter__.return_value = conn
             estado = servicios.estado_horario_alumno("26320200")
 
