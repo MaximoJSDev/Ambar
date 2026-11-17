@@ -110,9 +110,9 @@ class GestionConsultasTests(unittest.TestCase):
         }
 
         with (
-            patch("backend.servicios.engine.begin") as begin,
-            patch("backend.servicios._liberar_cupos_inscripciones") as liberar_cupos,
-            patch("backend.servicios._guardar_historial") as guardar_historial,
+            patch("backend.services.alumnos.engine.begin") as begin,
+            patch("backend.services.alumnos._liberar_cupos_inscripciones") as liberar_cupos,
+            patch("backend.services.alumnos._guardar_historial") as guardar_historial,
         ):
             begin.return_value.__enter__.return_value = conn
             servicios.eliminar_alumno("26320700", 23)

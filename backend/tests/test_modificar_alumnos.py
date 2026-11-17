@@ -56,10 +56,10 @@ class ModificarAlumnoTests(unittest.TestCase):
         datos = AltaIn.model_validate(datos_alumno(codigo_postal="39814"))
         with (
             patch(
-                "backend.servicios.opciones_domicilio",
+                "backend.services.alumnos.opciones_domicilio",
                 return_value={"codigo_postal": "39814", "estados": []},
             ),
-            patch("backend.servicios.engine.connect") as conectar,
+            patch("backend.services.alumnos.engine.connect") as conectar,
         ):
             errores = servicios.validar_domicilio_catalogo(
                 datos,
