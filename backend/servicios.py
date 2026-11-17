@@ -31,6 +31,25 @@ from ambar_common import validators as v
 
 from .config import engine, settings
 from .catalogo_horarios import CATALOGO_HORARIOS, PERIODO_1ISC
+from .services.common import (
+    Conflicto,
+    CupoLleno,
+    NoEncontrado,
+    NumeroControlDuplicado,
+    Ocupado,
+    SinGrupos,
+)
+from .services.personal import (
+    _crear_cuenta_personal,
+    _dar_baja_personal,
+    _listar_personal,
+    crear_docente,
+    crear_secretaria,
+    dar_baja_docente,
+    dar_baja_secretaria,
+    listar_docentes,
+    listar_secretarias,
+)
 from .constantes import (
     DOCUMENTOS,
     DOCUMENTOS_MODIFICABLES,
@@ -39,8 +58,7 @@ from .constantes import (
     SEMESTRE_INGRESO,
     TURNOS,
 )
-from .esquemas import AltaIn, DocenteCreate, SecretariaCreate
-from .seguridad import hashear
+from .esquemas import AltaIn
 
 log = logging.getLogger("sige")
 NOMBRE_CANDADO = "sige_altas"
@@ -68,33 +86,6 @@ TIPOS_EXPEDIENTE = [
     DOCUMENTOS["doc_certificado_preparatoria"],
     DOCUMENTOS["doc_certificado_medico"],
 ]
-
-
-class NoEncontrado(Exception):
-    pass
-
-
-class CupoLleno(Exception):
-    """No hay lugar en ningún grupo de primer semestre."""
-
-
-class SinGrupos(Exception):
-    """El periodo no tiene grupos de primer semestre configurados."""
-
-
-class Ocupado(Exception):
-    """No se obtuvo el candado de altas a tiempo."""
-
-
-class Conflicto(Exception):
-    def __init__(self, mensaje: str, errores: dict[str, str] | None = None):
-        super().__init__(mensaje)
-        self.mensaje = mensaje
-        self.errores = errores or {}
-
-
-class NumeroControlDuplicado(Conflicto):
-    pass
 
 
 def _obtener_fecha_inicio_periodo(conn: Connection, periodo: str, consulta: TextClause) -> date | None:
@@ -1104,78 +1095,6 @@ def historial_alumno(numero_control: str) -> list[dict]:
     ]
 
 
-def _listar_personal(rol: str, tabla_perfil: str, alias_perfil: str) -> list[dict]:
-    """Devuelve las cuentas activas o inactivas de un perfil de personal."""
-    with engine.connect() as conn:
-        filas = conn.execute(
-            text(f"""SELECT u.id_usuario, u.correo, u.estatus, {alias_perfil}.nombres, {alias_perfil}.apellidos
-                    FROM usuarios u
-                    JOIN roles r ON r.id_rol = u.id_rol
-                    JOIN {tabla_perfil} {alias_perfil} ON {alias_perfil}.id_usuario = u.id_usuario
-                    WHERE r.nombre_rol = :rol
-                    ORDER BY {alias_perfil}.apellidos, {alias_perfil}.nombres, u.correo"""),
-            {"rol": rol},
-        ).mappings().all()
-    return [dict(fila) for fila in filas]
-
-
-def listar_secretarias() -> list[dict]:
-    return _listar_personal(ROL_SECRETARIA, "personal_secretaria", "ps")
-
-
-def listar_docentes() -> list[dict]:
-    return _listar_personal(ROL_DOCENTE, "empleados_docentes", "d")
-
-
-def _crear_cuenta_personal(
-    datos: SecretariaCreate, rol: str, tabla_perfil: str,
-) -> dict:
-    """Crea una cuenta y su perfil para el rol indicado."""
-    try:
-        with engine.begin() as conn:
-            id_rol = conn.execute(
-                text("SELECT id_rol FROM roles WHERE nombre_rol = :rol"),
-                {"rol": rol},
-            ).scalar_one_or_none()
-            if id_rol is None:
-                raise Conflicto(f"No está configurado el rol {rol} en la base de datos.")
-            id_usuario = conn.execute(
-                text("""INSERT INTO usuarios (correo, password, id_rol, estatus)
-                        VALUES (:correo, :password, :rol, 'Activo')"""),
-                {
-                    "correo": datos.correo,
-                    "password": hashear(datos.password),
-                    "rol": id_rol,
-                },
-            ).lastrowid
-            conn.execute(
-                text(f"""INSERT INTO {tabla_perfil} (id_usuario, nombres, apellidos)
-                        VALUES (:usuario, :nombres, :apellidos)"""),
-                {
-                    "usuario": id_usuario,
-                    "nombres": datos.nombres,
-                    "apellidos": datos.apellidos,
-                },
-            )
-    except IntegrityError as exc:
-        raise Conflicto("Ya existe una cuenta con ese correo.") from exc
-    return {
-        "id_usuario": id_usuario,
-        "correo": datos.correo,
-        "estatus": "Activo",
-        "nombres": datos.nombres,
-        "apellidos": datos.apellidos,
-    }
-
-
-def crear_secretaria(datos: SecretariaCreate) -> dict:
-    return _crear_cuenta_personal(datos, ROL_SECRETARIA, "personal_secretaria")
-
-
-def crear_docente(datos: DocenteCreate) -> dict:
-    return _crear_cuenta_personal(datos, ROL_DOCENTE, "empleados_docentes")
-
-
 def cargar_catalogo_horarios(conn) -> None:
     turnos = {
         nombre: "Matutino" if int(nombre[-1]) % 2 else "Vespertino"
@@ -2149,38 +2068,6 @@ def actualizar_docente_grupo(id_grupo: int, id_docente: int | None) -> dict:
             {"docente": id_docente, "grupo": id_grupo},
         )
     return detalle_paquete_horario(id_paquete)
-
-
-def _dar_baja_personal(
-    id_usuario: int, rol: str, tabla_perfil: str, alias_perfil: str,
-) -> dict:
-    """Desactiva una cuenta del perfil indicado y devuelve sus datos."""
-    with engine.begin() as conn:
-        fila = conn.execute(
-            text(f"""SELECT u.id_usuario, u.correo, u.estatus, {alias_perfil}.nombres, {alias_perfil}.apellidos
-                    FROM usuarios u
-                    JOIN roles r ON r.id_rol = u.id_rol
-                    JOIN {tabla_perfil} {alias_perfil} ON {alias_perfil}.id_usuario = u.id_usuario
-                    WHERE u.id_usuario = :usuario AND r.nombre_rol = :rol
-                    FOR UPDATE"""),
-            {"usuario": id_usuario, "rol": rol},
-        ).mappings().first()
-        if fila is None:
-            raise NoEncontrado()
-        if fila["estatus"] == "Activo":
-            conn.execute(
-                text("UPDATE usuarios SET estatus = 'Inactivo' WHERE id_usuario = :usuario"),
-                {"usuario": id_usuario},
-            )
-    return dict(fila) | {"estatus": "Inactivo"}
-
-
-def dar_baja_docente(id_usuario: int) -> dict:
-    return _dar_baja_personal(id_usuario, ROL_DOCENTE, "empleados_docentes", "d")
-
-
-def dar_baja_secretaria(id_usuario: int) -> dict:
-    return _dar_baja_personal(id_usuario, ROL_SECRETARIA, "personal_secretaria", "ps")
 
 
 def _formatear_hora(valor: time | timedelta | None) -> str | None:
