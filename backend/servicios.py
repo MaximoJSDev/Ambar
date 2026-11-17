@@ -15,6 +15,8 @@ import re
 import shutil
 import unicodedata
 import uuid
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import date, time, timedelta
 from decimal import Decimal, ROUND_HALF_UP
 from pathlib import Path
@@ -78,6 +80,20 @@ class NumeroControlDuplicado(Conflicto):
     pass
 
 
+@contextmanager
+def _administrar_candado_mysql_altas() -> Iterator[None]:
+    """Adquiere y libera el candado MySQL de altas."""
+    with engine.connect() as candado:
+        if candado.execute(
+            text("SELECT GET_LOCK(:n, 20)"), {"n": NOMBRE_CANDADO},
+        ).scalar() != 1:
+            raise Ocupado()
+        try:
+            yield
+        finally:
+            candado.execute(text("SELECT RELEASE_LOCK(:n)"), {"n": NOMBRE_CANDADO})
+
+
 def validar_reinscripcion(datos: dict) -> dict[str, str]:
     errores: dict[str, str] = {}
     numero = datos["numero_control"]
@@ -120,59 +136,52 @@ def registrar_reinscripcion(datos: dict) -> dict:
     if errores:
         raise Conflicto("Revisa los datos capturados", errores)
 
-    with engine.connect() as candado:
-        if candado.execute(
-            text("SELECT GET_LOCK(:n, 20)"), {"n": NOMBRE_CANDADO},
-        ).scalar() != 1:
-            raise Ocupado()
+    with _administrar_candado_mysql_altas():
         try:
-            try:
-                with engine.begin() as conn:
-                    alumno = conn.execute(
-                        text("SELECT 1 FROM alumnos WHERE numero_control = :numero"),
-                        {"numero": datos["numero_control"]},
-                    ).scalar_one_or_none()
-                    reinscripcion = conn.execute(
-                        text("SELECT 1 FROM reinscripciones WHERE numero_control = :numero"),
-                        {"numero": datos["numero_control"]},
-                    ).scalar_one_or_none()
-                    if alumno is not None or reinscripcion is not None:
-                        raise NumeroControlDuplicado(
-                            "El número de control ya existe",
-                            {"numero_control": "El número de control ya existe"},
-                        )
-                    grupos_paquete = _grupos_paquete_reinscripcion(
-                        conn, datos["semestre"], datos["id_paquete"],
+            with engine.begin() as conn:
+                alumno = conn.execute(
+                    text("SELECT 1 FROM alumnos WHERE numero_control = :numero"),
+                    {"numero": datos["numero_control"]},
+                ).scalar_one_or_none()
+                reinscripcion = conn.execute(
+                    text("SELECT 1 FROM reinscripciones WHERE numero_control = :numero"),
+                    {"numero": datos["numero_control"]},
+                ).scalar_one_or_none()
+                if alumno is not None or reinscripcion is not None:
+                    raise NumeroControlDuplicado(
+                        "El número de control ya existe",
+                        {"numero_control": "El número de control ya existe"},
                     )
-                    conn.execute(
-                        text("""INSERT INTO reinscripciones
-                                    (numero_control, nombre, apellido_paterno,
-                                     apellido_materno, semestre)
-                                VALUES (:numero_control, :nombre, :apellido_paterno,
-                                        :apellido_materno, :semestre)"""),
-                        {
-                            "numero_control": datos["numero_control"],
-                            "nombre": datos["nombre"],
-                            "apellido_paterno": datos["apellido_paterno"],
-                            "apellido_materno": datos["apellido_materno"],
-                            "semestre": datos["semestre"],
-                        },
-                    )
-                    conn.execute(
-                        text("""INSERT INTO inscripciones_grupos (numero_control, id_grupo)
-                                VALUES (:numero, :grupo)"""),
-                        [
-                            {"numero": datos["numero_control"], "grupo": grupo["id_grupo"]}
-                            for grupo in grupos_paquete
-                        ],
-                    )
-            except IntegrityError as ex:
-                raise NumeroControlDuplicado(
-                    "El número de control ya existe",
-                    {"numero_control": "El número de control ya existe"},
-                ) from ex
-        finally:
-            candado.execute(text("SELECT RELEASE_LOCK(:n)"), {"n": NOMBRE_CANDADO})
+                grupos_paquete = _grupos_paquete_reinscripcion(
+                    conn, datos["semestre"], datos["id_paquete"],
+                )
+                conn.execute(
+                    text("""INSERT INTO reinscripciones
+                                (numero_control, nombre, apellido_paterno,
+                                 apellido_materno, semestre)
+                            VALUES (:numero_control, :nombre, :apellido_paterno,
+                                    :apellido_materno, :semestre)"""),
+                    {
+                        "numero_control": datos["numero_control"],
+                        "nombre": datos["nombre"],
+                        "apellido_paterno": datos["apellido_paterno"],
+                        "apellido_materno": datos["apellido_materno"],
+                        "semestre": datos["semestre"],
+                    },
+                )
+                conn.execute(
+                    text("""INSERT INTO inscripciones_grupos (numero_control, id_grupo)
+                            VALUES (:numero, :grupo)"""),
+                    [
+                        {"numero": datos["numero_control"], "grupo": grupo["id_grupo"]}
+                        for grupo in grupos_paquete
+                    ],
+                )
+        except IntegrityError as ex:
+            raise NumeroControlDuplicado(
+                "El número de control ya existe",
+                {"numero_control": "El número de control ya existe"},
+            ) from ex
 
     return datos | {"paquete": grupos_paquete[0]["nombre_paquete"]}
 
@@ -285,120 +294,113 @@ def modificar_reinscripcion(numero_original: str, datos: dict) -> dict:
     if errores:
         raise Conflicto("Revisa los datos capturados", errores)
 
-    with engine.connect() as candado:
-        if candado.execute(
-            text("SELECT GET_LOCK(:n, 20)"), {"n": NOMBRE_CANDADO},
-        ).scalar() != 1:
-            raise Ocupado()
+    with _administrar_candado_mysql_altas():
         try:
-            try:
-                with engine.begin() as conn:
-                    anterior = conn.execute(
-                        text("""SELECT numero_control, semestre, eliminado FROM reinscripciones
-                                WHERE numero_control = :numero FOR UPDATE"""),
-                        {"numero": numero_original},
-                    ).mappings().first()
-                    if anterior is None:
-                        raise NoEncontrado()
-                    if anterior["eliminado"]:
-                        raise Conflicto("No se puede modificar una reinscripción dada de baja.")
-                    if numero_original != datos["numero_control"]:
-                        raise Conflicto(
-                            "No se puede modificar el número de control de una reinscripción.",
-                            {"numero_control": "El número de control no se puede modificar"},
-                        )
-                    duplicado = conn.execute(
-                        text("""SELECT 1 FROM alumnos WHERE numero_control = :numero
-                                UNION ALL
-                                SELECT 1 FROM reinscripciones
-                                WHERE numero_control = :numero AND numero_control != :original
-                                LIMIT 1"""),
-                        {"numero": datos["numero_control"], "original": numero_original},
-                    ).scalar_one_or_none()
-                    if duplicado is not None:
-                        raise NumeroControlDuplicado(
-                            "El número de control ya existe",
-                            {"numero_control": "El número de control ya existe"},
-                        )
-                    estado_horario = conn.execute(
-                        text("""SELECT COUNT(DISTINCT i.id_inscripcion) AS inscripciones,
-                                       COUNT(c.id_calificacion) AS calificaciones
+            with engine.begin() as conn:
+                anterior = conn.execute(
+                    text("""SELECT numero_control, semestre, eliminado FROM reinscripciones
+                            WHERE numero_control = :numero FOR UPDATE"""),
+                    {"numero": numero_original},
+                ).mappings().first()
+                if anterior is None:
+                    raise NoEncontrado()
+                if anterior["eliminado"]:
+                    raise Conflicto("No se puede modificar una reinscripción dada de baja.")
+                if numero_original != datos["numero_control"]:
+                    raise Conflicto(
+                        "No se puede modificar el número de control de una reinscripción.",
+                        {"numero_control": "El número de control no se puede modificar"},
+                    )
+                duplicado = conn.execute(
+                    text("""SELECT 1 FROM alumnos WHERE numero_control = :numero
+                            UNION ALL
+                            SELECT 1 FROM reinscripciones
+                            WHERE numero_control = :numero AND numero_control != :original
+                            LIMIT 1"""),
+                    {"numero": datos["numero_control"], "original": numero_original},
+                ).scalar_one_or_none()
+                if duplicado is not None:
+                    raise NumeroControlDuplicado(
+                        "El número de control ya existe",
+                        {"numero_control": "El número de control ya existe"},
+                    )
+                estado_horario = conn.execute(
+                    text("""SELECT COUNT(DISTINCT i.id_inscripcion) AS inscripciones,
+                                   COUNT(c.id_calificacion) AS calificaciones
+                            FROM inscripciones_grupos i
+                            LEFT JOIN calificaciones c ON c.id_inscripcion = i.id_inscripcion
+                            WHERE i.numero_control = :numero"""),
+                    {"numero": numero_original},
+                ).mappings().one()
+                id_paquete = datos.get("id_paquete")
+                paquetes_actuales = []
+                if id_paquete is not None:
+                    paquetes_actuales = conn.execute(
+                        text("""SELECT DISTINCT p.id_paquete
                                 FROM inscripciones_grupos i
-                                LEFT JOIN calificaciones c ON c.id_inscripcion = i.id_inscripcion
-                                WHERE i.numero_control = :numero"""),
-                        {"numero": numero_original},
-                    ).mappings().one()
-                    id_paquete = datos.get("id_paquete")
-                    paquetes_actuales = []
-                    if id_paquete is not None:
-                        paquetes_actuales = conn.execute(
-                            text("""SELECT DISTINCT p.id_paquete
-                                    FROM inscripciones_grupos i
-                                    JOIN grupos g ON g.id_grupo = i.id_grupo
-                                    JOIN paquetes_horario p ON p.id_paquete = g.id_paquete
-                                    WHERE i.numero_control = :numero
-                                      AND g.periodo_escolar = :periodo
-                                    FOR UPDATE"""),
-                            {"numero": numero_original, "periodo": PERIODO_1ISC},
-                        ).scalars().all()
-                    if len(paquetes_actuales) > 1:
-                        raise Conflicto(
-                            "La reinscripción aparece asignada a más de un paquete.",
-                        )
-                    paquete_actual = paquetes_actuales[0] if paquetes_actuales else None
-                    cambio_semestre = anterior["semestre"] != datos["semestre"]
-                    cambio_paquete = (
-                        id_paquete is not None and id_paquete != paquete_actual
+                                JOIN grupos g ON g.id_grupo = i.id_grupo
+                                JOIN paquetes_horario p ON p.id_paquete = g.id_paquete
+                                WHERE i.numero_control = :numero
+                                  AND g.periodo_escolar = :periodo
+                                FOR UPDATE"""),
+                        {"numero": numero_original, "periodo": PERIODO_1ISC},
+                    ).scalars().all()
+                if len(paquetes_actuales) > 1:
+                    raise Conflicto(
+                        "La reinscripción aparece asignada a más de un paquete.",
                     )
-                    cambio_asignacion = cambio_semestre or cambio_paquete
-                    if cambio_asignacion and estado_horario["calificaciones"]:
-                        raise Conflicto(
-                            "No se puede cambiar el semestre o el paquete porque ya tiene calificaciones registradas.",
-                            {"id_paquete": "No se puede cambiar después de registrar calificaciones"},
-                        )
-                    if cambio_asignacion:
-                        grupos = _grupos_paquete_reinscripcion(
-                            conn, datos["semestre"], id_paquete,
-                        )
-                        if estado_horario["inscripciones"]:
-                            conn.execute(
-                                text("DELETE FROM inscripciones_grupos WHERE numero_control = :numero"),
-                                {"numero": numero_original},
-                            )
-                    else:
-                        grupos = []
-                    conn.execute(
-                        text("""UPDATE reinscripciones
-                                SET numero_control = :numero, nombre = :nombre,
-                                    apellido_paterno = :apellido_paterno,
-                                    apellido_materno = :apellido_materno,
-                                    semestre = :semestre
-                                WHERE numero_control = :original"""),
-                        {
-                            "numero": datos["numero_control"],
-                            "nombre": datos["nombre"],
-                            "apellido_paterno": datos["apellido_paterno"],
-                            "apellido_materno": datos["apellido_materno"],
-                            "semestre": datos["semestre"],
-                            "original": numero_original,
-                        },
+                paquete_actual = paquetes_actuales[0] if paquetes_actuales else None
+                cambio_semestre = anterior["semestre"] != datos["semestre"]
+                cambio_paquete = (
+                    id_paquete is not None and id_paquete != paquete_actual
+                )
+                cambio_asignacion = cambio_semestre or cambio_paquete
+                if cambio_asignacion and estado_horario["calificaciones"]:
+                    raise Conflicto(
+                        "No se puede cambiar el semestre o el paquete porque ya tiene calificaciones registradas.",
+                        {"id_paquete": "No se puede cambiar después de registrar calificaciones"},
                     )
-                    if grupos:
+                if cambio_asignacion:
+                    grupos = _grupos_paquete_reinscripcion(
+                        conn, datos["semestre"], id_paquete,
+                    )
+                    if estado_horario["inscripciones"]:
                         conn.execute(
-                            text("""INSERT INTO inscripciones_grupos (numero_control, id_grupo)
-                                    VALUES (:numero, :grupo)"""),
-                            [
-                                {"numero": datos["numero_control"], "grupo": grupo["id_grupo"]}
-                                for grupo in grupos
-                            ],
+                            text("DELETE FROM inscripciones_grupos WHERE numero_control = :numero"),
+                            {"numero": numero_original},
                         )
-            except IntegrityError as ex:
-                raise NumeroControlDuplicado(
-                    "El número de control ya existe",
-                    {"numero_control": "El número de control ya existe"},
-                ) from ex
-        finally:
-            candado.execute(text("SELECT RELEASE_LOCK(:n)"), {"n": NOMBRE_CANDADO})
+                else:
+                    grupos = []
+                conn.execute(
+                    text("""UPDATE reinscripciones
+                            SET numero_control = :numero, nombre = :nombre,
+                                apellido_paterno = :apellido_paterno,
+                                apellido_materno = :apellido_materno,
+                                semestre = :semestre
+                            WHERE numero_control = :original"""),
+                    {
+                        "numero": datos["numero_control"],
+                        "nombre": datos["nombre"],
+                        "apellido_paterno": datos["apellido_paterno"],
+                        "apellido_materno": datos["apellido_materno"],
+                        "semestre": datos["semestre"],
+                        "original": numero_original,
+                    },
+                )
+                if grupos:
+                    conn.execute(
+                        text("""INSERT INTO inscripciones_grupos (numero_control, id_grupo)
+                                VALUES (:numero, :grupo)"""),
+                        [
+                            {"numero": datos["numero_control"], "grupo": grupo["id_grupo"]}
+                            for grupo in grupos
+                        ],
+                    )
+        except IntegrityError as ex:
+            raise NumeroControlDuplicado(
+                "El número de control ya existe",
+                {"numero_control": "El número de control ya existe"},
+            ) from ex
     return datos
 
 
@@ -2198,9 +2200,7 @@ def registrar_alta(d: AltaIn, pdfs: dict[str, str], usuario: dict) -> dict:
 
     # El candado vive en su propia conexión y se libera DESPUÉS del commit; si se
     # soltara antes, otra alta leería cupos y consecutivos sin ver esta inscripción.
-    with engine.connect() as candado:
-        if candado.execute(text("SELECT GET_LOCK(:n, 20)"), {"n": NOMBRE_CANDADO}).scalar() != 1:
-            raise Ocupado()
+    with _administrar_candado_mysql_altas():
         carpeta: Path | None = None
         try:
             with engine.begin() as conn:
@@ -2329,5 +2329,3 @@ def registrar_alta(d: AltaIn, pdfs: dict[str, str], usuario: dict) -> dict:
             if carpeta is not None:
                 shutil.rmtree(carpeta, ignore_errors=True)
             raise
-        finally:
-            candado.execute(text("SELECT RELEASE_LOCK(:n)"), {"n": NOMBRE_CANDADO})
