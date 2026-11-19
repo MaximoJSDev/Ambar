@@ -441,15 +441,21 @@ def generar_estadisticas_grupos_pdf(datos: dict) -> bytes:
     )
     estilos = _crear_estilos()
     estilo_tabla = _estilo_tabla_horario()
+    categorias_genero = ("hombres", "mujeres", "no_binarios", "sin_especificar")
+
+    def cantidad_y_porcentaje(cantidad: int, total: int) -> str:
+        porcentaje = round(cantidad * 100 / total, 1) if total else 0.0
+        return f"{cantidad} ({porcentaje:.1f}%)"
+
     filas = [[
         Paragraph('<font color="#FFFFFF"><b>Grupo</b></font>', estilo_tabla),
         Paragraph('<font color="#FFFFFF"><b>Semestre</b></font>', estilo_tabla),
         Paragraph('<font color="#FFFFFF"><b>Turno</b></font>', estilo_tabla),
         Paragraph('<font color="#FFFFFF"><b>Total</b></font>', estilo_tabla),
-        Paragraph('<font color="#FFFFFF"><b>Hombres</b></font>', estilo_tabla),
-        Paragraph('<font color="#FFFFFF"><b>Mujeres</b></font>', estilo_tabla),
-        Paragraph('<font color="#FFFFFF"><b>No binario</b></font>', estilo_tabla),
-        Paragraph('<font color="#FFFFFF"><b>Sin especificar</b></font>', estilo_tabla),
+        Paragraph('<font color="#FFFFFF"><b>Hombres (n / %)</b></font>', estilo_tabla),
+        Paragraph('<font color="#FFFFFF"><b>Mujeres (n / %)</b></font>', estilo_tabla),
+        Paragraph('<font color="#FFFFFF"><b>No binario (n / %)</b></font>', estilo_tabla),
+        Paragraph('<font color="#FFFFFF"><b>Sin especificar (n / %)</b></font>', estilo_tabla),
         Paragraph('<font color="#FFFFFF"><b>Cupo / disponibles</b></font>', estilo_tabla),
     ]]
     for grupo in datos["grupos"]:
@@ -458,22 +464,32 @@ def generar_estadisticas_grupos_pdf(datos: dict) -> bytes:
             Paragraph(str(grupo["semestre"]), estilo_tabla),
             Paragraph(_texto(grupo["turno"]), estilo_tabla),
             Paragraph(str(grupo["total"]), estilo_tabla),
-            Paragraph(str(grupo["hombres"]), estilo_tabla),
-            Paragraph(str(grupo["mujeres"]), estilo_tabla),
-            Paragraph(str(grupo["no_binarios"]), estilo_tabla),
-            Paragraph(str(grupo["sin_especificar"]), estilo_tabla),
+            *[
+                Paragraph(
+                    cantidad_y_porcentaje(grupo[categoria], grupo["total"]),
+                    estilo_tabla,
+                )
+                for categoria in categorias_genero
+            ],
             Paragraph(f'{grupo["cupo"]} / {grupo["lugares_disponibles"]}', estilo_tabla),
         ])
 
     totales = [
         sum(grupo[campo] for grupo in datos["grupos"])
-        for campo in ("total", "hombres", "mujeres", "no_binarios", "sin_especificar")
+        for campo in ("total", *categorias_genero)
     ]
     filas.append([
         Paragraph("<b>TOTAL GENERAL</b>", estilo_tabla),
         "",
         "",
-        *[Paragraph(f"<b>{total}</b>", estilo_tabla) for total in totales],
+        Paragraph(f"<b>{totales[0]}</b>", estilo_tabla),
+        *[
+            Paragraph(
+                f"<b>{cantidad_y_porcentaje(cantidad, totales[0])}</b>",
+                estilo_tabla,
+            )
+            for cantidad in totales[1:]
+        ],
         "",
     ])
 

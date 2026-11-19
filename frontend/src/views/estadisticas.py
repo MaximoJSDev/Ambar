@@ -22,12 +22,13 @@ def build_estadisticas(page: ft.Page, navegar) -> ft.Control:
     resumen = ft.ResponsiveRow(spacing=16, run_spacing=16)
     listado = ft.Column(spacing=8)
 
-    def estadistica(valor, etiqueta, color=NAVY):
+    def estadistica(valor, etiqueta, detalle=None, color=NAVY):
         return ft.Container(
             col={"xs": 12, "sm": 6, "lg": 3},
             content=crear_tarjeta(ft.Column(spacing=4, controls=[
                 ft.Text(str(valor), size=30, weight=ft.FontWeight.BOLD, color=color),
                 ft.Text(etiqueta, size=12, color=MUTED),
+                *([ft.Text(detalle, size=11, color=MUTED)] if detalle else []),
             ]), padding=16),
         )
 
@@ -55,15 +56,19 @@ def build_estadisticas(page: ft.Page, navegar) -> ft.Control:
 
         grupos = datos["grupos"]
         periodo.value = f"Periodo escolar: {datos['periodo']}"
-        total = sum(grupo["total"] for grupo in grupos)
-        hombres = sum(grupo["hombres"] for grupo in grupos)
-        mujeres = sum(grupo["mujeres"] for grupo in grupos)
-        cupo = sum(grupo["cupo"] for grupo in grupos)
+        totales = datos["totales"]
+        porcentajes = totales["porcentajes"]
         resumen.controls = [
             estadistica(len(grupos), "Grupos registrados"),
-            estadistica(total, "Alumnos inscritos"),
-            estadistica(hombres, "Hombres (general)"),
-            estadistica(mujeres, "Mujeres (general)"),
+            estadistica(totales["total"], "Alumnos inscritos"),
+            estadistica(
+                totales["hombres"], "Hombres (general)",
+                f'{porcentajes["hombres"]:.1f}% del total',
+            ),
+            estadistica(
+                totales["mujeres"], "Mujeres (general)",
+                f'{porcentajes["mujeres"]:.1f}% del total',
+            ),
         ]
 
         listado.controls = []
@@ -77,9 +82,10 @@ def build_estadisticas(page: ft.Page, navegar) -> ft.Control:
                 content=ft.Row(spacing=8, controls=[
                     ft.Text("Grupo", weight=ft.FontWeight.BOLD, color=NAVY, expand=3),
                     ft.Text("Total", weight=ft.FontWeight.BOLD, color=NAVY, expand=1),
-                    ft.Text("Hombres", weight=ft.FontWeight.BOLD, color=NAVY, expand=1),
-                    ft.Text("Mujeres", weight=ft.FontWeight.BOLD, color=NAVY, expand=1),
-                    ft.Text("No binario", weight=ft.FontWeight.BOLD, color=NAVY, expand=1),
+                    ft.Text("Hombres (n / %)", size=11, weight=ft.FontWeight.BOLD, color=NAVY, expand=1),
+                    ft.Text("Mujeres (n / %)", size=11, weight=ft.FontWeight.BOLD, color=NAVY, expand=1),
+                    ft.Text("No binario (n / %)", size=11, weight=ft.FontWeight.BOLD, color=NAVY, expand=1),
+                    ft.Text("Sin especificar (n / %)", size=11, weight=ft.FontWeight.BOLD, color=NAVY, expand=1),
                     ft.Text("Cupo", weight=ft.FontWeight.BOLD, color=NAVY, expand=1),
                 ]),
             )
@@ -98,9 +104,17 @@ def build_estadisticas(page: ft.Page, navegar) -> ft.Control:
                             ),
                         ]),
                         ft.Text(str(grupo["total"]), size=13, color=TEXT, expand=1),
-                        ft.Text(str(grupo["hombres"]), size=13, color=TEXT, expand=1),
-                        ft.Text(str(grupo["mujeres"]), size=13, color=TEXT, expand=1),
-                        ft.Text(str(grupo["no_binarios"]), size=13, color=TEXT, expand=1),
+                        *[
+                            ft.Text(
+                                f'{grupo[categoria]} / {grupo["porcentajes"][categoria]:.1f}%',
+                                size=12,
+                                color=TEXT,
+                                expand=1,
+                            )
+                            for categoria in (
+                                "hombres", "mujeres", "no_binarios", "sin_especificar",
+                            )
+                        ],
                         ft.Column(expand=1, spacing=2, controls=[
                             ft.Text(f"{grupo['lugares_disponibles']} disponibles", size=12, color=TEXT),
                             ft.Text(f"de {grupo['cupo']}", size=11, color=MUTED),

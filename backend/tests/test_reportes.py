@@ -31,8 +31,14 @@ class ReporteExpedienteTests(unittest.TestCase):
         ultima_fila = crear_tabla.call_args.args[0][-1]
         self.assertEqual(
             [celda.getPlainText() if hasattr(celda, "getPlainText") else celda for celda in ultima_fila],
-            ["TOTAL GENERAL", "", "", "5", "3", "2", "0", "0", ""],
+            [
+                "TOTAL GENERAL", "", "", "5", "3 (60.0%)", "2 (40.0%)",
+                "0 (0.0%)", "0 (0.0%)", "",
+            ],
         )
+        fila_grupo = crear_tabla.call_args.args[0][1]
+        self.assertEqual(fila_grupo[4].getPlainText(), "1 (33.3%)")
+        self.assertEqual(fila_grupo[5].getPlainText(), "2 (66.7%)")
         self.assertTrue(contenido.startswith(b"%PDF-"))
 
     def test_clave_de_lista_ordena_primero_por_apellido_sin_distinguir_acentos(self):

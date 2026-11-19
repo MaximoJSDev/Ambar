@@ -12,6 +12,10 @@ from ..deps import requiere_roles
 router = APIRouter(prefix="/panel", tags=["Panel"])
 
 
+def _porcentaje(cantidad: int, total: int) -> float:
+    return round(cantidad * 100 / total, 1) if total else 0.0
+
+
 @router.get("/estadisticas")
 def estadisticas(_: dict = Depends(requiere_roles(ROL_SECRETARIA))):
     """Estadísticas de alumnos por grupo y género para el periodo actual."""
@@ -76,10 +80,11 @@ def estadisticas(_: dict = Depends(requiere_roles(ROL_SECRETARIA))):
         ).mappings().all()
 
     grupos = []
+    categorias_genero = ("hombres", "mujeres", "no_binarios", "sin_especificar")
     for fila in filas:
         cupo = int(fila["cupo_por_grupo"] or 25)
         total = int(fila["total"] or 0)
-        grupos.append({
+        grupo = {
             "id_paquete": int(fila["id_paquete"]),
             "grupo": fila["grupo"],
             "semestre": int(fila["semestre"]),
@@ -91,8 +96,22 @@ def estadisticas(_: dict = Depends(requiere_roles(ROL_SECRETARIA))):
             "no_binarios": int(fila["no_binarios"] or 0),
             "sin_especificar": int(fila["sin_especificar"] or 0),
             "lugares_disponibles": max(cupo - total, 0),
-        })
-    return {"periodo": settings.periodo, "grupos": grupos}
+        }
+        grupo["porcentajes"] = {
+            categoria: _porcentaje(grupo[categoria], total)
+            for categoria in categorias_genero
+        }
+        grupos.append(grupo)
+
+    totales = {
+        campo: sum(grupo[campo] for grupo in grupos)
+        for campo in ("total", *categorias_genero)
+    }
+    totales["porcentajes"] = {
+        categoria: _porcentaje(totales[categoria], totales["total"])
+        for categoria in categorias_genero
+    }
+    return {"periodo": settings.periodo, "grupos": grupos, "totales": totales}
 
 
 @router.get("/estadisticas/pdf")
