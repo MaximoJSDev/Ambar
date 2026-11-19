@@ -1,5 +1,7 @@
 """Vistas de consulta del expediente y sus responsabilidades específicas."""
 
+import flet as ft
+
 from app_state import api
 from .expediente import ConsultaExpediente
 from .historial import _cambios_historial, _valor_historial, ordinal_semestre

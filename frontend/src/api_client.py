@@ -149,6 +149,12 @@ class ApiClient:
     def resumen_panel(self) -> dict:
         return self._request("GET", "/panel/resumen")
 
+    def estadisticas_grupos(self) -> dict:
+        return self._request("GET", "/panel/estadisticas")
+
+    def descargar_estadisticas_grupos(self) -> bytes:
+        return self._descargar_pdf("/panel/estadisticas/pdf")
+
     def expediente(self, q: str, incluir_bajas: bool = False) -> dict:
         """Expediente por número de control o CURP. 404 si no existe."""
         return self._request(

@@ -19,26 +19,50 @@ function Read-RequiredValue([string]$prompt) {
 Write-Host "=== Ambar: inicio y configuración ===" -ForegroundColor Cyan
 
 $pythonLauncher = Get-Command py.exe -ErrorAction SilentlyContinue
+$pythonCommand = $null
+$pythonArguments = @()
+
 if ($pythonLauncher) {
-    & $pythonLauncher.Source -3 -c "import sys; print(sys.version)"
-    if ($LASTEXITCODE -ne 0) {
-        throw "No se encontró Python 3. Instálalo desde https://www.python.org/downloads/ y vuelve a ejecutar este archivo."
+    foreach ($minor in @(12, 13, 11, 10)) {
+        & $pythonLauncher.Source "-3.$minor" -c "import sys; raise SystemExit(0 if sys.version_info[:2] == (3, $minor) else 1)"
+        if ($LASTEXITCODE -eq 0) {
+            $pythonCommand = $pythonLauncher.Source
+            $pythonArguments = @("-3.$minor")
+            break
+        }
     }
-    $pythonCommand = $pythonLauncher.Source
-    $pythonArguments = @("-3")
-} else {
-    $pythonCommand = (Get-Command python.exe -ErrorAction SilentlyContinue).Source
-    if (-not $pythonCommand) {
-        throw "No se encontró Python. Instálalo desde https://www.python.org/downloads/ y vuelve a ejecutar este archivo."
-    }
-    & $pythonCommand --version
-    if ($LASTEXITCODE -ne 0) {
-        throw "No se pudo ejecutar Python."
-    }
-    $pythonArguments = @()
 }
 
+if (-not $pythonCommand) {
+    $plainPython = Get-Command python.exe -ErrorAction SilentlyContinue
+    if ($plainPython) {
+        $pythonCommand = $plainPython.Source
+        & $pythonCommand -c "import sys; raise SystemExit(0 if (3, 10) <= sys.version_info[:2] < (3, 15) else 1)"
+        if ($LASTEXITCODE -ne 0) {
+            $pythonCommand = $null
+        }
+    }
+}
+
+if (-not $pythonCommand) {
+    throw "No se encontró una versión estable compatible de Python (3.10 a 3.14). Instala Python 3.12 desde https://www.python.org/downloads/ y vuelve a ejecutar este archivo."
+}
+
+& $pythonCommand @pythonArguments --version
+if ($LASTEXITCODE -ne 0) {
+    throw "No se pudo ejecutar Python."
+}
+
+$selectedVersion = (& $pythonCommand @pythonArguments -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')").Trim()
 $venvPython = Join-Path $root "backend\venv\Scripts\python.exe"
+if (Test-Path -LiteralPath $venvPython) {
+    $venvVersion = (& $venvPython -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>$null).Trim()
+    if ($LASTEXITCODE -ne 0 -or $venvVersion -ne $selectedVersion) {
+        Write-Host "Reconstruyendo el entorno virtual incompatible..."
+        Remove-Item -LiteralPath (Join-Path $root "backend\venv") -Recurse -Force
+    }
+}
+
 if (-not (Test-Path -LiteralPath $venvPython)) {
     Write-Host "Creando el entorno privado del proyecto..."
     & $pythonCommand @pythonArguments -m venv (Join-Path $root "backend\venv")

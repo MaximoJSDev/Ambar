@@ -431,6 +431,76 @@ def generar_horario_alumno_pdf(datos: dict) -> bytes:
     return _construir_pdf(buffer, documento, elementos)
 
 
+def generar_estadisticas_grupos_pdf(datos: dict) -> bytes:
+    """Genera la estadística de matrícula por grupo con membrete institucional."""
+    buffer = BytesIO()
+    documento = _documento_pdf(
+        buffer,
+        "Estadísticas por grupo",
+        "Sistema Integral de Gestión Escolar",
+    )
+    estilos = _crear_estilos()
+    estilo_tabla = _estilo_tabla_horario()
+    filas = [[
+        Paragraph('<font color="#FFFFFF"><b>Grupo</b></font>', estilo_tabla),
+        Paragraph('<font color="#FFFFFF"><b>Semestre</b></font>', estilo_tabla),
+        Paragraph('<font color="#FFFFFF"><b>Turno</b></font>', estilo_tabla),
+        Paragraph('<font color="#FFFFFF"><b>Total</b></font>', estilo_tabla),
+        Paragraph('<font color="#FFFFFF"><b>Hombres</b></font>', estilo_tabla),
+        Paragraph('<font color="#FFFFFF"><b>Mujeres</b></font>', estilo_tabla),
+        Paragraph('<font color="#FFFFFF"><b>No binario</b></font>', estilo_tabla),
+        Paragraph('<font color="#FFFFFF"><b>Sin especificar</b></font>', estilo_tabla),
+        Paragraph('<font color="#FFFFFF"><b>Cupo / disponibles</b></font>', estilo_tabla),
+    ]]
+    for grupo in datos["grupos"]:
+        filas.append([
+            Paragraph(_texto(grupo["grupo"]), estilo_tabla),
+            Paragraph(str(grupo["semestre"]), estilo_tabla),
+            Paragraph(_texto(grupo["turno"]), estilo_tabla),
+            Paragraph(str(grupo["total"]), estilo_tabla),
+            Paragraph(str(grupo["hombres"]), estilo_tabla),
+            Paragraph(str(grupo["mujeres"]), estilo_tabla),
+            Paragraph(str(grupo["no_binarios"]), estilo_tabla),
+            Paragraph(str(grupo["sin_especificar"]), estilo_tabla),
+            Paragraph(f'{grupo["cupo"]} / {grupo["lugares_disponibles"]}', estilo_tabla),
+        ])
+
+    totales = [
+        sum(grupo[campo] for grupo in datos["grupos"])
+        for campo in ("total", "hombres", "mujeres", "no_binarios", "sin_especificar")
+    ]
+    filas.append([
+        Paragraph("<b>TOTAL GENERAL</b>", estilo_tabla),
+        "",
+        "",
+        *[Paragraph(f"<b>{total}</b>", estilo_tabla) for total in totales],
+        "",
+    ])
+
+    tabla = Table(
+        filas,
+        colWidths=[43 * mm, 20 * mm, 25 * mm, 18 * mm, 22 * mm, 22 * mm, 27 * mm, 34 * mm, 35 * mm],
+        repeatRows=1,
+        hAlign="LEFT",
+    )
+    tabla.setStyle(_estilo_tabla_datos())
+    tabla.setStyle(TableStyle([
+        ("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#E8EDF4")),
+        ("TEXTCOLOR", (0, -1), (-1, -1), NAVY),
+        ("LINEABOVE", (0, -1), (-1, -1), 1, NAVY),
+    ]))
+    elementos = [
+        Paragraph("ESTADÍSTICAS POR GRUPO", estilos["ReportTitle"]),
+        Paragraph(
+            f"Periodo: <b>{_texto(datos['periodo'])}</b>",
+            estilos["ReportSubtitle"],
+        ),
+        Spacer(1, 4 * mm),
+        tabla,
+    ]
+    return _construir_pdf(buffer, documento, elementos)
+
+
 def generar_lista_grupo_pdf(datos: dict) -> bytes:
     """Genera la lista de alumnos inscritos en una sección con membrete."""
     buffer = BytesIO()

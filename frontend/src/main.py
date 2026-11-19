@@ -18,6 +18,7 @@ from views.docente import build_grupos_horarios, build_inicio_docente
 from views.login import build_login
 from views.reinscripcion import build_reinscripcion as _build_reinscripcion
 from views.secretaria import build_panel, build_periodos_escolares
+from views.estadisticas import build_estadisticas
 
 def build_reinscripcion(page: ft.Page, navegar) -> ft.Control:
     # Keep the application-wide client so authentication state is shared between views.
@@ -88,6 +89,8 @@ def main(page: ft.Page):
             return build_grupos_horarios(page, navegar)
         if ruta == "/reinscripcion":
             return build_reinscripcion(page, navegar)
+        if ruta == "/estadisticas":
+            return build_estadisticas(page, navegar)
         if ruta == "/consultas":
             numero_control = sesion.pop("consulta_numero_control", None)
             return build_consultas(

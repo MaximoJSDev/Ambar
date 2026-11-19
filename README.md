@@ -30,7 +30,7 @@ Ambar permite:
 
 Antes de comenzar, necesitas tener instalado:
 
-- [Python 3.10 o superior](https://www.python.org/downloads/)
+- [Python 3.10 a 3.14](https://www.python.org/downloads/) (se recomienda Python 3.12)
 - [Git](https://git-scm.com/)
 - [MySQL o MariaDB](https://www.mysql.com/) en ejecución
 

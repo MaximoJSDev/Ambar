@@ -36,6 +36,6 @@ RUTAS_ADMIN = {
 }
 IMPLEMENTADAS = {
     "/secretaria", "/altas", "/altas-maestros", "/consulta-maestros",
-    "/grupos-horarios", "/modificacion", "/bajas", "/reinscripcion", "/docente",
+    "/grupos-horarios", "/modificacion", "/bajas", "/reinscripcion", "/estadisticas", "/docente",
     *RUTAS_ADMIN,
 }
