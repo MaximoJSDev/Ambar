@@ -10,3 +10,4 @@ pyjwt>=2.8
 python-multipart>=0.0.9
 reportlab>=4.2
 cloudinary>=1.44,<3
+httpx>=0.28,<1
