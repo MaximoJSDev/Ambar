@@ -44,13 +44,35 @@ try {
     # Flet Pack administra las carpetas build y dist del directorio de trabajo.
     $entryPoint = Join-Path $sourceDir "main.py"
     $assets = Join-Path $sourceDir "assets"
-    & $flet pack $entryPoint --name Ambar --product-name Ambar --add-data "${assets}:assets" --yes
+    # PyInstaller debe localizar ambar_common desde su código fuente.
+    & $flet pack $entryPoint --name Ambar --product-name Ambar --add-data "${assets}:assets" `
+        "--pyinstaller-build-args=--paths=$root" --yes
     if ($LASTEXITCODE -ne 0) {
         throw "Falló la compilación de Ambar para Windows."
     }
     $packedExe = Join-Path $workDir "dist\Ambar.exe"
     if (-not (Test-Path -LiteralPath $packedExe -PathType Leaf)) {
         throw "Flet Pack terminó sin generar Ambar.exe."
+    }
+    @'
+import sys
+
+from PyInstaller.archive.readers import CArchiveReader
+
+app = CArchiveReader(sys.argv[1])
+modules = app.open_embedded_archive("PYZ.pyz").toc
+required = {
+    "api_config",
+    "ambar_common.documents",
+    "ambar_common.logging_config",
+    "ambar_common.validators",
+}
+missing = sorted(required - modules.keys())
+if missing:
+    sys.exit("Modulos ausentes: " + ", ".join(missing))
+'@ | & $python - $packedExe
+    if ($LASTEXITCODE -ne 0) {
+        throw "El ejecutable no incluye todos los módulos requeridos."
     }
     [void] (New-Item -ItemType Directory -Path $outputDir -Force)
     if (Test-Path -LiteralPath $outputExe -PathType Container) {
