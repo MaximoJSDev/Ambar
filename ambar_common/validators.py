@@ -60,6 +60,8 @@ NOMBRE_MIN, NOMBRE_MAX = 3, 50
 PROMEDIO_MIN, PROMEDIO_MAX = 6, 10
 MAX_PDF_MB = 500                    # límite por archivo (Algoritmo 3, paso 3)
 MAX_PDF_BYTES = MAX_PDF_MB * 1024 * 1024
+MAX_CLOUDINARY_FREE_PDF_MB = 10
+MAX_CLOUDINARY_FREE_PDF_BYTES = MAX_CLOUDINARY_FREE_PDF_MB * 1024 * 1024
 TURNO_MATUTINO_MIN = 9              # promedio >= 9 -> Matutino, si no Vespertino
 
 GENEROS = {

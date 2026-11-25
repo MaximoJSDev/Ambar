@@ -14,8 +14,19 @@ import httpx
 
 from ambar_common.documents import DOCUMENTOS_MODIFICABLES
 from ambar_common.logging_config import configure_file_logging
+from ambar_common.validators import MAX_PDF_MB
 
-URL_API = os.getenv("SIGE_API_URL", "http://127.0.0.1:8000")
+try:
+    from api_config import API_URL as URL_API_EMBEBIDA
+    from api_config import PDF_MAX_MB as PDF_MAX_MB_EMBEBIDO
+except ImportError:
+    URL_API_EMBEBIDA = None
+    PDF_MAX_MB_EMBEBIDO = None
+
+URL_API = os.getenv(
+    "SIGE_API_URL",
+    URL_API_EMBEBIDA or "http://127.0.0.1:8000",
+)
 log = configure_file_logging("sige.frontend", "frontend.log")
 
 # nombre visible del documento -> campo multipart del backend
@@ -38,9 +49,14 @@ class ApiError(Exception):
 
 class ApiClient:
     def __init__(self, base_url: str = URL_API):
-        # Las subidas de PDF (hasta 500 MB cada uno) necesitan tiempos largos de escritura/lectura
-        self._http = httpx.Client(base_url=base_url, timeout=httpx.Timeout(30.0, read=900.0, write=900.0))
+        # Las subidas de PDF necesitan tiempos largos de escritura/lectura.
+        self._http = httpx.Client(
+            base_url=base_url,
+            timeout=httpx.Timeout(30.0, connect=120.0, read=900.0, write=900.0),
+        )
         self.base_url = base_url
+        self.max_pdf_mb = PDF_MAX_MB_EMBEBIDO or MAX_PDF_MB
+        self.max_pdf_bytes = self.max_pdf_mb * 1024 * 1024
         self.token: str | None = None
         self.sesion_vencida = False     # lo marca un 401; la app lo revisa y regresa al login
 
@@ -227,7 +243,7 @@ class ApiClient:
         self._request("PUT", f"/alumnos/{numero_control}", json=datos)
 
     def actualizar_documentos(self, numero_control: str, documentos: dict[str, str]) -> None:
-        """Agrega o reemplaza documentos PDF del expediente usando multipart."""
+        """Agrega o reemplaza PDF del expediente usando multipart."""
         ruta = f"/alumnos/{numero_control}/documentos"
         with contextlib.ExitStack() as pila:
             archivos = {}

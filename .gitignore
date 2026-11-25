@@ -9,10 +9,14 @@ env/
 
 # Environments / secrets
 .env
+/backend/.env.dev
 
 # Uploaded student documents
 /expedientes/*
 !/expedientes/.gitkeep
+/frontend/src/api_config.py
+/dist/
+/ambar-db-tidb.sql
 
 # Tool caches
 .mypy_cache/

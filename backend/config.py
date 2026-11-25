@@ -3,7 +3,7 @@ import datetime
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy import create_engine
 from sqlalchemy.engine import URL
@@ -28,6 +28,14 @@ class Settings(BaseSettings):
     db_user: str
     db_password: str
     db_name: str = "ambar_escolar"
+    db_ssl_ca: Path | None = None
+    db_tidb: bool = False
+
+    # Expedientes remotos (si no se configura, se conserva el almacenamiento local)
+    cloudinary_cloud_name: str | None = None
+    cloudinary_api_key: str | None = None
+    cloudinary_api_secret: str | None = None
+    cloudinary_required: bool = False
 
     # Sesión
     jwt_secret: str = Field(min_length=32)      # openssl rand -hex 32
@@ -49,6 +57,32 @@ class Settings(BaseSettings):
     @classmethod
     def _absoluta(cls, valor: Path) -> Path:
         return Path(valor).expanduser().resolve()
+
+    @field_validator("db_ssl_ca")
+    @classmethod
+    def _ca_absoluta(cls, valor: Path | None) -> Path | None:
+        return Path(valor).expanduser().resolve() if valor else None
+
+    @model_validator(mode="after")
+    def _credenciales_cloudinary_completas(self):
+        credenciales = (
+            self.cloudinary_cloud_name,
+            self.cloudinary_api_key,
+            self.cloudinary_api_secret,
+        )
+        if any(credenciales) and not all(credenciales):
+            raise ValueError("Configura CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY y CLOUDINARY_API_SECRET juntos")
+        if self.cloudinary_required and not all(credenciales):
+            raise ValueError("Cloudinary es obligatorio para este despliegue")
+        return self
+
+    @property
+    def cloudinary_configurado(self) -> bool:
+        return bool(
+            self.cloudinary_cloud_name
+            and self.cloudinary_api_key
+            and self.cloudinary_api_secret
+        )
 
     @property
     def database_url(self) -> URL:
@@ -78,4 +112,13 @@ engine = create_engine(
     settings.database_url,
     pool_pre_ping=True,
     pool_recycle=1800,
+    connect_args=(
+        {
+            "ssl_ca": str(settings.db_ssl_ca),
+            "ssl_verify_cert": True,
+            "ssl_verify_identity": True,
+        }
+        if settings.db_ssl_ca
+        else {}
+    ),
 )

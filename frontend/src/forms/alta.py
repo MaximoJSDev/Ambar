@@ -359,6 +359,7 @@ class FormAltas:
             archivo_pdf_seleccionado.name or "",
             archivo_pdf_seleccionado.size,
             archivo_pdf_seleccionado.path,
+            max_bytes=api.max_pdf_bytes,
         )
         if mensaje_error_pdf:
             self.documentos_seleccionados.pop(nombre_documento, None)
@@ -826,7 +827,7 @@ class FormAltas:
             self.titulo_paso.value = "Documentos"
             self.contenido_paso.controls = [
                 ft.Text(f"Carga los {len(DOCUMENTOS)} documentos en formato PDF "
-                        f"(máximo {v.MAX_PDF_MB} MB por archivo).", size=13, color=MUTED),
+                        f"(máximo {api.max_pdf_mb} MB por archivo).", size=13, color=MUTED),
                 self.aviso_documentos,
                 ft.Column(spacing=0, controls=[self._crear_fila_de_documento(nombre_documento) for nombre_documento in DOCUMENTOS]),
             ]

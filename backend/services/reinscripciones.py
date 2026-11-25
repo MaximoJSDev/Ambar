@@ -15,6 +15,7 @@ from .common import (
     NoEncontrado,
     NumeroControlDuplicado,
     _administrar_candado_mysql_altas,
+    _inscribir_en_grupos,
 )
 from .horarios import _datos_paquete_horario, _resumen_paquetes_horario
 
@@ -93,13 +94,9 @@ def registrar_reinscripcion(datos: dict) -> dict:
                         "semestre": datos["semestre"],
                     },
                 )
-                conn.execute(
-                    text("""INSERT INTO inscripciones_grupos (numero_control, id_grupo)
-                            VALUES (:numero, :grupo)"""),
-                    [
-                        {"numero": datos["numero_control"], "grupo": grupo["id_grupo"]}
-                        for grupo in grupos_paquete
-                    ],
+                _inscribir_en_grupos(
+                    conn, datos["numero_control"],
+                    (grupo["id_grupo"] for grupo in grupos_paquete),
                 )
         except IntegrityError as ex:
             raise NumeroControlDuplicado(
@@ -289,6 +286,8 @@ def modificar_reinscripcion(numero_original: str, datos: dict) -> dict:
                         conn, datos["semestre"], id_paquete,
                     )
                     if estado_horario["inscripciones"]:
+                        if settings.db_tidb:
+                            _liberar_cupos_inscripciones(conn, numero_original)
                         conn.execute(
                             text("DELETE FROM inscripciones_grupos WHERE numero_control = :numero"),
                             {"numero": numero_original},
@@ -312,13 +311,8 @@ def modificar_reinscripcion(numero_original: str, datos: dict) -> dict:
                     },
                 )
                 if grupos:
-                    conn.execute(
-                        text("""INSERT INTO inscripciones_grupos (numero_control, id_grupo)
-                                VALUES (:numero, :grupo)"""),
-                        [
-                            {"numero": datos["numero_control"], "grupo": grupo["id_grupo"]}
-                            for grupo in grupos
-                        ],
+                    _inscribir_en_grupos(
+                        conn, datos["numero_control"], (grupo["id_grupo"] for grupo in grupos),
                     )
         except IntegrityError as ex:
             raise NumeroControlDuplicado(
@@ -437,11 +431,7 @@ def asignar_paquete_reinscripcion(numero_control: str, id_paquete: int) -> dict:
         if any(fila["cupo_disponible"] <= 0 for fila in grupos):
             raise CupoLleno("El paquete seleccionado ya no tiene cupo disponible.")
 
-        conn.execute(
-            text("""INSERT INTO inscripciones_grupos (numero_control, id_grupo)
-                    VALUES (:numero, :grupo)"""),
-            [{"numero": numero_control, "grupo": fila["id_grupo"]} for fila in grupos],
-        )
+        _inscribir_en_grupos(conn, numero_control, (fila["id_grupo"] for fila in grupos))
         conn.execute(
             text("UPDATE alumnos SET turno = :turno WHERE numero_control = :numero"),
             {"turno": grupos[0]["turno"], "numero": numero_control},

@@ -1,6 +1,6 @@
 """Utilidades y excepciones comunes de los servicios."""
 
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from datetime import date, time, timedelta
 
@@ -8,7 +8,7 @@ from sqlalchemy import text
 from sqlalchemy.engine import Connection
 from sqlalchemy.sql.elements import TextClause
 
-from ..config import engine
+from ..config import engine, settings
 
 NOMBRE_CANDADO = "sige_altas"
 
@@ -58,6 +58,24 @@ class NoEncontrado(Exception):
 
 class CupoLleno(Exception):
     """No hay lugar en ningún grupo de primer semestre."""
+
+
+def _inscribir_en_grupos(
+    conn: Connection, numero_control: str, ids_grupo: Iterable[int],
+) -> None:
+    ids = sorted(ids_grupo)
+    if settings.db_tidb:
+        descontar = text("""UPDATE grupos
+                            SET cupo_disponible = cupo_disponible - 1
+                            WHERE id_grupo = :grupo AND cupo_disponible > 0""")
+        for id_grupo in ids:
+            if conn.execute(descontar, {"grupo": id_grupo}).rowcount != 1:
+                raise CupoLleno("El paquete seleccionado ya no tiene cupo disponible.")
+    conn.execute(
+        text("""INSERT INTO inscripciones_grupos (numero_control, id_grupo)
+                VALUES (:numero, :grupo)"""),
+        [{"numero": numero_control, "grupo": id_grupo} for id_grupo in ids],
+    )
 
 
 class SinGrupos(Exception):

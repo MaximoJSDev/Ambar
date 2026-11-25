@@ -44,7 +44,12 @@ class DocumentosMixin:
             return
 
         archivo = seleccionados[0]
-        error_pdf = v.validar_pdf(archivo.name or "", archivo.size, archivo.path)
+        error_pdf = v.validar_pdf(
+            archivo.name or "",
+            archivo.size,
+            archivo.path,
+            max_bytes=api.max_pdf_bytes,
+        )
         if error_pdf:
             snackbar(self.page, f"{documento}: {error_pdf}")
             return

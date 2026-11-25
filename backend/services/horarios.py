@@ -5,7 +5,7 @@ from sqlalchemy import bindparam, text
 from ..catalogo_horarios import CATALOGO_HORARIOS, PERIODO_1ISC
 from ..config import engine
 from ..constantes import ROL_DOCENTE
-from .common import Conflicto, CupoLleno, NoEncontrado, _formatear_hora
+from .common import Conflicto, CupoLleno, NoEncontrado, _formatear_hora, _inscribir_en_grupos
 
 def cargar_catalogo_horarios(conn) -> None:
     turnos = {
@@ -330,11 +330,7 @@ def asignar_paquete_horario(numero_control: str, id_paquete: int) -> dict:
         if any(fila["cupo_disponible"] <= 0 for fila in grupos):
             raise CupoLleno("El paquete seleccionado ya no tiene cupo disponible.")
 
-        conn.execute(
-            text("""INSERT INTO inscripciones_grupos (numero_control, id_grupo)
-                    VALUES (:numero, :grupo)"""),
-            [{"numero": numero_control, "grupo": fila["id_grupo"]} for fila in grupos],
-        )
+        _inscribir_en_grupos(conn, numero_control, (fila["id_grupo"] for fila in grupos))
         conn.execute(
             text("UPDATE alumnos SET turno = :turno WHERE numero_control = :numero"),
             {"turno": grupos[0]["turno"], "numero": numero_control},

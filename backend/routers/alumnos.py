@@ -5,11 +5,12 @@ import tempfile
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import ValidationError
 
 from ambar_common import validators as v
 
+from .. import almacen_archivos
 from .. import reportes, servicios
 from ..config import settings
 from ..constantes import DOCUMENTOS, DOCUMENTOS_MODIFICABLES, ROL_ADMINISTRADOR, ROL_SECRETARIA
@@ -21,6 +22,16 @@ solo_secretaria = requiere_roles(ROL_SECRETARIA)
 solo_administrador = requiere_roles(ROL_ADMINISTRADOR)
 secretaria_o_administrador = requiere_roles(ROL_SECRETARIA, ROL_ADMINISTRADOR)
 log = logging.getLogger("sige")
+
+
+def _limite_pdf_bytes() -> int:
+    if settings.cloudinary_configurado:
+        return almacen_archivos.MAX_CLOUDINARY_FREE_PDF_BYTES
+    return v.MAX_PDF_BYTES
+
+
+def _limite_pdf_mb() -> int:
+    return _limite_pdf_bytes() // (1024 * 1024)
 
 
 def permitir_incluir_bajas(
@@ -107,6 +118,12 @@ def descargar_documento(
         ruta, nombre = servicios.ruta_documento(id_documento, incluir_bajas)
     except servicios.NoEncontrado:
         raise HTTPException(404, {"mensaje": "El documento no existe en el servidor"})
+    if isinstance(ruta, str):
+        return StreamingResponse(
+            almacen_archivos.transmitir_archivo(ruta),
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'inline; filename="{nombre}"'},
+        )
     return FileResponse(ruta, media_type="application/pdf", filename=nombre,
                         content_disposition_type="inline")
 
@@ -201,11 +218,12 @@ def historial_alumno(numero_control: str):
 # --- Altas -----------------------------------------------------------------
 def _copiar_por_bloques(archivo: UploadFile, destino: Path) -> int:
     """Copia el PDF a disco sin cargarlo en memoria; corta si pasa del máximo."""
+    limite = _limite_pdf_bytes()
     total = 0
     with destino.open("wb") as salida:
         while bloque := archivo.file.read(1024 * 1024):
             total += len(bloque)
-            if total > v.MAX_PDF_BYTES:
+            if total > limite:
                 break
             salida.write(bloque)
     return total
@@ -214,16 +232,19 @@ def _copiar_por_bloques(archivo: UploadFile, destino: Path) -> int:
 def _preparar_pdfs(tmp: Path, subidos: dict[str, UploadFile | None]) -> tuple[dict[str, str], list[str]]:
     rutas: dict[str, str] = {}
     errores: list[str] = []
+    limite = _limite_pdf_bytes()
     for campo, archivo in subidos.items():
         if archivo is None or not archivo.filename:
             continue
         visible = DOCUMENTOS_MODIFICABLES[campo][0]
         ruta = tmp / f"{campo}.pdf"
         tamano = _copiar_por_bloques(archivo, ruta)
-        if tamano > v.MAX_PDF_BYTES:
-            err = f"El archivo excede {v.MAX_PDF_MB} MB"
+        if tamano > limite:
+            err = f"El archivo excede {_limite_pdf_mb()} MB"
         else:
-            err = v.validar_pdf(archivo.filename, tamano, str(ruta))   # extensión, tamaño y cabecera %PDF-
+            err = v.validar_pdf(
+                archivo.filename, tamano, str(ruta), max_bytes=limite,
+            )
         if err:
             errores.append(f"{visible}: {err}")
         else:

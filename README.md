@@ -68,6 +68,48 @@ python -m backend.seed --correo TU_CORREO --nombres TU_NOMBRE --apellidos TUS_AP
 
 ---
 
+## Publicar en Oracle Cloud y Render
+
+La arquitectura prevista para instalaciones de escritorio es:
+
+```text
+Ambar.exe → API FastAPI en Render → TiDB Cloud Starter (compatible con MySQL)
+                                └→ PDF privados en Cloudinary
+```
+
+La aplicación de escritorio requiere internet. El cliente nunca se conecta directamente a MySQL ni recibe enlaces públicos de Cloudinary: FastAPI verifica la sesión y transmite los PDF desde recursos privados.
+
+### 1. Inicializar TiDB Cloud
+
+1. Crea una instancia **Starter**, elige **MySQL Compatible** y deja el límite de gasto en **0 USD**. Usa AWS Oregon si Render utiliza la región predeterminada del Blueprint. [Creación de instancias en TiDB Cloud](https://docs.pingcap.com/tidbcloud/create-tidb-cluster-serverless/)
+2. Habilita el endpoint público y limita el acceso a tu IP y a los rangos de salida de tu servicio de Render. Conéctate como administrador con el usuario completo que muestra **Connect**, el puerto `4000` y TLS en modo `VERIFY_IDENTITY`. [Firewall de TiDB](https://docs.pingcap.com/tidbcloud/configure-serverless-firewall-rules-for-public-endpoints/) · [Conexiones TLS](https://docs.pingcap.com/tidbcloud/secure-connections-to-serverless-clusters/)
+3. Desde la raíz de Ámbar, ejecuta `python -m backend.preparar_esquema_tidb` para generar `ambar-db-tidb.sql`. En la sesión de MySQL conectada a TiDB, ejecuta `SET GLOBAL tidb_enable_check_constraint = ON;` y luego importa el archivo generado. Verifica las tablas con `SHOW TABLES FROM ambar_escolar;`. [Restricciones CHECK](https://docs.pingcap.com/tidbcloud/constraints/)
+4. Usa las variables `DB_TIDB=true` y `DB_PORT=4000` para FastAPI. En este modo el backend actualiza el cupo en la misma transacción que modifica la inscripción.
+
+### 2. Desplegar FastAPI en Render
+
+1. Sube el repositorio a GitHub y crea un Blueprint en Render usando [`render.yaml`](./render.yaml); el servicio se configura en el plan gratuito.
+2. Configura `DB_HOST`, `DB_USER`, `DB_PASSWORD` y las credenciales de Cloudinary en Render. Usa un usuario de base de datos dedicado para FastAPI. Agrega `isrgrootx1.pem` como **Secret File** y configura `DB_SSL_CA=/etc/secrets/isrgrootx1.pem`.
+3. Usa el plan gratuito solo teniendo en cuenta sus límites: Render puede dormir el servicio tras inactividad y su disco local es temporal. Por eso los documentos se guardan en Cloudinary, no en el disco de Render.
+4. En Cloudinary, usa credenciales de servidor. El backend guarda los PDF como recursos privados y la API los transmite después de validar la sesión; no expongas URLs públicas. En el plan Free, Cloudinary limita cada archivo raw a **10 MB**, así que el ejecutable también valida ese máximo.
+5. Importa el esquema antes del primer arranque. Luego crea la primera cuenta administrativa/Secretaría desde un entorno autorizado con `python -m backend.seed`; no publiques sus credenciales ni las agregues a Git.
+
+El plan gratuito puede tardar en despertar después de estar inactivo. Los rangos de salida de Render se consultan en **Dashboard → servicio → Connect → Outbound**. Las solicitudes a una base externa también cuentan con los límites de tráfico saliente de Render. Cloudinary Free admite PDF raw de hasta 10 MB; consulta el [comparativo de planes](https://cloudinary.com/pricing/compare-plans).
+
+### 3. Generar el ejecutable de Windows
+
+Cuando Render muestre la URL HTTPS real del servicio:
+
+```powershell
+.\build-windows.ps1 -ApiUrl "https://URL-REAL-DE-TU-API.onrender.com"
+```
+
+El script compila la dirección de la API dentro de la aplicación y deja el resultado en `dist\Ambar`. Comparte la carpeta completa de salida, no solo el `.exe`; incluye los archivos del runtime de escritorio. Las otras computadoras no necesitan Python ni MySQL instalados, pero sí Windows compatible e internet. El `.exe` todavía requiere firma digital para evitar advertencias de SmartScreen.
+
+No uses registros escolares reales hasta que la institución apruebe los proveedores y se haya probado una restauración de respaldo. Los planes gratuitos no ofrecen las mismas garantías de disponibilidad, privacidad contractual ni continuidad que un servicio productivo.
+
+---
+
 ## Instalación manual del entorno
 
 Estos pasos son opcionales si usarás `run-ambar.bat`.

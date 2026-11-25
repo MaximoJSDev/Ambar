@@ -17,6 +17,7 @@ from sqlalchemy.sql.elements import TextClause
 
 from ambar_common import validators as v
 
+from .. import almacen_archivos
 from ..catalogo_horarios import CATALOGO_HORARIOS, PERIODO_1ISC
 from ..config import engine, settings
 from ..constantes import DOCUMENTOS, DOCUMENTOS_MODIFICABLES, SEMESTRE_INGRESO, TURNOS
@@ -142,7 +143,20 @@ def _slug(texto: str) -> str:
 
 
 def guardar_pdfs(numero_control: str, archivos: dict[str, str], base: Path) -> dict[str, str]:
-    """Copia los PDF a base/<numero_control>/<documento>.pdf."""
+    """Guarda los PDF y devuelve las referencias persistidas en la base."""
+    if settings.cloudinary_configurado:
+        guardados: dict[str, str] = {}
+        try:
+            for doc, origen in archivos.items():
+                if not origen:
+                    raise OSError(f"No se pudo leer «{doc}»")
+                clave = f"ambar/{_slug(doc)}_{uuid.uuid4().hex}.pdf"
+                guardados[doc] = almacen_archivos.guardar_archivo(Path(origen), clave)
+        except Exception:
+            _limpiar_archivos(guardados.values())
+            raise
+        return guardados
+
     destino = Path(base) / numero_control
     destino.mkdir(parents=True, exist_ok=False)
     guardados: dict[str, str] = {}
@@ -152,11 +166,19 @@ def guardar_pdfs(numero_control: str, archivos: dict[str, str], base: Path) -> d
                 raise OSError(f"No se pudo leer «{doc}»")
             ruta = destino / f"{_slug(doc)}.pdf"
             shutil.copyfile(origen, ruta)
-            guardados[doc] = str(ruta)
+            guardados[doc] = ruta.relative_to(base).as_posix()
     except Exception:
         shutil.rmtree(destino, ignore_errors=True)
         raise
     return guardados
+
+
+def _limpiar_archivos(locators) -> None:
+    for locator in locators:
+        try:
+            almacen_archivos.eliminar_archivo(locator)
+        except Exception:
+            log.exception("No se pudo limpiar un archivo de expediente")
 
 
 def validar_alta(d: AltaIn, exigir_identificacion_adulto: bool = True) -> dict[str, str]:
@@ -493,8 +515,10 @@ def buscar_expediente(q: str, incluir_bajas: bool = False) -> dict:
     }
 
 
-def ruta_documento(id_documento: int, incluir_bajas: bool = False) -> tuple[Path, str]:
-    """Devuelve la ruta absoluta del PDF y el nombre sugerido para descargarlo."""
+def ruta_documento(
+    id_documento: int, incluir_bajas: bool = False,
+) -> tuple[Path | str, str]:
+    """Devuelve la ruta/referencia del PDF y el nombre sugerido para descargarlo."""
     with engine.connect() as conn:
         fila = conn.execute(
             text("""SELECT e.numero_control, e.tipo_documento, e.ruta_archivo
@@ -506,11 +530,15 @@ def ruta_documento(id_documento: int, incluir_bajas: bool = False) -> tuple[Path
         ).mappings().first()
     if fila is None:
         raise NoEncontrado()
-    base = settings.storage_dir
-    ruta = (base / fila["ruta_archivo"]).resolve()
-    if not ruta.is_relative_to(base) or not ruta.is_file():
+    locator = fila["ruta_archivo"]
+    if not almacen_archivos.existe_archivo(locator):
         raise NoEncontrado()
-    return ruta, f"{fila['numero_control']}_{ruta.name}"
+    nombre = Path(locator.removeprefix(almacen_archivos.PREFIJO_CLOUDINARY)).name
+    return (
+        locator if almacen_archivos.es_archivo_cloudinary(locator)
+        else (settings.storage_dir / locator).resolve(),
+        f"{fila['numero_control']}_{nombre}",
+    )
 
 
 def _guardar_historial(
@@ -617,8 +645,8 @@ def actualizar_documentos(numero_control: str, pdfs: dict[str, str]) -> None:
 
     base = settings.storage_dir
     carpeta = base / numero_control
-    rutas_nuevas: list[Path] = []
-    rutas_anteriores: list[Path] = []
+    rutas_nuevas: list[str] = []
+    rutas_anteriores: list[str] = []
     try:
         with engine.begin() as conn:
             alumno = conn.execute(
@@ -630,12 +658,14 @@ def actualizar_documentos(numero_control: str, pdfs: dict[str, str]) -> None:
             if alumno is None:
                 raise NoEncontrado()
 
-            carpeta.mkdir(parents=True, exist_ok=True)
+            if not settings.cloudinary_configurado:
+                carpeta.mkdir(parents=True, exist_ok=True)
             for documento, origen in pdfs.items():
-                ruta = carpeta / f"{_slug(documento)}_{uuid.uuid4().hex}.pdf"
-                shutil.copyfile(origen, ruta)
-                rutas_nuevas.append(ruta)
-                ruta_relativa = ruta.relative_to(base).as_posix()
+                clave = (
+                    f"ambar/{_slug(documento)}_{uuid.uuid4().hex}.pdf"
+                )
+                locator = almacen_archivos.guardar_archivo(Path(origen), clave)
+                rutas_nuevas.append(locator)
                 anterior = conn.execute(
                     text("""SELECT id_documento, ruta_archivo
                             FROM expedientes_digitales
@@ -647,9 +677,9 @@ def actualizar_documentos(numero_control: str, pdfs: dict[str, str]) -> None:
                     conn.execute(
                         text("""UPDATE expedientes_digitales SET ruta_archivo = :ruta
                                 WHERE id_documento = :id"""),
-                        {"ruta": ruta_relativa, "id": anterior["id_documento"]},
+                        {"ruta": locator, "id": anterior["id_documento"]},
                     )
-                    rutas_anteriores.append(base / anterior["ruta_archivo"])
+                    rutas_anteriores.append(anterior["ruta_archivo"])
                 else:
                     conn.execute(
                         text("""INSERT INTO expedientes_digitales
@@ -658,21 +688,14 @@ def actualizar_documentos(numero_control: str, pdfs: dict[str, str]) -> None:
                         {
                             "numero": numero_control,
                             "tipo": tipos[documento],
-                            "ruta": ruta_relativa,
+                            "ruta": locator,
                         },
                     )
     except Exception:
-        for ruta in rutas_nuevas:
-            ruta.unlink(missing_ok=True)
+        _limpiar_archivos(rutas_nuevas)
         raise
 
-    for ruta in rutas_anteriores:
-        try:
-            ruta_resuelta = ruta.resolve()
-            if ruta_resuelta.is_relative_to(base.resolve()) and ruta_resuelta.is_file():
-                ruta_resuelta.unlink()
-        except OSError:
-            log.warning("No se pudo eliminar el documento reemplazado: %s", ruta)
+    _limpiar_archivos(rutas_anteriores)
 
 
 def eliminar_alumno(numero_control: str, id_usuario: int) -> None:
@@ -731,6 +754,7 @@ def registrar_alta(d: AltaIn, pdfs: dict[str, str], usuario: dict) -> dict:
     # soltara antes, otra alta leería cupos y consecutivos sin ver esta inscripción.
     with _administrar_candado_mysql_altas():
         carpeta: Path | None = None
+        rutas: dict[str, str] = {}
         try:
             with engine.begin() as conn:
                 dup = duplicados(
@@ -767,13 +791,15 @@ def registrar_alta(d: AltaIn, pdfs: dict[str, str], usuario: dict) -> dict:
 
                 # Con el candado tomado, una carpeta con este número no pertenece a
                 # ningún alumno registrado: es resto de una alta interrumpida.
-                huerfana = base / numero
-                if huerfana.exists():
-                    log.warning("Se elimina carpeta huérfana de expediente: %s", huerfana)
-                    shutil.rmtree(huerfana)
+                if not settings.cloudinary_configurado:
+                    huerfana = base / numero
+                    if huerfana.exists():
+                        log.warning("Se elimina carpeta huérfana de expediente: %s", huerfana)
+                        shutil.rmtree(huerfana)
 
                 rutas = guardar_pdfs(numero, pdfs, base)
-                carpeta = base / numero
+                if not settings.cloudinary_configurado:
+                    carpeta = base / numero
 
                 conn.execute(text("""
                     INSERT INTO alumnos (
@@ -802,13 +828,12 @@ def registrar_alta(d: AltaIn, pdfs: dict[str, str], usuario: dict) -> dict:
                     _parametros_domicilio(d, numero),
                 )
 
-                # La BD guarda solo la ruta, relativa a STORAGE_DIR (portable entre servidores)
                 tipos = {visible: tipo_bd for visible, tipo_bd in DOCUMENTOS.values()}
                 if rutas:
                     conn.execute(
                         text("""INSERT INTO expedientes_digitales (numero_control, tipo_documento, ruta_archivo)
                                 VALUES (:numero, :tipo, :ruta)"""),
-                        [{"numero": numero, "tipo": tipos[doc], "ruta": f"{numero}/{Path(ruta).name}"}
+                        [{"numero": numero, "tipo": tipos[doc], "ruta": ruta}
                          for doc, ruta in rutas.items()],
                     )
 
@@ -823,11 +848,13 @@ def registrar_alta(d: AltaIn, pdfs: dict[str, str], usuario: dict) -> dict:
                 "documentos": len(rutas),
             }
         except IntegrityError as exc:
+            _limpiar_archivos(rutas.values())
             if carpeta is not None:
                 shutil.rmtree(carpeta, ignore_errors=True)
                 carpeta = None
             raise Conflicto("El alumno ya está registrado (ficha, CURP o correo repetido).") from exc
         except Exception:
+            _limpiar_archivos(rutas.values())
             if carpeta is not None:
                 shutil.rmtree(carpeta, ignore_errors=True)
             raise
