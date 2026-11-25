@@ -101,10 +101,11 @@ El plan gratuito puede tardar en despertar después de estar inactivo. Los rango
 Cuando Render muestre la URL HTTPS real del servicio:
 
 ```powershell
+.\backend\venv\Scripts\python.exe -m pip install "pyinstaller>=6,<7"
 .\build-windows.ps1 -ApiUrl "https://URL-REAL-DE-TU-API.onrender.com"
 ```
 
-El script compila la dirección de la API dentro de la aplicación y deja el resultado en `dist\Ambar`. Comparte la carpeta completa de salida, no solo el `.exe`; incluye los archivos del runtime de escritorio. Las otras computadoras no necesitan Python ni MySQL instalados, pero sí Windows compatible e internet. El `.exe` todavía requiere firma digital para evitar advertencias de SmartScreen.
+El script usa Flet Pack e integra la dirección de la API en `dist\Ambar.exe`. Comparte ese archivo. En una PC con Windows x64 e internet, basta con abrirlo e iniciar sesión con una cuenta de Ámbar. Windows puede mostrar una advertencia de SmartScreen si el archivo se distribuye sin firma digital.
 
 No uses registros escolares reales hasta que la institución apruebe los proveedores y se haya probado una restauración de respaldo. Los planes gratuitos no ofrecen las mismas garantías de disponibilidad, privacidad contractual ni continuidad que un servicio productivo.
 
