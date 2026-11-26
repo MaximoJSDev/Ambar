@@ -7,6 +7,7 @@ $ErrorActionPreference = "Stop"
 $root = $PSScriptRoot
 $sourceDir = Join-Path $root "frontend\src"
 $generatedConfig = Join-Path $sourceDir "api_config.py"
+$icon = Join-Path $sourceDir "assets\icon.ico"
 $flet = Join-Path $root "backend\venv\Scripts\flet.exe"
 $python = Join-Path $root "backend\venv\Scripts\python.exe"
 
@@ -18,6 +19,9 @@ if (Test-Path -LiteralPath $generatedConfig) {
 }
 if (-not (Test-Path -LiteralPath $flet)) {
     throw "No se encontró backend\venv\Scripts\flet.exe. Instala las dependencias de frontend primero."
+}
+if (-not (Test-Path -LiteralPath $icon -PathType Leaf)) {
+    throw "No se encontró frontend\src\assets\icon.ico."
 }
 
 & $python -c "import PyInstaller"
@@ -45,7 +49,7 @@ try {
     $entryPoint = Join-Path $sourceDir "main.py"
     $assets = Join-Path $sourceDir "assets"
     # PyInstaller debe localizar ambar_common desde su código fuente.
-    & $flet pack $entryPoint --name Ambar --product-name Ambar --add-data "${assets}:assets" `
+    & $flet pack $entryPoint --name Ambar --product-name Ambar --icon $icon --add-data "${assets}:assets" `
         "--pyinstaller-build-args=--paths=$root" --yes
     if ($LASTEXITCODE -ne 0) {
         throw "Falló la compilación de Ambar para Windows."
